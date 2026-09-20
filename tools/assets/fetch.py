@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -30,7 +31,9 @@ CLASSES_DIR = os.path.join(STAGING_DIR, "classes")
 
 # Art mirror: a sparse, blobless clone of this repo, narrowed to the two directories the site needs.
 CLONE_URL = "https://github.com/fexli/ArknightsResource.git"
+ART_BRANCH = "main"
 ART_DIRS = ("charpor", "charpack")
+LOCK_PATH = os.path.join(TOOLS_DIR, "upstream.lock.json")
 
 # Icon mirror: dead but still serving, kept only for these 8 files.
 ICON_BASE = "https://raw.githubusercontent.com/Aceship/Arknight-Images/main/classes"
@@ -164,15 +167,38 @@ def clone_or_refresh_art():
         subprocess.run(["git", "-C", UPSTREAM_DIR, "sparse-checkout", "set", *ART_DIRS], check=True)
 
 
+def write_lock():
+    """
+    Record the commit the art was taken from, mirroring `tools/data/upstream.lock.json`.
+
+    Without this the published art has no provenance. The mirror is a moving branch with no releases, so once the staging clone is deleted there is
+    no way to answer which upstream commit a given file came from, or to reproduce the encode. The lock is small and committed, unlike the clone.
+
+    Returns:
+        The recorded sha.
+
+    Raises:
+        subprocess.CalledProcessError: If `git rev-parse` fails.
+    """
+    result = subprocess.run(["git", "-C", UPSTREAM_DIR, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+    sha = result.stdout.strip()
+    lock = {"repo": "fexli/ArknightsResource", "branch": ART_BRANCH, "sha": sha}
+    with open(LOCK_PATH, "w") as handle:
+        json.dump(lock, handle, indent="\t")
+        handle.write("\n")
+    return sha
+
+
 def fetch_art():
     """
-    Clone or refresh the art mirror, then print file count and total bytes for each staged directory.
+    Clone or refresh the art mirror, record its sha, then print file count and total bytes for each staged directory.
 
     Raises:
         subprocess.CalledProcessError: If any `git` command fails.
         AssertionError: If recovering from an invalid clone would remove a path outside `STAGING_DIR`.
     """
     clone_or_refresh_art()
+    print(f"art/sha: {write_lock()}")
     for name in ART_DIRS:
         count, total = directory_stats(os.path.join(UPSTREAM_DIR, name))
         print(f"art/{name}: {count} files, {format_bytes(total)}")

@@ -320,8 +320,10 @@ if (hasManifest) {
 			}
 		}
 	}
-	portraitCount = Object.keys(manifest.portraits ?? {}).length;
-	illustrationCount = Object.keys(manifest.illustrations ?? {}).length;
+	// Count the operators the manifest says have art, not the operators it names. It names all 412 either way, so counting keys would make the
+	// floors below unfalsifiable - a manifest with every entry `false` would sail through them.
+	portraitCount = Object.values(manifest.portraits ?? {}).filter(Boolean).length;
+	illustrationCount = Object.values(manifest.illustrations ?? {}).filter(Boolean).length;
 	if (portraitCount < MIN_PORTRAITS) {
 		fail(`asset manifest records ${portraitCount} portraits, below the floor of ${MIN_PORTRAITS}`);
 	}

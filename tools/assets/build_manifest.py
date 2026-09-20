@@ -6,6 +6,11 @@ For `portraits/` and `illustrations/`, a file named exactly `<id>.webp` means th
 is a variant, and its key is collected into `skins` for that operator, for the later phase that imports `skin_table.json`. Class icons carry
 no per-operator presence and are not part of the manifest. See `encode.py` for how these filenames are produced.
 
+`portraits` and `illustrations` carry an entry for every operator, `false` included. The site cannot tell the difference - `hasPortrait` reads a
+missing id and a `false` id the same way - but a reader can: `false` means this operator has no art upstream and never will, where a missing id
+means the pipeline never got to them. 21 operators have no portrait upstream, so that distinction is the difference between a known gap and a
+silent one. `skins` stays sparse, since an empty list carries no such meaning.
+
 Usage:
     python3 -u tools/assets/build_manifest.py [--staging PATH]
 """
@@ -120,7 +125,7 @@ def build_manifest(staging_dir, operator_ids):
 
     Returns:
         A dict with `portraits`, `illustrations` and `skins` keys, each with its entries sorted by operator id so a re-run of an unchanged
-        tree produces no diff.
+        tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant.
     """
     portraits, portrait_variants = scan_kind(staging_dir, "portraits", operator_ids)
     illustrations, illustration_variants = scan_kind(staging_dir, "illustrations", operator_ids)
@@ -131,8 +136,8 @@ def build_manifest(staging_dir, operator_ids):
         skins[operator_id] = sorted(keys)
 
     return {
-        "portraits": {operator_id: True for operator_id in sorted(portraits)},
-        "illustrations": {operator_id: True for operator_id in sorted(illustrations)},
+        "portraits": {operator_id: operator_id in portraits for operator_id in sorted(operator_ids)},
+        "illustrations": {operator_id: operator_id in illustrations for operator_id in sorted(operator_ids)},
         "skins": {operator_id: skins[operator_id] for operator_id in sorted(skins)},
     }
 
@@ -158,8 +163,10 @@ def main():
         json.dump(manifest, handle, separators=(",", ":"))
         handle.write("\n")
 
-    print(f"portraits     {len(manifest['portraits'])}")
-    print(f"illustrations {len(manifest['illustrations'])}")
+    portraits = sum(1 for present in manifest["portraits"].values() if present)
+    illustrations = sum(1 for present in manifest["illustrations"].values() if present)
+    print(f"portraits     {portraits} of {len(manifest['portraits'])}")
+    print(f"illustrations {illustrations} of {len(manifest['illustrations'])}")
     print(f"skins         {len(manifest['skins'])}")
 
 
