@@ -11,6 +11,24 @@
 const MARKUP = /<[^>]*>/g;
 
 /**
+ * Upstream ships a locked field - a talent name, a lore section's body, a base skill's text - as literal full-width question marks when its
+ * content has not unlocked yet at the pinned sha, rather than omitting the field. `*` rather than `+` so an empty string also counts as a
+ * placeholder: some callers filter empty text separately and some do not, and the shipped data has zero empty names, titles or texts across
+ * 3554 lore sections, 880 base skills and 1755 talent candidates, so the permissive form is safe everywhere and catches slightly more for free.
+ */
+const UPSTREAM_PLACEHOLDER = /^[？?\s]*$/;
+
+/**
+ * Whether text is upstream's locked-placeholder marker rather than real content.
+ *
+ * @param {string|undefined} text The text to test.
+ * @returns {boolean} True when the text is empty or only the placeholder marker.
+ */
+export function isPlaceholder(text) {
+	return UPSTREAM_PLACEHOLDER.test(text ?? "");
+}
+
+/**
  * Strip the game's inline markup out of a string.
  *
  * Line breaks are kept. Handbook entries such as the Basic Info block are newline-separated field lists, so collapsing all whitespace turns

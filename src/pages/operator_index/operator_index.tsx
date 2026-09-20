@@ -149,13 +149,15 @@ export default function OperatorIndex() {
 
 	const tagOptions = useMemo(() => (operators ? optionsOf(operators, (operator) => operator.tags) : NO_OPTIONS), [operators]);
 
-	// Each axis is an OR within itself and an AND against the others, so picking two classes widens and adding a tag narrows.
-	const filtered = useMemo(() => {
+	// Each axis is an OR within itself and an AND against the others, so picking two classes widens and adding a tag narrows. The name match is
+	// kept rather than thrown away, since `OperatorCard` needs the same range to highlight and would otherwise have to compute it a second time.
+	const { filtered, nameMatches } = useMemo(() => {
+		const matches = new Map<string, [number, number]>();
 		if (!operators) {
-			return [];
+			return { filtered: [] as Operator[], nameMatches: matches };
 		}
 		const needle = query.trim();
-		return operators.filter((operator) => {
+		const matched = operators.filter((operator) => {
 			if (rarities.length > 0 && !rarities.includes(operator.rarity)) {
 				return false;
 			}
@@ -175,11 +177,17 @@ export default function OperatorIndex() {
 				return false;
 			}
 			// `findNameMatch` reports null for an empty query as well as for a miss, so the empty case is answered before asking it.
-			if (needle !== "" && findNameMatch(operator.name, needle) === null) {
+			if (needle === "") {
+				return true;
+			}
+			const match = findNameMatch(operator.name, needle);
+			if (match === null) {
 				return false;
 			}
+			matches.set(operator.id, match);
 			return true;
 		});
+		return { filtered: matched, nameMatches: matches };
 	}, [operators, rarities, classes, activeSubclasses, faction, positions, tags, query]);
 
 	const sorted = useMemo(() => sortOperators(filtered, sortKey, sortDescending), [filtered, sortKey, sortDescending]);
@@ -340,7 +348,12 @@ export default function OperatorIndex() {
 								No operators match these filters. Try clearing one, or searching for a different name.
 							</Typography>
 						) : (
-							<CardGrid items={sorted} getKey={(operator) => operator.id} renderItem={(operator) => <OperatorCard operator={operator} query={query} />} size={CARD_SIZE} />
+							<CardGrid
+								items={sorted}
+								getKey={(operator) => operator.id}
+								renderItem={(operator) => <OperatorCard operator={operator} match={nameMatches.get(operator.id) ?? null} />}
+								size={CARD_SIZE}
+							/>
 						)}
 					</Box>
 				</>

@@ -1,8 +1,8 @@
-import { memo, useMemo } from "react";
+import { memo } from "react";
 
 import { Box, Typography } from "@mui/material";
 
-import { HighlightedName, findNameMatch } from "archive-kit";
+import { HighlightedName } from "archive-kit";
 
 import OperatorArtCard from "../../components/OperatorArtCard.js";
 import RarityStars from "../../components/RarityStars.js";
@@ -12,8 +12,8 @@ import type { Operator } from "../../types/operator.js";
 interface OperatorCardProps {
 	/** The operator to show. */
 	operator: Operator;
-	/** The current name search, so the matching run can be highlighted. Empty when nothing is typed. */
-	query: string;
+	/** Where the current name search matched inside the operator's name, from `findNameMatch`, or null when nothing matched or is typed. */
+	match: [number, number] | null;
 }
 
 /**
@@ -23,14 +23,13 @@ interface OperatorCardProps {
  * have no portrait upstream and render the placeholder permanently.
  *
  * Memoised because the index draws every match at once. Both props are stable across a re-render the card has no part in - the operator object
- * comes straight out of the loaded array and the query is a string - so changing the sort or a filter re-renders only the cards that changed.
+ * comes straight out of the loaded array and the match is resolved once by the index's filter pass - so changing the sort or a filter re-renders
+ * only the cards that changed.
  *
  * @param props Component props.
  * @returns The card.
  */
-export default memo(function OperatorCard({ operator, query }: OperatorCardProps) {
-	const match = useMemo(() => findNameMatch(operator.name, query), [operator.name, query]);
-
+export default memo(function OperatorCard({ operator, match }: OperatorCardProps) {
 	return (
 		<OperatorArtCard id={operator.id} name={operator.name} rarity={operator.rarity} to={`/operator/${operator.id}`} lazy>
 			<Box sx={{ p: 1 }}>

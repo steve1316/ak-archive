@@ -72,7 +72,7 @@ function shardOf(id: string): (Shard<string> & { profiles: string }) | null {
 	if (!profession) {
 		return null;
 	}
-	return (shardFor(SHARDS, profession) as (Shard<string> & { profiles: string }) | null) ?? null;
+	return shardFor(SHARDS, profession) as (Shard<string> & { profiles: string }) | null;
 }
 
 /**

@@ -53,6 +53,38 @@ const POSITIONS = ["Melee", "Ranged"];
 /** The six star counts, highest first, which is the order the game's own roster puts them in. */
 const RARITIES = [6, 5, 4, 3, 2, 1];
 
+/** Props for FilterOptionRow. */
+interface FilterOptionRowProps {
+	/** The row's option labels, in display order. Each is also the value its chip reports back through `onToggle`. */
+	options: string[];
+	/** The options currently selected in this row. */
+	selected: string[];
+	/** Toggles the option it is called with. One stable handler for the whole row, per the kit's `FilterChip` contract. */
+	onToggle: (value?: string | number) => void;
+}
+
+/**
+ * One row of filter chips over a plain list of string options.
+ *
+ * The class, subclass, position and tag rows are all this same shape - a `ChipRow` of `li`-wrapped `FilterChip`s differing only in which
+ * options/selected/onToggle triple they get - so they share this rather than repeating the block four times. The rarity row stays separate
+ * since it uses the kit's own `RarityChipRow` and carries colour data the other rows do not.
+ *
+ * @param props Component props.
+ * @returns The row.
+ */
+function FilterOptionRow({ options, selected, onToggle }: FilterOptionRowProps) {
+	return (
+		<ChipRow>
+			{options.map((option) => (
+				<li key={option}>
+					<FilterChip label={option} value={option} selected={selected.includes(option)} onToggle={onToggle} />
+				</li>
+			))}
+		</ChipRow>
+	);
+}
+
 /**
  * The index's filter chip rows.
  *
@@ -74,23 +106,11 @@ export default function OperatorFilterRows(props: OperatorFilterRowsProps) {
 		<>
 			<RarityChipRow entries={rarityEntries} onToggle={onToggleRarity} />
 			<ChipRowDivider />
-			<ChipRow>
-				{CLASS_ORDER.map((profession) => (
-					<li key={profession}>
-						<FilterChip label={profession} value={profession} selected={classes.includes(profession)} onToggle={onToggleClass} />
-					</li>
-				))}
-			</ChipRow>
+			<FilterOptionRow options={CLASS_ORDER} selected={classes} onToggle={onToggleClass} />
 			{subclassOptions.length > 0 && (
 				<>
 					<ChipRowDivider />
-					<ChipRow>
-						{subclassOptions.map((subclass) => (
-							<li key={subclass}>
-								<FilterChip label={subclass} value={subclass} selected={subclasses.includes(subclass)} onToggle={onToggleSubclass} />
-							</li>
-						))}
-					</ChipRow>
+					<FilterOptionRow options={subclassOptions} selected={subclasses} onToggle={onToggleSubclass} />
 				</>
 			)}
 			<ChipRowDivider />
@@ -102,21 +122,9 @@ export default function OperatorFilterRows(props: OperatorFilterRowsProps) {
 					</MenuItem>
 				))}
 			</TextField>
-			<ChipRow>
-				{POSITIONS.map((position) => (
-					<li key={position}>
-						<FilterChip label={position} value={position} selected={positions.includes(position)} onToggle={onTogglePosition} />
-					</li>
-				))}
-			</ChipRow>
+			<FilterOptionRow options={POSITIONS} selected={positions} onToggle={onTogglePosition} />
 			<ChipRowDivider />
-			<ChipRow>
-				{tagOptions.map((tag) => (
-					<li key={tag}>
-						<FilterChip label={tag} value={tag} selected={tags.includes(tag)} onToggle={onToggleTag} />
-					</li>
-				))}
-			</ChipRow>
+			<FilterOptionRow options={tagOptions} selected={tags} onToggle={onToggleTag} />
 		</>
 	);
 }

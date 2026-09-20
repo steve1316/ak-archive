@@ -133,7 +133,7 @@ export interface BaseSkill {
 	id: string;
 	/** The skill's name. */
 	name: string;
-	/** Which base room it applies in, such as `TRADING`. */
+	/** Which base room it applies in, resolved to the game's display name, such as `Trading Post`. */
 	room: string;
 	/** What it does, with markup stripped. */
 	description: string;

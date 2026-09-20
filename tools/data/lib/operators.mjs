@@ -6,7 +6,7 @@
 
 import { asArray } from "./json.mjs";
 import { POTENTIAL_FIELDS, statBlock } from "./stats.mjs";
-import { resolveTemplate, stripMarkup } from "./text.mjs";
+import { isPlaceholder, resolveTemplate, stripMarkup } from "./text.mjs";
 
 /** Rows that are not operators at all. There are 639 TRAP and 68 TOKEN rows against 410 real operators. */
 const NOT_OPERATORS = new Set(["TOKEN", "TRAP"]);
@@ -30,9 +30,6 @@ const PROFESSION_NAMES = {
 
 /** Deployment position, as the game words it. */
 const POSITION_NAMES = { MELEE: "Melee", RANGED: "Ranged", ALL: "Melee or Ranged", NONE: "None" };
-
-/** The locked placeholder the game ships for a talent the operator has not unlocked. Amiya carries the only one at the pinned sha. */
-const PLACEHOLDER_NAME = /^[？?\s]*$/;
 
 /**
  * The star count behind a `TIER_n` rarity.
@@ -115,8 +112,9 @@ export function phaseOf(phase) {
 function buildTalents(row) {
 	return asArray(row.talents)
 		.map((talent) => ({
+			// Amiya carries the only locked talent candidate at the pinned sha.
 			candidates: asArray(talent.candidates)
-				.filter((candidate) => candidate && !candidate.isHideTalent && !PLACEHOLDER_NAME.test(candidate.name ?? ""))
+				.filter((candidate) => candidate && !candidate.isHideTalent && !isPlaceholder(candidate.name))
 				.map((candidate) => ({
 					name: stripMarkup(candidate.name),
 					description: stripMarkup(resolveTemplate(candidate.description, asArray(candidate.blackboard))),

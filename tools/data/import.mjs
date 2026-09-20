@@ -48,7 +48,7 @@ async function main() {
 	const [characterTable, patchTable, uniequip, teams, handbook, building] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
 
 	const context = { subProfDict: uniequip.subProfDict, teams };
-	const profileContext = { handbookDict: handbook.handbookDict, buildingChars: building.chars, buildingBuffs: building.buffs };
+	const profileContext = { handbookDict: handbook.handbookDict, buildingChars: building.chars, buildingBuffs: building.buffs, buildingRooms: building.rooms };
 
 	const operators = selectOperators(characterTable, patchTable).map(([id, row]) => ({ id, row, record: buildOperator(id, row, context) }));
 	console.log(`operators: ${operators.length}`);

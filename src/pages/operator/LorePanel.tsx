@@ -33,8 +33,7 @@ interface LorePanelProps {
  * @returns The formatted room and unlock text.
  */
 function baseSkillMeta(skill: BaseSkill): string {
-	const room = skill.room.charAt(0) + skill.room.slice(1).toLowerCase();
-	return `${room} - Unlocks at E${skill.phase} Lv${skill.level}`;
+	return `${skill.room} - Unlocks at E${skill.phase} Lv${skill.level}`;
 }
 
 /**

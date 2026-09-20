@@ -46,8 +46,14 @@ const FIXTURES = [
 /** The game's inline markup. Any of it in shipped text means `stripMarkup` missed a field. */
 const MARKUP = /<[^>]+>|\{[a-zA-Z@][^}]*\}/;
 
+// This pattern is duplicated from `tools/data/lib/text.mjs` on purpose. The importer's `isPlaceholder` exists to filter this out at import
+// time, so this gate exists to verify that filtering actually worked - importing the importer's own pattern here would make a bad filter pass
+// its own test. Keep this copy independent.
 /** The locked placeholder upstream ships for handbook content not yet unlocked. Any of it in shipped text means the profile filter missed it. */
 const PLACEHOLDER = /^[？?\s]+$/;
+
+/** A base skill's room must resolve to a display name such as "Trading Post". All-caps like TRADING means the room lookup missed it. */
+const RAW_ROOM_ENUM = /^[A-Z_]+$/;
 
 /** Problems found so far. The run reports all of them rather than stopping at the first. */
 const failures = [];
@@ -94,7 +100,12 @@ function eachString(value, where, visit) {
 	}
 }
 
-const operators = SHARDS.flatMap((shard) => read(shard.file));
+// Read each shard's operators and its profile side file exactly once. Every check below indexes into these maps instead of re-reading and
+// re-parsing the same JSON - the shards total 1050 KB and the profiles 3.87 MB, and several checks below need both files.
+const shardOperators = new Map(SHARDS.map((shard) => [shard.key, read(shard.file)]));
+const shardProfiles = new Map(SHARDS.map((shard) => [shard.key, read(shard.profiles)]));
+
+const operators = SHARDS.flatMap((shard) => shardOperators.get(shard.key));
 const byId = new Map(operators.map((operator) => [operator.id, operator]));
 
 // Counts.
@@ -102,7 +113,7 @@ if (operators.length < MIN_COUNTS.total) {
 	fail(`${operators.length} operators, below the floor of ${MIN_COUNTS.total}`);
 }
 for (const shard of SHARDS) {
-	const count = read(shard.file).length;
+	const count = shardOperators.get(shard.key).length;
 	if (count < MIN_COUNTS[shard.key]) {
 		fail(`${shard.file} has ${count} operators, below the floor of ${MIN_COUNTS[shard.key]}`);
 	}
@@ -145,7 +156,7 @@ for (const operator of operators) {
 			continue;
 		}
 		for (const candidate of talent.candidates) {
-			if (!candidate.name || /^[？?\s]+$/.test(candidate.name)) {
+			if (!candidate.name || PLACEHOLDER.test(candidate.name)) {
 				fail(`${operator.id} talent ${index} kept a placeholder candidate: ${JSON.stringify(candidate.name)}`);
 			}
 			if (!(candidate.requiredPotential >= 1 && candidate.requiredPotential <= 6)) {
@@ -190,8 +201,11 @@ if (withPotentials < MIN_POTENTIALS) {
 
 // Markup leakage, across everything the site ships.
 for (const shard of SHARDS) {
-	for (const name of [shard.file, shard.profiles]) {
-		eachString(read(name), name, (text, where) => {
+	for (const [data, name] of [
+		[shardOperators.get(shard.key), shard.file],
+		[shardProfiles.get(shard.key), shard.profiles]
+	]) {
+		eachString(data, name, (text, where) => {
 			const hit = MARKUP.exec(text);
 			if (hit) {
 				fail(`markup leaked into ${where}: ${JSON.stringify(hit[0])}`);
@@ -204,8 +218,8 @@ for (const shard of SHARDS) {
 // the side file would quietly render as an operator with no handbook at all rather than as a broken import.
 let withProfiles = 0;
 for (const shard of SHARDS) {
-	const profiles = read(shard.profiles);
-	for (const operator of read(shard.file)) {
+	const profiles = shardProfiles.get(shard.key);
+	for (const operator of shardOperators.get(shard.key)) {
 		if (Object.hasOwn(profiles, operator.id)) {
 			withProfiles += 1;
 		} else {
@@ -218,7 +232,7 @@ for (const shard of SHARDS) {
 // not survive the import - Amiya carries the only one at the pinned sha, in her lore, but base skills are walked too since they come from the
 // same handbook side data.
 for (const shard of SHARDS) {
-	const profiles = read(shard.profiles);
+	const profiles = shardProfiles.get(shard.key);
 	for (const [id, profile] of Object.entries(profiles)) {
 		for (const [index, section] of profile.lore.entries()) {
 			if (PLACEHOLDER.test(section.title) || PLACEHOLDER.test(section.text)) {
@@ -228,6 +242,9 @@ for (const shard of SHARDS) {
 		for (const [index, skill] of profile.baseSkills.entries()) {
 			if (PLACEHOLDER.test(skill.name ?? "") || PLACEHOLDER.test(skill.description ?? "")) {
 				fail(`${id} base skill ${index} kept a placeholder: ${JSON.stringify(skill.name)}`);
+			}
+			if (RAW_ROOM_ENUM.test(skill.room ?? "")) {
+				fail(`${id} base skill ${index} has an unresolved room: ${JSON.stringify(skill.room)}`);
 			}
 		}
 	}
