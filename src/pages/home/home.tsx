@@ -33,8 +33,8 @@ const FEATURED_COUNT = 12;
  *
  * The carousel and the counts below it read only `searchIndex` (31 KB) and `upstream.json`, both already in the bundle, and never call a
  * shard loader such as `loadAllOperators`. That is a hard requirement for this page: the index genuinely needs every operator to filter by
- * class, nation and tag, but the home page only ever shows a handful of names, so it has no reason to pull in the 508 KB of shard data the
- * index needs.
+ * class, nation and tag, but the home page only ever shows a handful of names, so it has no reason to pull the shard data the index needs:
+ * 1075 KB raw and 107 KB gzipped, both measured from the production build at the pinned sha.
  *
  * @returns The page.
  */

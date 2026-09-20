@@ -198,6 +198,20 @@ for (const shard of SHARDS) {
 	}
 }
 
+// Every operator must have an entry in its class's profile file. The page loads the shard and the side file separately, so one missing from
+// the side file would quietly render as an operator with no handbook at all rather than as a broken import.
+let withProfiles = 0;
+for (const shard of SHARDS) {
+	const profiles = read(shard.profiles);
+	for (const operator of read(shard.file)) {
+		if (Object.hasOwn(profiles, operator.id)) {
+			withProfiles += 1;
+		} else {
+			fail(`${operator.id} is in ${shard.file} but has no entry in ${shard.profiles}`);
+		}
+	}
+}
+
 // Profile placeholders. Upstream ships a locked handbook entry as literal full-width question marks for content not yet unlocked, and it must
 // not survive the import - Amiya carries the only one at the pinned sha, in her lore, but base skills are walked too since they come from the
 // same handbook side data.
@@ -276,6 +290,7 @@ console.log(`search index ${searchIndex.length} entries`);
 console.log(`fixtures    ${FIXTURES.length} verified`);
 console.log(`talents    ${withTalents} operators carry at least one`);
 console.log(`potentials  ${withPotentials} operators carry at least one`);
+console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
 console.log("markup      none leaked");
 console.log("placeholders none leaked");
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useMemo } from "react";
 
 import { CssBaseline, ThemeProvider } from "@mui/material";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 
 import { ArchiveNavbar, ErrorBoundary, ScrollToTopOnNavigate, normaliseName } from "archive-kit";
 import type { NavItem, SearchOption } from "archive-kit";
@@ -29,6 +29,8 @@ const NAV_ITEMS: readonly NavItem[] = [
  * @returns The routed app.
  */
 export default function App() {
+	const { pathname } = useLocation();
+
 	// Built once from the search index, which is 31 KB and already in the bundle. The navbar renders on every route, so this must never
 	// touch a shard.
 	const searchOptions = useMemo<SearchOption[]>(
@@ -41,7 +43,11 @@ export default function App() {
 			<CssBaseline />
 			<ArchiveNavbar title="Arknights Archive" navItems={NAV_ITEMS} searchOptions={searchOptions} homeLink="/" searchLabel="Search operators" />
 			<ScrollToTopOnNavigate>
-				<ErrorBoundary>
+				{/*
+				 * Keyed on the path so a caught throw is forgotten on the next navigation. Without the key the boundary stays in its error
+				 * state for the rest of the session, and every later route renders the fallback instead of the page the reader asked for.
+				 */}
+				<ErrorBoundary key={pathname} fallback={<NotFound404 />}>
 					<Routes>
 						<Route path="/" element={<Home />} />
 						<Route path="/operators" element={<OperatorIndex />} />

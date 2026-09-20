@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Box, Container } from "@mui/material";
+import { Box, Container, Typography } from "@mui/material";
 
 import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, findNameMatch } from "archive-kit";
 import type { ActiveFilter, SortOption } from "archive-kit";
@@ -314,6 +314,10 @@ export default function OperatorIndex() {
 		<Container component="main" maxWidth="lg" sx={{ py: 3 }}>
 			{error ? (
 				<LoadError what="the operator list" onRetry={handleRetry} />
+			) : operators === null ? (
+				<Typography variant="body1" color="text.secondary" role="status">
+					Loading...
+				</Typography>
 			) : (
 				<>
 					<FilterPanel activeCount={activeFilters.length} onClear={handleClearAll} nameQuery={query} onNameQueryChange={setQuery} nameLabel="Search operators by name">
@@ -331,7 +335,13 @@ export default function OperatorIndex() {
 						onToggleSortDirection={handleToggleSortDirection}
 					/>
 					<Box sx={{ pt: 3, pb: 6 }}>
-						<CardGrid items={sorted} getKey={(operator) => operator.id} renderItem={(operator) => <OperatorCard operator={operator} query={query} />} size={CARD_SIZE} />
+						{sorted.length === 0 ? (
+							<Typography variant="body1" color="text.secondary">
+								No operators match these filters. Try clearing one, or searching for a different name.
+							</Typography>
+						) : (
+							<CardGrid items={sorted} getKey={(operator) => operator.id} renderItem={(operator) => <OperatorCard operator={operator} query={query} />} size={CARD_SIZE} />
+						)}
 					</Box>
 				</>
 			)}

@@ -1,21 +1,18 @@
 import { useEffect, useState } from "react";
 
-import { Container, Grid } from "@mui/material";
+import { Container, Grid, Typography } from "@mui/material";
 import { useParams } from "react-router-dom";
 
 import { LazySection, LoadError } from "archive-kit";
 
-import { loadOperatorWithProfile } from "../../lib/data.js";
-import type { Operator as OperatorRecord, Profile } from "../../types/operator.js";
+import { loadOperator } from "../../lib/data.js";
+import type { Operator as OperatorRecord } from "../../types/operator.js";
 import LorePanel from "./LorePanel.js";
 import NotFound404 from "../../not_found_404.js";
 import OperatorHero from "./OperatorHero.js";
 import SkinsPanel from "./SkinsPanel.js";
 import StatsPanel from "./StatsPanel.js";
 import TalentsPanel from "./TalentsPanel.js";
-
-/** The operator and its profile, loaded together for the page. */
-type OperatorData = { operator: OperatorRecord; profile: Profile };
 
 /**
  * The page's four control values. The stats, talents and skins panels (Tasks 12 to 14) all read the same four, so this page owns them in one
@@ -32,7 +29,7 @@ export interface Controls {
 	potential: number;
 }
 
-/** Controls held before any operator has loaded. Never rendered, since the grid does not appear until `data` is set. */
+/** Controls held before any operator has loaded. Never rendered, since the grid does not appear until the operator is set. */
 const INITIAL_CONTROLS: Controls = { phase: 0, level: 1, trust: true, potential: 1 };
 
 /**
@@ -50,15 +47,18 @@ function defaultControls(operator: OperatorRecord): Controls {
 }
 
 /**
- * The operator detail page: loads the operator and its profile, owns the shared phase/level/trust/potential controls, and lays out the hero
- * beside the room Tasks 12 to 14 fill with the stats, talents, skins and lore panels.
+ * The operator detail page: loads the operator, owns the shared phase/level/trust/potential controls, and lays out the hero beside the stats,
+ * talents, skins and lore panels.
+ *
+ * Only the class shard is fetched here. The handbook side file is the lore panel's own load, so the bytes for it are deferred with the render
+ * rather than pulled at mount for a section most readers never scroll to.
  *
  * @returns The page.
  */
 export default function Operator() {
 	const { id } = useParams();
 
-	const [data, setData] = useState<OperatorData | null>(null);
+	const [operator, setOperator] = useState<OperatorRecord | null>(null);
 	const [missing, setMissing] = useState(false);
 	const [error, setError] = useState(false);
 	// Bumped by the retry button to run the load again. The data store keeps whatever already loaded cached.
@@ -73,10 +73,10 @@ export default function Operator() {
 			return;
 		}
 		let active = true;
-		setData(null);
+		setOperator(null);
 		setMissing(false);
 		setError(false);
-		loadOperatorWithProfile(id).then(
+		loadOperator(id).then(
 			(loaded) => {
 				if (!active) {
 					return;
@@ -85,8 +85,8 @@ export default function Operator() {
 					setMissing(true);
 					return;
 				}
-				setData(loaded);
-				setControls(defaultControls(loaded.operator));
+				setOperator(loaded);
+				setControls(defaultControls(loaded));
 			},
 			() => {
 				if (active) {
@@ -107,7 +107,7 @@ export default function Operator() {
 		setControls((current) => {
 			const next = { ...current, ...patch };
 			if (patch.phase !== undefined) {
-				const maxLevel = data?.operator.stats.phases[next.phase]?.maxLevel;
+				const maxLevel = operator?.stats.phases[next.phase]?.maxLevel;
 				if (maxLevel !== undefined) {
 					next.level = Math.min(next.level, maxLevel);
 				}
@@ -124,27 +124,31 @@ export default function Operator() {
 		<Container component="main" maxWidth="lg" sx={{ py: 3 }}>
 			{error ? (
 				<LoadError what="this operator" onRetry={handleRetry} titleComponent="h1" />
-			) : data ? (
+			) : operator ? (
 				<Grid container spacing={3}>
 					<Grid size={{ xs: 12, md: 4, lg: 3 }}>
-						<OperatorHero operator={data.operator} />
+						<OperatorHero operator={operator} />
 					</Grid>
 					<Grid size={{ xs: 12, md: 8, lg: 9 }}>
-						<StatsPanel operator={data.operator} controls={controls} onChange={handleControlsChange} />
+						<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
 					</Grid>
 					<Grid size={{ xs: 12 }}>
-						<TalentsPanel operator={data.operator} controls={controls} />
+						<TalentsPanel operator={operator} controls={controls} />
 					</Grid>
 					<Grid size={{ xs: 12 }}>
-						<SkinsPanel operator={data.operator} />
+						<SkinsPanel operator={operator} />
 					</Grid>
 					<Grid size={{ xs: 12 }}>
 						<LazySection minHeight={320}>
-							<LorePanel profile={data.profile} />
+							<LorePanel operatorId={operator.id} />
 						</LazySection>
 					</Grid>
 				</Grid>
-			) : null}
+			) : (
+				<Typography variant="body1" color="text.secondary" role="status">
+					Loading...
+				</Typography>
+			)}
 		</Container>
 	);
 }

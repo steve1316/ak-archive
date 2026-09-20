@@ -99,8 +99,11 @@ export async function loadOperator(id: string): Promise<Operator | undefined> {
 /**
  * Load one operator's handbook text and base skills.
  *
+ * Called by the lore panel rather than by the page, so the side file - the heaviest thing an operator page can pull - is fetched only once that
+ * panel is scrolled near. A missing entry is not an error here: the panel shows it as a handbook with nothing in it.
+ *
  * @param id The operator id.
- * @returns The profile, or undefined when no operator has that id.
+ * @returns The profile, or undefined when the id is in no shard or has no entry in the side file.
  */
 export async function loadProfile(id: string): Promise<Profile | undefined> {
 	const shard = shardOf(id);
@@ -112,32 +115,10 @@ export async function loadProfile(id: string): Promise<Profile | undefined> {
 }
 
 /**
- * Load one operator together with its profile, for the operator page.
- *
- * The shard and the side file are fetched in parallel. Both are cached, so a later call reuses whichever the index already pulled.
- *
- * @param id The operator id.
- * @returns The operator and its profile, or undefined when no operator has that id.
- */
-export async function loadOperatorWithProfile(id: string): Promise<{ operator: Operator; profile: Profile } | undefined> {
-	const shard = shardOf(id);
-	if (!shard) {
-		return undefined;
-	}
-	const [operators, profiles] = await Promise.all([loadShard(shard.file), store.loadFile<Record<string, Profile>>(shard.profiles)]);
-	const operator = operators.find((entry) => entry.id === id);
-	const profile = profiles[id];
-	if (!operator || !profile) {
-		return undefined;
-	}
-	return { operator, profile };
-}
-
-/**
  * Load every operator, for the index, which genuinely renders all of them.
  *
- * All eight shards come to about 508 KB. The filter axes the index needs - subclass, nation, tags - are deliberately not in the search index,
- * because that file renders on every route and must stay small.
+ * All eight shards come to 1075 KB raw and 107 KB gzipped, both measured from the production build at the pinned sha. The filter axes the index
+ * needs - subclass, nation, tags - are deliberately not in the search index, because that file renders on every route and must stay small.
  *
  * @returns Every operator, in shard order.
  */
