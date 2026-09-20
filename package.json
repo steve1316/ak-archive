@@ -1,0 +1,36 @@
+{
+	"name": "ak-archive",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@12.3.4",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc --noEmit && vite build",
+		"preview": "vite preview",
+		"typecheck": "tsc --noEmit",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"import": "node tools/data/import.mjs",
+		"check": "node tools/data/check.mjs"
+	},
+	"dependencies": {
+		"@emotion/react": "^11.14.0",
+		"@emotion/styled": "^11.14.1",
+		"@mui/icons-material": "^9.4.0",
+		"@mui/material": "^9.4.0",
+		"archive-kit": "github:steve1316/archive-kit#v0.1.0",
+		"react": "^19.3.0",
+		"react-dom": "^19.3.0",
+		"react-router-dom": "^7.18.3"
+	},
+	"devDependencies": {
+		"@types/node": "^22.20.4",
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"@vitejs/plugin-react": "^6.1.1",
+		"prettier": "^3.9.6",
+		"typescript": "^7.0.2",
+		"vite": "^8.3.0"
+	}
+}
