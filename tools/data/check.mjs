@@ -296,6 +296,26 @@ for (const operator of operators) {
 	}
 }
 
+// The asset manifest, once A3 has produced one. Guarded because this gate runs on every import, including before any manifest exists. Every
+// id the manifest names in any of its three sections must be an operator this import also knows about - an id the pipeline names that no
+// operator has means the pipeline and the importer disagree about who exists.
+const manifestPath = path.join(OUT_DIR, "assets-manifest.json");
+const hasManifest = fs.existsSync(manifestPath);
+let portraitCount = 0;
+let illustrationCount = 0;
+if (hasManifest) {
+	const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+	for (const [section, entries] of Object.entries(manifest)) {
+		for (const id of Object.keys(entries)) {
+			if (!byId.has(id)) {
+				fail(`asset manifest names ${id} in ${section}, which is in no shard`);
+			}
+		}
+	}
+	portraitCount = Object.keys(manifest.portraits ?? {}).length;
+	illustrationCount = Object.keys(manifest.illustrations ?? {}).length;
+}
+
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -312,6 +332,9 @@ console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
 console.log("markup      none leaked");
 console.log("placeholders none leaked");
+if (hasManifest) {
+	console.log(`assets      ${portraitCount} portraits, ${illustrationCount} illustrations`);
+}
 
 if (!process.argv.includes("--skip-build")) {
 	console.log("\nrunning pnpm build...");

@@ -21,8 +21,15 @@ import { createAssetUrls } from "archive-kit";
  */
 export const assets = createAssetUrls(import.meta.env.VITE_ASSET_BASE_URL ?? "");
 
-/** What the manifest holds: for each kind of art, which operator ids have one. Only the two kinds the app asks about are declared. */
-type AssetManifest = Partial<Record<"portraits" | "illustrations", Record<string, boolean>>>;
+/** What the A3 pipeline records: which operators have canonical art, and which extra variants exist for a later phase. */
+type AssetManifest = {
+	/** Operator ids with a canonical portrait. Absent or false means the site renders a placeholder. */
+	portraits?: Record<string, boolean>;
+	/** Operator ids with a canonical illustration. */
+	illustrations?: Record<string, boolean>;
+	/** Variant keys per operator, for the phase that imports `skin_table.json`. Unused by the site today. */
+	skins?: Record<string, string[]>;
+};
 
 /**
  * Presence of each asset kind, keyed by operator id.
