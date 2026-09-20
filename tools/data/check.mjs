@@ -46,6 +46,9 @@ const FIXTURES = [
 /** The game's inline markup. Any of it in shipped text means `stripMarkup` missed a field. */
 const MARKUP = /<[^>]+>|\{[a-zA-Z@][^}]*\}/;
 
+/** The locked placeholder upstream ships for handbook content not yet unlocked. Any of it in shipped text means the profile filter missed it. */
+const PLACEHOLDER = /^[？?\s]+$/;
+
 /** Problems found so far. The run reports all of them rather than stopping at the first. */
 const failures = [];
 
@@ -195,6 +198,25 @@ for (const shard of SHARDS) {
 	}
 }
 
+// Profile placeholders. Upstream ships a locked handbook entry as literal full-width question marks for content not yet unlocked, and it must
+// not survive the import - Amiya carries the only one at the pinned sha, in her lore, but base skills are walked too since they come from the
+// same handbook side data.
+for (const shard of SHARDS) {
+	const profiles = read(shard.profiles);
+	for (const [id, profile] of Object.entries(profiles)) {
+		for (const [index, section] of profile.lore.entries()) {
+			if (PLACEHOLDER.test(section.title) || PLACEHOLDER.test(section.text)) {
+				fail(`${id} lore section ${index} kept a placeholder: ${JSON.stringify(section.title)} / ${JSON.stringify(section.text)}`);
+			}
+		}
+		for (const [index, skill] of profile.baseSkills.entries()) {
+			if (PLACEHOLDER.test(skill.name ?? "") || PLACEHOLDER.test(skill.description ?? "")) {
+				fail(`${id} base skill ${index} kept a placeholder: ${JSON.stringify(skill.name)}`);
+			}
+		}
+	}
+}
+
 // The search index has to cover everything, or the navbar cannot find it.
 const searchIndex = read("search-index");
 if (searchIndex.length !== operators.length) {
@@ -255,6 +277,7 @@ console.log(`fixtures    ${FIXTURES.length} verified`);
 console.log(`talents    ${withTalents} operators carry at least one`);
 console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log("markup      none leaked");
+console.log("placeholders none leaked");
 
 if (!process.argv.includes("--skip-build")) {
 	console.log("\nrunning pnpm build...");

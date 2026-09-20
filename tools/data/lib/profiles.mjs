@@ -8,6 +8,13 @@ import { asArray } from "./json.mjs";
 import { stripMarkup } from "./text.mjs";
 
 /**
+ * The locked placeholder body the game ships for a handbook entry that has not unlocked yet. Amiya carries the only one at the pinned sha,
+ * a section titled full-width question marks with a body of the same. The text field is the section's actual content, so it is what gets
+ * tested - a section keeps its place if its body has anything real in it, no matter how the title reads.
+ */
+const PLACEHOLDER_TEXT = /^[？?\s]+$/;
+
+/**
  * One operator's lore sections and base skills.
  *
  * @param {string} id The operator id.
@@ -25,7 +32,7 @@ export function buildProfile(id, { handbookDict, buildingChars, buildingBuffs })
 				.filter(Boolean)
 				.join("\n\n")
 		}))
-		.filter((section) => section.text !== "");
+		.filter((section) => section.text !== "" && !PLACEHOLDER_TEXT.test(section.text));
 
 	const baseSkills = [];
 	for (const slot of asArray(buildingChars[id]?.buffChar)) {
