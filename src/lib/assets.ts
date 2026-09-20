@@ -41,6 +41,8 @@ const MANIFEST: AssetManifest = Object.values(import.meta.glob<AssetManifest>(".
 /**
  * URL of an operator's portrait, the 180x360 image the index card and the page hero use.
  *
+ * `tools/assets/audit_assets.mjs` rebuilds this path shape by hand, since it cannot import this file - change one, update the other too.
+ *
  * @param id The operator id.
  * @returns The absolute URL.
  */
@@ -61,6 +63,8 @@ export function avatarUrl(id: string): string {
 /**
  * URL of an operator's full illustration, which the art viewer shows.
  *
+ * `tools/assets/audit_assets.mjs` rebuilds this path shape too - see the note on `portraitUrl` above.
+ *
  * @param id The operator id.
  * @param skin The skin suffix, or undefined for the default art.
  * @returns The absolute URL.
@@ -71,6 +75,8 @@ export function illustrationUrl(id: string, skin?: string): string {
 
 /**
  * URL of a class icon.
+ *
+ * `tools/assets/audit_assets.mjs` rebuilds this path shape too - see the note on `portraitUrl` above.
  *
  * @param profession The display class name, such as `Guard`.
  * @returns The absolute URL.

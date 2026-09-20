@@ -32,6 +32,14 @@ const MIN_TALENTS = 410;
 const MIN_POTENTIALS = 400;
 
 /**
+ * Floors for the asset manifest, set to what the A3 publish actually produced. These are exact rather than slack like the counts above, because
+ * the failure they catch is the pipeline claiming fewer assets than it published. Nothing else in the pipeline notices that: `hasPortrait` reads a
+ * missing id and a `false` id the same way, so an operator that quietly lost its art just renders a placeholder and no step complains.
+ */
+const MIN_PORTRAITS = 391;
+const MIN_ILLUSTRATIONS = 412;
+
+/**
  * Stats verified by hand against the Fandom wiki, at final phase, max level, full trust, potential 1.
  *
  * These are the only defence against silently wrong interpolation. If one moves, the maths changed - check it against the wiki before editing
@@ -314,6 +322,12 @@ if (hasManifest) {
 	}
 	portraitCount = Object.keys(manifest.portraits ?? {}).length;
 	illustrationCount = Object.keys(manifest.illustrations ?? {}).length;
+	if (portraitCount < MIN_PORTRAITS) {
+		fail(`asset manifest records ${portraitCount} portraits, below the floor of ${MIN_PORTRAITS}`);
+	}
+	if (illustrationCount < MIN_ILLUSTRATIONS) {
+		fail(`asset manifest records ${illustrationCount} illustrations, below the floor of ${MIN_ILLUSTRATIONS}`);
+	}
 }
 
 for (const message of failures) {
