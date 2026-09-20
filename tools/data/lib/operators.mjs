@@ -84,12 +84,19 @@ function traitDescription(row) {
 /**
  * The 0-based elite phase behind a `PHASE_n` unlock condition.
  *
- * @param {string|undefined} phase The raw `unlockCondition.phase`.
+ * It throws rather than falling back to 0, the way `starsOf` does. A silent 0 would ship an unrecognised phase as "unlocked from E0", so the
+ * page would show a talent the operator does not have yet and the gate's 0-to-2 assertion could never catch it.
+ *
+ * @param {string|undefined} phase The raw unlock condition's `phase`.
  * @returns {number} The phase, 0 to 2.
+ * @throws When the value is not a `PHASE_n`, which would mean the enum changed.
  */
-function phaseOf(phase) {
+export function phaseOf(phase) {
 	const match = /^PHASE_([0-2])$/.exec(phase ?? "");
-	return match ? Number(match[1]) : 0;
+	if (!match) {
+		throw new Error(`unexpected phase ${phase} - the PHASE_n enum changed`);
+	}
+	return Number(match[1]);
 }
 
 /**

@@ -162,3 +162,30 @@ export interface SearchEntry {
 	/** Display class name, which is also how the app finds the right shard. */
 	profession: string;
 }
+
+/**
+ * The operator page's four control values. The stats, talents and skins panels all read the same four, so the page owns them in one place and
+ * passes them down, rather than each panel keeping its own copy.
+ */
+export interface Controls {
+	/** 0-based elite phase index. */
+	phase: number;
+	/** Selected level within `phase`. */
+	level: number;
+	/** Whether full trust bonuses are applied. */
+	trust: boolean;
+	/** Selected potential rank, 1 to 6. */
+	potential: number;
+}
+
+/** Where the site's data was pulled from, written by `tools/data/import.mjs` to `src/data/upstream.json`. */
+export interface UpstreamInfo {
+	/** The upstream repo this site's data was imported from, as `owner/name`. */
+	repo: string;
+	/** Which game server's tables were imported, such as `en`. */
+	server: string;
+	/** The commit sha the import is pinned to, in full. The home page shows only the first ten characters of it. */
+	sha: string;
+	/** How many operators the import produced. */
+	operators: number;
+}

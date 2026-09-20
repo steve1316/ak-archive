@@ -31,12 +31,8 @@ const NAV_ITEMS: readonly NavItem[] = [
 export default function App() {
 	const { pathname } = useLocation();
 
-	// Built once from the search index, which is 31 KB and already in the bundle. The navbar renders on every route, so this must never
-	// touch a shard.
-	const searchOptions = useMemo<SearchOption[]>(
-		() => searchIndex.map((entry) => ({ path: `/operator/${entry.id}`, name: entry.name, keys: [normaliseName(entry.name)] })).sort((a, b) => a.name.localeCompare(b.name)),
-		[]
-	);
+	// Built once from the search index, which is 31 KB and already in the bundle. The navbar renders on every route, so this must never touch a shard.
+	const searchOptions = useMemo<SearchOption[]>(() => searchIndex.map((entry) => ({ path: `/operator/${entry.id}`, name: entry.name, keys: [normaliseName(entry.name)] })), []);
 
 	return (
 		<ThemeProvider theme={theme}>

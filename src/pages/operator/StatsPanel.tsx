@@ -7,8 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { LevelSlider } from "archive-kit";
 
 import { statsAt } from "../../lib/stats.js";
-import type { Operator, StatValues } from "../../types/operator.js";
-import type { Controls } from "./operator.js";
+import type { Controls, Operator, StatValues } from "../../types/operator.js";
 
 /** One stat row: the label the panel shows and the `StatValues` field it reads, in display order. */
 const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues }> = [

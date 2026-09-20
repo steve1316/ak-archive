@@ -13,17 +13,23 @@
 
 import { createAssetUrls } from "archive-kit";
 
-/** The asset host, from `.env`. Never hardcode a URL anywhere else, so the host stays switchable. */
+/**
+ * The asset host, from `.env`. Never hardcode a URL anywhere else, so the host stays switchable.
+ *
+ * The `?? ""` is a runtime guard, not a type one. `src/vite-env.d.ts` declares the variable a `string` because `.env` is meant to carry it, but
+ * a checkout whose `.env` is missing gets undefined here, and an empty base leaves every URL relative rather than writing "undefined" into it.
+ */
 export const assets = createAssetUrls(import.meta.env.VITE_ASSET_BASE_URL ?? "");
+
+/** What the manifest holds: for each kind of art, which operator ids have one. Only the two kinds the app asks about are declared. */
+type AssetManifest = Partial<Record<"portraits" | "illustrations", Record<string, boolean>>>;
 
 /**
  * Presence of each asset kind, keyed by operator id.
  *
  * Empty until A3 writes `src/data/assets-manifest.json`. The glob tolerates no match, which is what lets this ship before the file exists.
  */
-const MANIFEST: Record<string, Record<string, boolean>> = Object.values(
-	import.meta.glob<Record<string, Record<string, boolean>>>("../data/assets-manifest.json", { import: "default", eager: true })
-)[0] ?? {};
+const MANIFEST: AssetManifest = Object.values(import.meta.glob<AssetManifest>("../data/assets-manifest.json", { import: "default", eager: true }))[0] ?? {};
 
 /**
  * URL of an operator's portrait, the 180x360 image the index card and the page hero use.

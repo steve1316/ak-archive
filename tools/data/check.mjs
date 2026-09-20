@@ -122,7 +122,9 @@ for (const operator of operators) {
 	if (operator.subProfession === operator.subProfessionKey) {
 		fail(`${operator.id} has an unresolved subclass: ${operator.subProfessionKey}`);
 	}
-	if (operator.tags.some((tag) => typeof tag !== "string" || !tag.trim())) {
+	if (!Array.isArray(operator.tags)) {
+		fail(`${operator.id} has no tags array`);
+	} else if (operator.tags.some((tag) => typeof tag !== "string" || !tag.trim())) {
 		fail(`${operator.id} carries a blank tag`);
 	}
 }

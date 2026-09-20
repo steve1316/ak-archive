@@ -1,16 +1,12 @@
 import { memo, useMemo } from "react";
 
-import { Box, Card, CardActionArea, Typography } from "@mui/material";
-import type { SxProps, Theme } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Box, Typography } from "@mui/material";
 
-import { ART_TOP_ANCHOR, ArtPlaceholder, CARD_ASPECT, HighlightedName, cardArtSx, findNameMatch } from "archive-kit";
+import { HighlightedName, findNameMatch } from "archive-kit";
 
-import { hasPortrait, portraitUrl } from "../../lib/assets.js";
+import OperatorArtCard from "../../components/OperatorArtCard.js";
+import RarityStars from "../../components/RarityStars.js";
 import type { Operator } from "../../types/operator.js";
-
-/** The portrait at the card art's shape, anchored to the top so a portrait that is not exactly 1:2 keeps its face rather than its feet. */
-const PORTRAIT_SX: SxProps<Theme> = { ...cardArtSx, objectPosition: ART_TOP_ANCHOR };
 
 /** Props for OperatorCard. */
 interface OperatorCardProps {
@@ -35,28 +31,17 @@ interface OperatorCardProps {
 export default memo(function OperatorCard({ operator, query }: OperatorCardProps) {
 	const match = useMemo(() => findNameMatch(operator.name, query), [operator.name, query]);
 
-	const rarityColour = `rarity.${operator.rarity}`;
 	return (
-		<Card sx={{ position: "relative", overflow: "hidden" }}>
-			<CardActionArea component={Link} to={`/operator/${operator.id}`}>
-				{hasPortrait(operator.id) ? (
-					<Box component="img" src={portraitUrl(operator.id)} alt={operator.name} loading="lazy" sx={PORTRAIT_SX} />
-				) : (
-					<ArtPlaceholder name={operator.name} aspect={CARD_ASPECT} />
-				)}
-				<Box sx={{ p: 1 }}>
-					<Typography variant="subtitle2" noWrap>
-						<HighlightedName name={operator.name} match={match} />
-					</Typography>
-					<Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
-						{operator.subProfession}
-					</Typography>
-					<Typography variant="caption" sx={{ color: rarityColour }}>
-						{"★".repeat(operator.rarity)}
-					</Typography>
-				</Box>
-				<Box sx={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 3, bgcolor: rarityColour }} />
-			</CardActionArea>
-		</Card>
+		<OperatorArtCard id={operator.id} name={operator.name} rarity={operator.rarity} to={`/operator/${operator.id}`} lazy>
+			<Box sx={{ p: 1 }}>
+				<Typography variant="subtitle2" noWrap>
+					<HighlightedName name={operator.name} match={match} />
+				</Typography>
+				<Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
+					{operator.subProfession}
+				</Typography>
+				<RarityStars rarity={operator.rarity} variant="caption" />
+			</Box>
+		</OperatorArtCard>
 	);
 });

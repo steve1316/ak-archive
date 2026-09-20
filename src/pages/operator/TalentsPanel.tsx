@@ -4,8 +4,7 @@ import { Box, Card, CardContent, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { baseCandidate, candidateFor } from "../../lib/talents.js";
-import type { Operator } from "../../types/operator.js";
-import type { Controls } from "./operator.js";
+import type { Controls, Operator } from "../../types/operator.js";
 
 /** One talent resolved for display at the page's current controls: either its unlocked candidate, or its locked name and unlock condition. */
 type ResolvedTalent = { key: number; locked: false; name: string; description: string } | { key: number; locked: true; name: string; unlockText: string };

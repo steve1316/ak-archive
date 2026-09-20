@@ -93,10 +93,17 @@ export default function OperatorArt() {
 
 	useCloseOnEscape(close);
 
+	// The viewer is the only route that names itself in the tab, so it also has to put the title back. Without the cleanup its own title would
+	// sit there for every page the reader opened afterwards, until a reload.
 	useEffect(() => {
-		if (operator) {
-			document.title = `${operator.name} - full art`;
+		if (!operator) {
+			return;
 		}
+		const previous = document.title;
+		document.title = `${operator.name} - full art`;
+		return () => {
+			document.title = previous;
+		};
 	}, [operator]);
 
 	const handleRetry = useCallback(() => setLoadAttempt((current) => current + 1), []);

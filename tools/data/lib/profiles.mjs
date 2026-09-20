@@ -5,6 +5,7 @@
  */
 
 import { asArray } from "./json.mjs";
+import { phaseOf } from "./operators.mjs";
 import { stripMarkup } from "./text.mjs";
 
 /**
@@ -46,8 +47,9 @@ export function buildProfile(id, { handbookDict, buildingChars, buildingBuffs })
 				name: buff.buffName,
 				room: buff.roomType,
 				description: stripMarkup(buff.description),
-				// The unlock condition is an elite phase plus a level, which is what a page shows beside the skill.
-				phase: Number((/PHASE_(\d)/.exec(entry.cond?.phase ?? "") ?? [])[1] ?? 0),
+				// The unlock condition is an elite phase plus a level, which is what a page shows beside the skill. `phaseOf` throws on anything
+				// the enum does not cover, rather than quietly calling it E0.
+				phase: phaseOf(entry.cond?.phase),
 				level: entry.cond?.level ?? 1
 			});
 		}

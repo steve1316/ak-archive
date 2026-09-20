@@ -3,24 +3,8 @@ import { useMemo } from "react";
 import { Box, Button, Card, CardActionArea, CardContent, Container, Grid, Typography } from "@mui/material";
 import { Link } from "react-router-dom";
 
-import { searchIndex } from "../../lib/data.js";
-import upstreamJson from "../../data/upstream.json";
+import { searchIndex, upstream } from "../../lib/data.js";
 import FeaturedOperatorCard from "./FeaturedOperatorCard.js";
-
-/** Where the site's data was pulled from, written by `tools/data/import.mjs` to `src/data/upstream.json`. */
-interface UpstreamInfo {
-	/** The upstream repo this site's data was imported from, as `owner/name`. */
-	repo: string;
-	/** Which game server's tables were imported, such as `en`. */
-	server: string;
-	/** The commit sha the import is pinned to, in full. The page shows only the first ten characters of it. */
-	sha: string;
-	/** How many operators the import produced. */
-	operators: number;
-}
-
-/** The upstream provenance record. A plain JSON import, so it costs nothing beyond `searchIndex` and never touches a shard. */
-const upstream = upstreamJson as UpstreamInfo;
 
 /** How many characters of the pinned sha the page shows. Enough to identify the commit without printing the full 40-character hash. */
 const SHA_DISPLAY_LENGTH = 10;

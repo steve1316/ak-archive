@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Container, Grid, Typography } from "@mui/material";
 import { useParams } from "react-router-dom";
@@ -6,28 +6,13 @@ import { useParams } from "react-router-dom";
 import { LazySection, LoadError } from "archive-kit";
 
 import { loadOperator } from "../../lib/data.js";
-import type { Operator as OperatorRecord } from "../../types/operator.js";
-import LorePanel from "./LorePanel.js";
 import NotFound404 from "../../not_found_404.js";
+import type { Controls, Operator as OperatorRecord } from "../../types/operator.js";
+import LorePanel from "./LorePanel.js";
 import OperatorHero from "./OperatorHero.js";
 import SkinsPanel from "./SkinsPanel.js";
 import StatsPanel from "./StatsPanel.js";
 import TalentsPanel from "./TalentsPanel.js";
-
-/**
- * The page's four control values. The stats, talents and skins panels (Tasks 12 to 14) all read the same four, so this page owns them in one
- * place and passes them down, rather than each panel keeping its own copy.
- */
-export interface Controls {
-	/** 0-based elite phase index. */
-	phase: number;
-	/** Selected level within `phase`. */
-	level: number;
-	/** Whether full trust bonuses are applied. */
-	trust: boolean;
-	/** Selected potential rank, 1 to 6. */
-	potential: number;
-}
 
 /** Controls held before any operator has loaded. Never rendered, since the grid does not appear until the operator is set. */
 const INITIAL_CONTROLS: Controls = { phase: 0, level: 1, trust: true, potential: 1 };
@@ -99,22 +84,25 @@ export default function Operator() {
 		};
 	}, [id, attempt]);
 
-	const handleRetry = () => setAttempt((current) => current + 1);
+	const handleRetry = useCallback(() => setAttempt((current) => current + 1), []);
 
 	// Applies a control change from the stats panel. A phase change clamps `level` into the new phase's max in this same update, rather than a
 	// separate effect that runs after paint, so a render can never show a level or a stat computed from a level the new phase does not reach.
-	const handleControlsChange = (patch: Partial<Controls>) => {
-		setControls((current) => {
-			const next = { ...current, ...patch };
-			if (patch.phase !== undefined) {
-				const maxLevel = operator?.stats.phases[next.phase]?.maxLevel;
-				if (maxLevel !== undefined) {
-					next.level = Math.min(next.level, maxLevel);
+	const handleControlsChange = useCallback(
+		(patch: Partial<Controls>) => {
+			setControls((current) => {
+				const next = { ...current, ...patch };
+				if (patch.phase !== undefined) {
+					const maxLevel = operator?.stats.phases[next.phase]?.maxLevel;
+					if (maxLevel !== undefined) {
+						next.level = Math.min(next.level, maxLevel);
+					}
 				}
-			}
-			return next;
-		});
-	};
+				return next;
+			});
+		},
+		[operator]
+	);
 
 	if (missing) {
 		return <NotFound404 />;

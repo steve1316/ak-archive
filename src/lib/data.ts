@@ -14,7 +14,8 @@ import { createDataStore, shardFor } from "archive-kit";
 import type { Shard } from "archive-kit";
 
 import searchIndexJson from "../data/search-index.json";
-import type { Operator, Profile, SearchEntry } from "../types/operator.js";
+import upstreamJson from "../data/upstream.json";
+import type { Operator, Profile, SearchEntry, UpstreamInfo } from "../types/operator.js";
 
 /**
  * Hosted URLs of the generated shards, keyed by bare file name.
@@ -53,6 +54,9 @@ const store = createDataStore({ urls: DATA_URLS });
 
 /** Every operator's id, name, rarity and class. The navbar reads this and never a shard. */
 export const searchIndex: SearchEntry[] = searchIndexJson as SearchEntry[];
+
+/** Where the data came from and what it is pinned to. A plain JSON import of a few hundred bytes, so reading it costs a page nothing. */
+export const upstream: UpstreamInfo = upstreamJson as UpstreamInfo;
 
 /** Class name by operator id, so a shard can be found without loading all eight. */
 const professionById = new Map(searchIndex.map((entry) => [entry.id, entry.profession]));

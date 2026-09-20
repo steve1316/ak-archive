@@ -11,7 +11,10 @@ import type { BaseSkill, Profile } from "../../types/operator.js";
 /** Layout for one lore section or base skill row: a bottom border between entries, none on the last so the list does not end on a stray line. */
 const ENTRY_SX: SxProps<Theme> = { py: 1.5, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0, pb: 0 } };
 
-/** Handbook body text, rendered `pre-line` because sections such as Basic Info are newline-separated field lists whose line breaks are content, not filler. */
+/**
+ * Handbook body text, rendered `pre-line` because sections such as Basic Info are newline-separated
+ * field lists whose line breaks are content, not filler.
+ */
 const BODY_SX: SxProps<Theme> = { whiteSpace: "pre-line" };
 
 /** What an operator with no side-file entry reads as. A missing profile is not a failure, so it lands in the same empty branch as an empty one. */
