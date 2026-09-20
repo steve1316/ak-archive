@@ -15,7 +15,7 @@ const FIELDS = ["maxHp", "atk", "def", "magicResistance", "cost", "blockCnt", "b
 const TRUST_FIELDS = ["maxHp", "atk", "def", "magicResistance"];
 
 /** Potential modifiers name their target with the game's own enum, which maps onto the fields above. */
-const POTENTIAL_FIELDS = {
+export const POTENTIAL_FIELDS = {
 	MAX_HP: "maxHp",
 	ATK: "atk",
 	DEF: "def",
@@ -73,6 +73,26 @@ function trustBonus(frames, trust) {
 }
 
 /**
+ * The full trust bonus: what trust adds on top of a phase's untrusted numbers.
+ *
+ * Defined as the difference between the bonus at trust 100 and at trust 0, rather than as the last keyframe's data, because `statBlock` computes
+ * its per-phase `min` and `max` at trust 0 and those already carry the first keyframe. Taking the difference is what makes `trusted` equal the
+ * last phase's `max` plus this, which is what `check.mjs` asserts for all 412 operators.
+ *
+ * @param {object} operator The operator's `character_table` row.
+ * @returns {Record<string, number>} The bonus for each trust-affected stat.
+ */
+export function fullTrustBonus(operator) {
+	const frames = asArray(operator.favorKeyFrames);
+	if (frames.length === 0) {
+		return Object.fromEntries(TRUST_FIELDS.map((field) => [field, 0]));
+	}
+	const lo = trustBonus(frames, 0);
+	const hi = trustBonus(frames, 100);
+	return Object.fromEntries(TRUST_FIELDS.map((field) => [field, Math.round(hi[field] - lo[field])]));
+}
+
+/**
  * Stats for one operator at a phase, level, trust and potential.
  *
  * @param {object} operator The operator's `character_table` row.
@@ -124,6 +144,8 @@ export function statBlock(operator) {
 	return {
 		phases,
 		/** What a wiki calls the operator's max stats: final phase, max level, full trust, potential 1. */
-		trusted: statsAt(operator, top, operator.phases[top].maxLevel, { trust: 100, potential: 1 })
+		trusted: statsAt(operator, top, operator.phases[top].maxLevel, { trust: 100, potential: 1 }),
+		/** What full trust adds, so the site can apply it at any level rather than only at the trusted maximum above. */
+		trustBonus: fullTrustBonus(operator)
 	};
 }

@@ -5,7 +5,7 @@
  */
 
 import { asArray } from "./json.mjs";
-import { statBlock } from "./stats.mjs";
+import { POTENTIAL_FIELDS, statBlock } from "./stats.mjs";
 import { resolveTemplate, stripMarkup } from "./text.mjs";
 
 /** Rows that are not operators at all. There are 639 TRAP and 68 TOKEN rows against 410 real operators. */
@@ -30,6 +30,9 @@ const PROFESSION_NAMES = {
 
 /** Deployment position, as the game words it. */
 const POSITION_NAMES = { MELEE: "Melee", RANGED: "Ranged", ALL: "Melee or Ranged", NONE: "None" };
+
+/** The locked placeholder the game ships for a talent the operator has not unlocked. Amiya carries the only one at the pinned sha. */
+const PLACEHOLDER_NAME = /^[？?\s]*$/;
 
 /**
  * The star count behind a `TIER_n` rarity.
@@ -79,6 +82,69 @@ function traitDescription(row) {
 }
 
 /**
+ * The 0-based elite phase behind a `PHASE_n` unlock condition.
+ *
+ * @param {string|undefined} phase The raw `unlockCondition.phase`.
+ * @returns {number} The phase, 0 to 2.
+ */
+function phaseOf(phase) {
+	const match = /^PHASE_([0-2])$/.exec(phase ?? "");
+	return match ? Number(match[1]) : 0;
+}
+
+/**
+ * One operator's talents, each keeping every candidate the game can actually show.
+ *
+ * A talent is not one record. 508 of them carry several candidates, which are the same talent upgraded by elite phase or by potential, and
+ * Amiya's first candidate is a locked placeholder - so taking `candidates[0]` would ship question marks as her talent. Every usable candidate
+ * ships with its unlock condition instead, and the page picks the right one from the phase, level and potential on screen.
+ *
+ * Talent text on Global arrives already resolved - no candidate contains a `{placeholder}` - so `resolveTemplate` is a no-op here and is applied
+ * only so a future upstream change cannot leak a raw template past the gate.
+ *
+ * @param {object} row The operator's `character_table` row.
+ * @returns {Array<object>} The talents in the game's order, with hidden and placeholder candidates dropped.
+ */
+function buildTalents(row) {
+	return asArray(row.talents)
+		.map((talent) => ({
+			candidates: asArray(talent.candidates)
+				.filter((candidate) => candidate && !candidate.isHideTalent && !PLACEHOLDER_NAME.test(candidate.name ?? ""))
+				.map((candidate) => ({
+					name: stripMarkup(candidate.name),
+					description: stripMarkup(resolveTemplate(candidate.description, asArray(candidate.blackboard))),
+					unlockPhase: phaseOf(candidate.unlockCondition?.phase),
+					unlockLevel: candidate.unlockCondition?.level ?? 1,
+					requiredPotential: (candidate.requiredPotentialRank ?? 0) + 1
+				}))
+		}))
+		.filter((talent) => talent.candidates.length > 0);
+}
+
+/**
+ * One operator's potential ranks, with the stat change each one makes.
+ *
+ * `potentialRanks` starts at rank 2, because rank 1 is the operator as recruited. A rank is either a `BUFF` carrying attribute modifiers or a
+ * `CUSTOM` one that only improves a talent and carries no `buff` at all - most operators have one such rank, some have none, and alternate forms
+ * have several. Every rank is kept with an empty `modifiers` for the `CUSTOM` ones, so the page can print what they do rather than showing a gap.
+ *
+ * @param {object} row The operator's `character_table` row.
+ * @returns {Array<object>} The ranks, each carrying its 1-based rank number.
+ */
+function buildPotentials(row) {
+	return asArray(row.potentialRanks).map((rank, index) => {
+		const modifiers = {};
+		for (const modifier of asArray(rank.buff?.attributes?.attributeModifiers)) {
+			const field = POTENTIAL_FIELDS[modifier.attributeType];
+			if (field) {
+				modifiers[field] = (modifiers[field] ?? 0) + modifier.value;
+			}
+		}
+		return { rank: index + 2, type: rank.type, description: stripMarkup(rank.description), modifiers };
+	});
+}
+
+/**
  * Build one operator's record.
  *
  * @param {string} id The operator id, such as `char_002_amiya`.
@@ -97,11 +163,17 @@ export function buildOperator(id, row, { subProfDict, teams }) {
 		subProfession: subProfDict[row.subProfessionId]?.subProfessionName ?? row.subProfessionId,
 		subProfessionKey: row.subProfessionId,
 		position: POSITION_NAMES[row.position] ?? row.position,
-		tags: asArray(row.tagList),
+		// One operator ships a blank string in its tag list, which would render as an empty filter chip. Drop blank tags and normalize
+		// padding, so a padded duplicate never renders as a second, visually identical filter chip.
+		tags: asArray(row.tagList)
+			.filter((tag) => typeof tag === "string" && tag.trim())
+			.map((tag) => tag.trim()),
 		nation: teamName(row.nationId),
 		group: teamName(row.groupId),
 		team: teamName(row.teamId),
 		description: traitDescription(row) || null,
+		talents: buildTalents(row),
+		potentials: buildPotentials(row),
 		stats: statBlock(row)
 	};
 }

@@ -25,6 +25,12 @@ const OUT_DIR = "src/data";
  */
 const MIN_COUNTS = { total: 410, WARRIOR: 80, SNIPER: 55, CASTER: 54, SPECIAL: 46, SUPPORT: 44, TANK: 43, PIONEER: 37, MEDIC: 36 };
 
+/** Every one of the 412 operators has at least one talent at the pinned sha, so a zero here means the candidate filter is too aggressive. */
+const MIN_TALENTS = 410;
+
+/** 409 of the 412 operators have potential ranks at the pinned sha. Three ship `potentialRanks` as `{}`, which is legitimately empty. */
+const MIN_POTENTIALS = 400;
+
 /**
  * Stats verified by hand against the Fandom wiki, at final phase, max level, full trust, potential 1.
  *
@@ -61,7 +67,7 @@ function fail(message) {
 function read(name) {
 	const file = path.join(OUT_DIR, `${name}.json`);
 	if (!fs.existsSync(file)) {
-		throw new Error(`${file} is missing - run \`pnpm import\` first`);
+		throw new Error(`${file} is missing - run \`pnpm run import\` first`);
 	}
 	return JSON.parse(fs.readFileSync(file, "utf8"));
 }
@@ -113,6 +119,68 @@ for (const operator of operators) {
 	if (operator.subProfession === operator.subProfessionKey) {
 		fail(`${operator.id} has an unresolved subclass: ${operator.subProfessionKey}`);
 	}
+	if (operator.tags.some((tag) => typeof tag !== "string" || !tag.trim())) {
+		fail(`${operator.id} carries a blank tag`);
+	}
+}
+
+// Talents. Every operator has at least one at the pinned sha, and a talent with no usable candidate means the filter dropped too much.
+let withTalents = 0;
+for (const operator of operators) {
+	if (!Array.isArray(operator.talents)) {
+		fail(`${operator.id} has no talents array`);
+		continue;
+	}
+	if (operator.talents.length > 0) {
+		withTalents += 1;
+	}
+	for (const [index, talent] of operator.talents.entries()) {
+		if (!Array.isArray(talent.candidates) || talent.candidates.length === 0) {
+			fail(`${operator.id} talent ${index} has no candidates`);
+			continue;
+		}
+		for (const candidate of talent.candidates) {
+			if (!candidate.name || /^[？?\s]+$/.test(candidate.name)) {
+				fail(`${operator.id} talent ${index} kept a placeholder candidate: ${JSON.stringify(candidate.name)}`);
+			}
+			if (!(candidate.requiredPotential >= 1 && candidate.requiredPotential <= 6)) {
+				fail(`${operator.id} talent ${index} has requiredPotential ${candidate.requiredPotential}, outside 1-6`);
+			}
+			if (!(candidate.unlockPhase >= 0 && candidate.unlockPhase <= 2)) {
+				fail(`${operator.id} talent ${index} has unlockPhase ${candidate.unlockPhase}, outside 0-2`);
+			}
+		}
+	}
+}
+if (withTalents < MIN_TALENTS) {
+	fail(`${withTalents} operators have talents, below the floor of ${MIN_TALENTS}`);
+}
+
+// Potential ranks. Rank 1 is the base state and has no entry, so the ranks run 2 upward. Whether an operator has a CUSTOM one at all varies:
+// across the 412 operators, 79 have none, 281 have one, 43 have two, and 9 have five.
+let withPotentials = 0;
+for (const operator of operators) {
+	if (!Array.isArray(operator.potentials)) {
+		fail(`${operator.id} has no potentials array`);
+		continue;
+	}
+	if (operator.potentials.length > 0) {
+		withPotentials += 1;
+	}
+	for (const [index, potential] of operator.potentials.entries()) {
+		if (potential.rank !== index + 2) {
+			fail(`${operator.id} potential ${index} is numbered ${potential.rank}, expected ${index + 2}`);
+		}
+		if (potential.type !== "BUFF" && potential.type !== "CUSTOM") {
+			fail(`${operator.id} potential ${potential.rank} has type ${potential.type}`);
+		}
+		if (!potential.description) {
+			fail(`${operator.id} potential ${potential.rank} has no description`);
+		}
+	}
+}
+if (withPotentials < MIN_POTENTIALS) {
+	fail(`${withPotentials} operators have potential ranks, below the floor of ${MIN_POTENTIALS}`);
 }
 
 // Markup leakage, across everything the site ships.
@@ -156,6 +224,23 @@ for (const fixture of FIXTURES) {
 	}
 }
 
+// The trust bonus must be exactly what `trusted` adds over the last phase's max. This is what catches a bonus read from the wrong keyframe.
+for (const operator of operators) {
+	const last = operator.stats.phases[operator.stats.phases.length - 1];
+	const bonus = operator.stats.trustBonus;
+	if (!bonus) {
+		fail(`${operator.id} has no stats.trustBonus`);
+		continue;
+	}
+	for (const field of ["maxHp", "atk", "def", "magicResistance"]) {
+		const want = operator.stats.trusted[field];
+		const got = last.max[field] + bonus[field];
+		if (got !== want) {
+			fail(`${operator.id} trust bonus for ${field} gives ${got}, but trusted says ${want}`);
+		}
+	}
+}
+
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -167,6 +252,8 @@ if (failures.length > 0) {
 console.log(`operators   ${operators.length} across ${SHARDS.length} shards`);
 console.log(`search index ${searchIndex.length} entries`);
 console.log(`fixtures    ${FIXTURES.length} verified`);
+console.log(`talents    ${withTalents} operators carry at least one`);
+console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log("markup      none leaked");
 
 if (!process.argv.includes("--skip-build")) {
