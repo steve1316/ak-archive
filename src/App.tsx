@@ -1,23 +1,64 @@
+import { lazy, Suspense, useMemo } from "react";
+
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { Route, Routes } from "react-router-dom";
 
-import { ScrollToTopOnNavigate } from "archive-kit";
+import { ArchiveNavbar, ErrorBoundary, ScrollToTopOnNavigate, normaliseName } from "archive-kit";
+import type { NavItem, SearchOption } from "archive-kit";
 
+import { classIconUrl } from "./lib/assets.js";
+import { searchIndex } from "./lib/data.js";
+import NotFound404 from "./not_found_404.js";
+import Home from "./pages/home/home.js";
+import Operator from "./pages/operator/operator.js";
+import OperatorIndex from "./pages/operator_index/operator_index.js";
 import { theme } from "./theme.js";
 
+/** The art viewer loads on first visit. Few readers open it, and it would otherwise add its zoom and pan code to every route. */
+const OperatorArt = lazy(() => import("./pages/operator_art/operator_art.js"));
+
+/** The drawer's destinations. Icons resolve to asset-host paths that 404 until the A3 pipeline publishes the class icons. */
+const NAV_ITEMS: readonly NavItem[] = [
+	{ title: "Home", link: "/", icon: classIconUrl("Guard") },
+	{ title: "Operators", link: "/operators", icon: classIconUrl("Caster") }
+];
+
 /**
- * The application shell: the theme, and one route per page.
+ * The application shell: the theme, the navbar and one route per page.
  *
  * @returns The routed app.
  */
 export default function App() {
+	// Built once from the search index, which is 31 KB and already in the bundle. The navbar renders on every route, so this must never
+	// touch a shard.
+	const searchOptions = useMemo<SearchOption[]>(
+		() => searchIndex.map((entry) => ({ path: `/operator/${entry.id}`, name: entry.name, keys: [normaliseName(entry.name)] })).sort((a, b) => a.name.localeCompare(b.name)),
+		[]
+	);
+
 	return (
 		<ThemeProvider theme={theme}>
 			<CssBaseline />
+			<ArchiveNavbar title="Arknights Archive" navItems={NAV_ITEMS} searchOptions={searchOptions} homeLink="/" searchLabel="Search operators" />
 			<ScrollToTopOnNavigate>
-				<Routes>
-					<Route path="/" element={<main>Arknights Archive</main>} />
-				</Routes>
+				<ErrorBoundary>
+					<Routes>
+						<Route path="/" element={<Home />} />
+						<Route path="/operators" element={<OperatorIndex />} />
+						<Route
+							path="/operator/:id/art"
+							element={
+								<Suspense>
+									<OperatorArt />
+								</Suspense>
+							}
+						/>
+						<Route path="/operator/:id" element={<Operator />} />
+						<Route path="/404" element={<NotFound404 />} />
+						{/* Anything unmatched shows the 404 in place, keeping the mistyped address visible. */}
+						<Route path="*" element={<NotFound404 />} />
+					</Routes>
+				</ErrorBoundary>
 			</ScrollToTopOnNavigate>
 		</ThemeProvider>
 	);
