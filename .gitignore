@@ -1,0 +1,53 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.eslintcache
+# python
+__pycache__/
+*.pyc
+
+# vite
+/build
+.vite
+
+# playwright mcp scratch output
+.playwright-mcp/
+
+# importer's cached upstream checkout
+tools/data/.cache/
+
+# asset rebuild bundle cache and staging trees
+tools/assets/.cache/
+tools/assets/.staging/
+tools/assets/.staging-*/
+
+# Third-party tools fetched for the asset pipeline, such as the vgmstream decoder.
+tools/assets/.tools/
+
+# Run logs from the importer and the asset tools, which are written to the repo root on purpose so they can be followed live.
+*.log
+*_publish.json
+
+# superpowers brainstorming session files
+.superpowers/

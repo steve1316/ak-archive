@@ -1,0 +1,13 @@
+build
+node_modules
+pnpm-lock.yaml
+
+# Generated data. Fix the generator in tools/, not the output.
+src/data/**/*.json
+assets-manifest.json
+
+# Hand-wrapped prose. Prettier would rewrap it and lose the layout.
+*.md
+
+# Local-only editor settings.
+.vscode
