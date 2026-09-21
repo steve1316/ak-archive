@@ -22,6 +22,29 @@ KIND_FOLDERS = {"Spine": "dorm", "Front": "battle", "Back": "back"}
 # The key used when a rig carries no skin suffix.
 BASE_KEY = "base"
 
+# Upstream rig folders whose operator part is misspelled, mapped to the operator id it should have been.
+FOLDER_ALIASES = {"char_107_liskarm": "char_107_liskam"}
+
+
+def rig_stem(folder):
+    """
+    Strip a rig folder down to its operator id and skin suffix.
+
+    Drops the dorm rig's `build_` prefix in any case, since upstream also ships `Build_char_440_pinecn`, and repairs a misspelled operator
+    part from `FOLDER_ALIASES`. The skin suffix keeps its upstream spelling.
+
+    Args:
+        folder: An upstream rig folder name, such as `build_char_002_amiya_winter_1`.
+
+    Returns:
+        The stem, such as `char_002_amiya_winter_1`.
+    """
+    stem = folder[len("build_"):] if folder.lower().startswith("build_") else folder
+    for wrong, right in FOLDER_ALIASES.items():
+        if stem.lower() == wrong or stem.lower().startswith(wrong + "_"):
+            return right + stem[len(wrong):]
+    return stem
+
 
 def parse_rig(path, operator_ids):
     """
@@ -47,19 +70,21 @@ def parse_rig(path, operator_ids):
     if kind is None:
         return None
 
-    stem = folder[len("build_"):] if folder.startswith("build_") else folder
+    stem = rig_stem(folder)
     if "_test_" in stem or stem.endswith("_test"):
         return None
 
+    # Upstream sometimes capitalises the id itself, as in `build_Char_294_ayer`, so the id is matched without case.
+    lowered = stem.lower()
     best = None
     for candidate in operator_ids:
-        if stem == candidate or stem.startswith(candidate + "_"):
+        if lowered == candidate or lowered.startswith(candidate + "_"):
             if best is None or len(candidate) > len(best):
                 best = candidate
     if best is None:
         return None
 
-    key = BASE_KEY if stem == best else stem[len(best) + 1:]
+    key = BASE_KEY if lowered == best else stem[len(best) + 1:]
     return best, key, kind
 
 

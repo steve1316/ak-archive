@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from spine_names import parse_rig, published_dir
 
-IDS = {"char_002_amiya", "char_1001_amiya2", "char_172_svrash"}
+IDS = {"char_002_amiya", "char_1001_amiya2", "char_172_svrash", "char_107_liskam"}
 
 
 def test_parse_rig_reads_a_base_dorm_rig():
@@ -33,6 +33,17 @@ def test_parse_rig_reads_a_skin_battle_rig():
 def test_parse_rig_prefers_the_longest_matching_id():
     # char_1001_amiya2 must not be read as char_002_amiya with leftover text.
     assert parse_rig("char_1001_amiya2/build_char_1001_amiya2/Spine", IDS) == ("char_1001_amiya2", "base", "dorm")
+
+
+def test_parse_rig_ignores_the_case_of_the_build_prefix():
+    # Upstream ships `Build_char_440_pinecn` and `build_Char_294_ayer` beside the usual lower-case form.
+    assert parse_rig("char_002_amiya/Build_char_002_amiya/Spine", IDS) == ("char_002_amiya", "base", "dorm")
+    assert parse_rig("char_002_amiya/build_Char_002_amiya/Spine", IDS) == ("char_002_amiya", "base", "dorm")
+
+
+def test_parse_rig_reads_a_misspelled_upstream_folder():
+    # Upstream spells Liskarm's base battle folder `char_107_liskarm`, while her id is `char_107_liskam`.
+    assert parse_rig("char_107_liskam/char_107_liskarm/Front", IDS) == ("char_107_liskam", "base", "battle")
 
 
 def test_parse_rig_skips_a_test_rig():

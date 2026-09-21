@@ -46,6 +46,19 @@ const MIN_SKILLED = 398;
 const MIN_PORTRAITS = 391;
 const MIN_ILLUSTRATIONS = 412;
 
+/**
+ * Floors for the Spine index, set to what Task 7's index actually produced: 412 operators, 924 forms, 2743 rigs. Exact rather than slack for the
+ * same reason the asset floors are - the failure this catches is the index quietly losing rigs, not the roster shrinking.
+ */
+const MIN_SPINE_OPERATORS = 412;
+const MIN_SPINE_RIGS = 2743;
+const MIN_SPINE_BATTLE_RIGS = 918;
+const MIN_SPINE_BACK_RIGS = 907;
+const MIN_SPINE_DORM_RIGS = 918;
+
+/** The three kinds a Spine rig can be indexed under - the site never plays a fourth. */
+const SPINE_KINDS = ["battle", "back", "dorm"];
+
 /** 410 operators have a parsed Basic Info at the pinned sha, 404 a parsed Physical Exam. Robots and a few others use their own labels or none. */
 const MIN_RECORD_BASIC = 400;
 const MIN_RECORD_EXAM = 395;
@@ -523,6 +536,60 @@ if (hasManifest) {
 	}
 }
 
+// The Spine index, once Task 7's animation pass has produced one. Guarded because this gate runs before that index exists too. Checks that
+// every indexed operator is real, every form's kinds are one of the three the viewer plays, and every rig has a skeleton, an atlas and at
+// least one animation - a rig missing any of those would render a blank card instead of a broken import.
+const spineIndexPath = path.join(OUT_DIR, "spine-index.json");
+const hasSpineIndex = fs.existsSync(spineIndexPath);
+let spineOperatorCount = 0;
+let spineFormCount = 0;
+let spineRigCount = 0;
+const spineKindCounts = { battle: 0, back: 0, dorm: 0 };
+if (hasSpineIndex) {
+	const spineIndex = JSON.parse(fs.readFileSync(spineIndexPath, "utf8"));
+	for (const [operatorId, forms] of Object.entries(spineIndex)) {
+		spineOperatorCount += 1;
+		if (!byId.has(operatorId)) {
+			fail(`spine index names ${operatorId}, which is in no shard`);
+		}
+		for (const [formKey, kinds] of Object.entries(forms)) {
+			spineFormCount += 1;
+			for (const [kind, rig] of Object.entries(kinds)) {
+				if (!SPINE_KINDS.includes(kind)) {
+					fail(`${operatorId} form ${formKey} has kind ${kind}, not one of ${SPINE_KINDS.join(", ")}`);
+					continue;
+				}
+				spineRigCount += 1;
+				spineKindCounts[kind] += 1;
+				if (!rig.skel || rig.skel.includes("/") || rig.skel.includes("\\")) {
+					fail(`${operatorId} form ${formKey} kind ${kind} has a bad skel basename: ${JSON.stringify(rig.skel)}`);
+				}
+				if (!rig.atlas || rig.atlas.includes("/") || rig.atlas.includes("\\")) {
+					fail(`${operatorId} form ${formKey} kind ${kind} has a bad atlas basename: ${JSON.stringify(rig.atlas)}`);
+				}
+				if (!Array.isArray(rig.anims) || rig.anims.length === 0) {
+					fail(`${operatorId} form ${formKey} kind ${kind} has no animations`);
+				}
+			}
+		}
+	}
+	if (spineOperatorCount < MIN_SPINE_OPERATORS) {
+		fail(`spine index has ${spineOperatorCount} operators, below the floor of ${MIN_SPINE_OPERATORS}`);
+	}
+	if (spineRigCount < MIN_SPINE_RIGS) {
+		fail(`spine index has ${spineRigCount} rigs, below the floor of ${MIN_SPINE_RIGS}`);
+	}
+	if (spineKindCounts.battle < MIN_SPINE_BATTLE_RIGS) {
+		fail(`spine index has ${spineKindCounts.battle} battle rigs, below the floor of ${MIN_SPINE_BATTLE_RIGS}`);
+	}
+	if (spineKindCounts.back < MIN_SPINE_BACK_RIGS) {
+		fail(`spine index has ${spineKindCounts.back} back rigs, below the floor of ${MIN_SPINE_BACK_RIGS}`);
+	}
+	if (spineKindCounts.dorm < MIN_SPINE_DORM_RIGS) {
+		fail(`spine index has ${spineKindCounts.dorm} dorm rigs, below the floor of ${MIN_SPINE_DORM_RIGS}`);
+	}
+}
+
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -545,6 +612,11 @@ console.log("markup      none leaked");
 console.log("placeholders none leaked");
 if (hasManifest) {
 	console.log(`assets      ${portraitCount} portraits, ${illustrationCount} illustrations`);
+}
+if (hasSpineIndex) {
+	console.log(
+		`spine       ${spineOperatorCount} operators, ${spineFormCount} forms, ${spineRigCount} rigs (${spineKindCounts.battle} battle, ${spineKindCounts.back} back, ${spineKindCounts.dorm} dorm)`
+	);
 }
 
 if (!process.argv.includes("--skip-build")) {

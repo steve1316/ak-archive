@@ -7,8 +7,9 @@ This mirrors `build_manifest.py`, which walks the encoded output for the same re
 That staged tree is already in published layout - `spine/<id>/<key>/<kind>/` - so nothing here needs `spine_names`. The naming rules ran in
 `stage_spine.py`; re-applying them would be a second copy to keep in sync.
 
-`anims` is left empty here and filled by `add_spine_animations.mjs`, which reads the names out of each skeleton. Splitting it that way keeps
-this script free of a skeleton parser, and lets the animation names be refreshed without re-walking the tree.
+`anims` is left empty here and filled by `fill_spine_anims.mjs`, which reads the names out of each skeleton and must run after this
+script. Splitting it that way keeps this script free of a skeleton parser, and lets the animation names be refreshed without
+re-walking the tree.
 
 Usage:
     python3 -u tools/assets/build_spine_index.py [--staging PATH]

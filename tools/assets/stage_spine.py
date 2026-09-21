@@ -17,7 +17,7 @@ import os
 import shutil
 
 from build_manifest import load_operator_ids
-from spine_names import KIND_FOLDERS, parse_rig, published_dir
+from spine_names import KIND_FOLDERS, parse_rig, published_dir, rig_stem
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -71,7 +71,7 @@ def classify_rejected_rig(parts):
     folder, kind_folder = parts[1], parts[2]
     if kind_folder not in KIND_FOLDERS:
         return "unmapped_kind"
-    stem = folder[len("build_"):] if folder.startswith("build_") else folder
+    stem = rig_stem(folder)
     if "_test_" in stem or stem.endswith("_test"):
         return "test"
     return "unrecognised_operator"
