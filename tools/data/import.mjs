@@ -2,8 +2,8 @@
 /**
  * Generate the site's operator data from the pinned upstream tables.
  *
- * Writes one shard and one profile side file per class under `src/data`, plus a small search index and a provenance file. Output is
- * deterministic for a given upstream commit, so re-running an unchanged import produces no diff.
+ * Writes one shard, one profile side file and one details file per class under `src/data`, plus a small search index and a provenance file.
+ * Output is deterministic for a given upstream commit, so re-running an unchanged import produces no diff.
  *
  * Usage:
  *     node tools/data/import.mjs
@@ -55,7 +55,13 @@ async function main() {
 
 	const operators = selectOperators(characterTable, patchTable).map(([id, row]) => {
 		const handbook = buildHandbook(id, profileContext);
-		return { id, row, side: handbook.side, record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [], skills: buildSkills(row, skillTable), ...handbook.shard } };
+		return {
+			id,
+			row,
+			side: handbook.side,
+			record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [] },
+			details: { skills: buildSkills(row, skillTable), ...handbook.shard }
+		};
 	});
 	console.log(`operators: ${operators.length}`);
 
@@ -69,10 +75,14 @@ async function main() {
 		const entries = byShard.get(shard.key);
 		const records = entries.map((entry) => entry.record);
 		const profiles = Object.fromEntries(entries.map((entry) => [entry.id, entry.side]));
+		const details = Object.fromEntries(entries.map((entry) => [entry.id, entry.details]));
 		const a = writeJson(path.join(OUT_DIR, `${shard.file}.json`), records);
 		const b = writeJson(path.join(OUT_DIR, `${shard.profiles}.json`), profiles);
-		total += a + b;
-		console.log(`  ${shard.file.padEnd(24)} ${String(records.length).padStart(3)} operators  ${(a / 1024).toFixed(0).padStart(5)} KB  + profiles ${(b / 1024).toFixed(0).padStart(5)} KB`);
+		const c = writeJson(path.join(OUT_DIR, `${shard.details}.json`), details);
+		total += a + b + c;
+		console.log(
+			`  ${shard.file.padEnd(24)} ${String(records.length).padStart(3)} operators  ${(a / 1024).toFixed(0).padStart(5)} KB  + profiles ${(b / 1024).toFixed(0).padStart(5)} KB  + details ${(c / 1024).toFixed(0).padStart(5)} KB`
+		);
 	}
 
 	// The navbar renders on every route, so its index carries only what a search result needs to show and open.

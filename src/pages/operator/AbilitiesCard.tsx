@@ -6,7 +6,7 @@ import type { SxProps, Theme } from "@mui/material";
 
 import { eliteIconUrl, potentialIconUrl } from "../../lib/icons.js";
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
-import type { BaseSkill, Controls, Operator } from "../../types/operator.js";
+import type { BaseSkill, Controls, OperatorFull } from "../../types/operator.js";
 import { RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "./layout.js";
 import SkillsPanel from "./SkillsPanel.js";
 
@@ -73,7 +73,7 @@ type ResolvedTalent =
 /** Props for AbilitiesCard. */
 interface AbilitiesCardProps {
 	/** The loaded operator. */
-	operator: Operator;
+	operator: OperatorFull;
 	/** The page's controls, which pick each talent's candidate. */
 	controls: Controls;
 }
@@ -102,7 +102,7 @@ function baseSkillMeta(skill: BaseSkill): string {
  * @param potential The 1-based potential rank on screen.
  * @returns One resolved entry per talent that has at least one candidate.
  */
-function resolveTalents(operator: Operator, phase: number, level: number, potential: number): ResolvedTalent[] {
+function resolveTalents(operator: OperatorFull, phase: number, level: number, potential: number): ResolvedTalent[] {
 	const resolved: ResolvedTalent[] = [];
 	operator.talents.forEach((talent, index) => {
 		const base = baseCandidate(talent);

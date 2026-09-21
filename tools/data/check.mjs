@@ -123,13 +123,17 @@ function eachString(value, where, visit) {
 	}
 }
 
-// Read each shard's operators and its profile side file exactly once. Every check below indexes into these maps instead of re-reading and
-// re-parsing the same JSON - the shards total 1050 KB and the profiles 3.87 MB, and several checks below need both files.
+// Read each shard's operators, profile side file and details file exactly once. Every check below indexes into these maps instead of
+// re-reading and re-parsing the same JSON, since several checks below need two or three of the files.
 const shardOperators = new Map(SHARDS.map((shard) => [shard.key, read(shard.file)]));
 const shardProfiles = new Map(SHARDS.map((shard) => [shard.key, read(shard.profiles)]));
+const shardDetails = new Map(SHARDS.map((shard) => [shard.key, read(shard.details)]));
 
 const operators = SHARDS.flatMap((shard) => shardOperators.get(shard.key));
 const byId = new Map(operators.map((operator) => [operator.id, operator]));
+
+// One lookup across every class's details file, keyed by operator id, so a check does not have to know which shard an operator is in.
+const detailsById = new Map(SHARDS.flatMap((shard) => Object.entries(shardDetails.get(shard.key))));
 
 // Counts.
 if (operators.length < MIN_COUNTS.total) {
@@ -143,6 +147,15 @@ for (const shard of SHARDS) {
 }
 if (byId.size !== operators.length) {
 	fail(`${operators.length - byId.size} duplicate operator ids across shards`);
+}
+
+// Regression gate: skills, record and baseSkills moved to the details file, so a shard record still carrying one means the importer regressed.
+for (const operator of operators) {
+	for (const field of ["skills", "record", "baseSkills"]) {
+		if (Object.hasOwn(operator, field)) {
+			fail(`${operator.id} in its shard still carries ${field}, which belongs in the details file now`);
+		}
+	}
 }
 
 // Enums must all have resolved.
@@ -247,13 +260,17 @@ if (withForms < MIN_FORMS) {
 	fail(`${withForms} operators have forms, below the floor of ${MIN_FORMS}`);
 }
 
-// Skills: every operator that has any has a sane shape, and the count holds.
+// Skills: every operator that has any has a sane shape, and the count holds. Read from the details file, which is where skills now live.
 let withSkills = 0;
 for (const operator of operators) {
-	if (operator.skills.length > 0) {
+	const detail = detailsById.get(operator.id);
+	if (!detail) {
+		continue;
+	}
+	if (detail.skills.length > 0) {
 		withSkills += 1;
 	}
-	for (const skill of operator.skills) {
+	for (const skill of detail.skills) {
 		if (skill.levels.length !== 7 && skill.levels.length !== 10) {
 			fail(`${operator.id} skill ${skill.id} has ${skill.levels.length} levels, not 7 or 10`);
 		}
@@ -279,7 +296,8 @@ if (withSkills < MIN_SKILLED) {
 for (const shard of SHARDS) {
 	for (const [data, name] of [
 		[shardOperators.get(shard.key), shard.file],
-		[shardProfiles.get(shard.key), shard.profiles]
+		[shardProfiles.get(shard.key), shard.profiles],
+		[shardDetails.get(shard.key), shard.details]
 	]) {
 		eachString(data, name, (text, where) => {
 			const hit = MARKUP.exec(text);
@@ -304,13 +322,39 @@ for (const shard of SHARDS) {
 	}
 }
 
-// The handbook record. Its sections must have moved out of the lore, and every grade must sit on the scale the record bar draws.
+// Every shard operator must have a details entry, and every details entry must belong to an operator in that shard - the two files are written
+// from the same list, so a mismatch means the operator page would either 404 correctly or, worse, silently show an operator with no abilities.
+let withDetails = 0;
+for (const shard of SHARDS) {
+	const details = shardDetails.get(shard.key);
+	const shardIds = new Set(shardOperators.get(shard.key).map((operator) => operator.id));
+	for (const operator of shardOperators.get(shard.key)) {
+		if (Object.hasOwn(details, operator.id)) {
+			withDetails += 1;
+		} else {
+			fail(`${operator.id} is in ${shard.file} but has no entry in ${shard.details}`);
+		}
+	}
+	for (const id of Object.keys(details)) {
+		if (!shardIds.has(id)) {
+			fail(`${shard.details} names ${id}, which is not in ${shard.file}`);
+		}
+	}
+}
+
+// The handbook record. Its sections must have moved out of the lore, and every grade must sit on the scale the record bar draws. Read from the
+// details file, which is where the record now lives.
 let withBasic = 0;
 let withExam = 0;
 for (const shard of SHARDS) {
 	const profiles = shardProfiles.get(shard.key);
+	const details = shardDetails.get(shard.key);
 	for (const operator of shardOperators.get(shard.key)) {
-		const { basic, exam } = operator.record;
+		const detail = details[operator.id];
+		if (!detail) {
+			continue;
+		}
+		const { basic, exam } = detail.record;
 		if (basic.length > 0) {
 			withBasic += 1;
 		}
@@ -357,9 +401,10 @@ if (withExam < MIN_RECORD_EXAM) {
 
 // Profile placeholders. Upstream ships a locked handbook entry as literal full-width question marks for content not yet unlocked, and it must
 // not survive the import - Amiya carries the only one at the pinned sha, in her lore. Base skills are walked too since they come from the same
-// handbook parse, though they now ride in the shard rather than the side file.
+// handbook parse, though they now ride in the details file rather than the side file.
 for (const shard of SHARDS) {
 	const profiles = shardProfiles.get(shard.key);
+	const details = shardDetails.get(shard.key);
 	for (const operator of shardOperators.get(shard.key)) {
 		const lore = profiles[operator.id]?.lore ?? [];
 		for (const [index, section] of lore.entries()) {
@@ -367,7 +412,8 @@ for (const shard of SHARDS) {
 				fail(`${operator.id} lore section ${index} kept a placeholder: ${JSON.stringify(section.title)} / ${JSON.stringify(section.text)}`);
 			}
 		}
-		for (const [index, skill] of operator.baseSkills.entries()) {
+		const baseSkills = details[operator.id]?.baseSkills ?? [];
+		for (const [index, skill] of baseSkills.entries()) {
 			if (PLACEHOLDER.test(skill.name ?? "") || PLACEHOLDER.test(skill.description ?? "")) {
 				fail(`${operator.id} base skill ${index} kept a placeholder: ${JSON.stringify(skill.name)}`);
 			}
@@ -468,7 +514,8 @@ if (hasManifest) {
 	// Every skill a page can show must have its icon published. A missing one would render a broken image in the Skills tab.
 	const skillIcons = new Set(manifest.skillIcons ?? []);
 	for (const operator of operators) {
-		for (const skill of operator.skills) {
+		const detail = detailsById.get(operator.id);
+		for (const skill of detail?.skills ?? []) {
 			if (!skillIcons.has(skill.icon)) {
 				fail(`${operator.id} skill ${skill.id} has no published icon ${skill.icon}`);
 			}
@@ -492,6 +539,7 @@ console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log(`forms       ${withForms} operators carry at least one`);
 console.log(`skills      ${withSkills} operators`);
 console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
+console.log(`details     ${withDetails} operators carry a details-file entry`);
 console.log(`record      ${withBasic} basic, ${withExam} exam`);
 console.log("markup      none leaked");
 console.log("placeholders none leaked");

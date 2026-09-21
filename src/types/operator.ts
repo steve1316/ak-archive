@@ -165,6 +165,10 @@ export interface Operator {
 	stats: OperatorStats;
 	/** Every costume upstream lists for this operator, in display order. The site keeps only those with published art. */
 	forms: OperatorFormEntry[];
+}
+
+/** The operator page's own data: skills, handbook record and base skills, kept out of the index shard the operator page never draws. */
+export interface OperatorDetails {
 	/** Combat skills in slot order. Empty for the operators that have none. */
 	skills: OperatorSkill[];
 	/** The handbook's Basic Info and Physical Exam, parsed. Those two sections are not in the lore. */
@@ -172,6 +176,9 @@ export interface Operator {
 	/** RIIC base skills. */
 	baseSkills: BaseSkill[];
 }
+
+/** An operator plus its details, which is what the operator page renders. */
+export type OperatorFull = Operator & OperatorDetails;
 
 /** One handbook section, such as Basic Info or Profile. */
 export interface LoreSection {

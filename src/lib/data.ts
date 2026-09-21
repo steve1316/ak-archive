@@ -15,7 +15,7 @@ import type { Shard } from "archive-kit";
 
 import searchIndexJson from "../data/search-index.json";
 import upstreamJson from "../data/upstream.json";
-import type { Operator, Profile, SearchEntry, UpstreamInfo } from "../types/operator.js";
+import type { Operator, OperatorDetails, Profile, SearchEntry, UpstreamInfo } from "../types/operator.js";
 
 /**
  * Hosted URLs of the generated shards, keyed by bare file name.
@@ -24,10 +24,9 @@ import type { Operator, Profile, SearchEntry, UpstreamInfo } from "../types/oper
  * `eager` is on so only the URL strings are bundled, which is a few bytes each, not the files themselves.
  */
 const DATA_URLS = Object.fromEntries(
-	Object.entries(import.meta.glob<string>(["../data/operators-*.json", "../data/profiles-*.json"], { query: "?url", import: "default", eager: true })).map(([path, url]) => [
-		path.replace(/^.*\/|\.json$/g, ""),
-		url
-	])
+	Object.entries(import.meta.glob<string>(["../data/operators-*.json", "../data/profiles-*.json", "../data/details-*.json"], { query: "?url", import: "default", eager: true })).map(
+		([path, url]) => [path.replace(/^.*\/|\.json$/g, ""), url]
+	)
 );
 
 /**
@@ -38,15 +37,15 @@ const DATA_URLS = Object.fromEntries(
  * `search-index.json` carries that and the search index is how a shard is found without loading all eight. The file list and the order must
  * stay identical across both tables. The key field must not.
  */
-const SHARDS: ReadonlyArray<Shard<string> & { profiles: string }> = [
-	{ file: "operators-guard", profiles: "profiles-guard", holds: (profession) => profession === "Guard" },
-	{ file: "operators-sniper", profiles: "profiles-sniper", holds: (profession) => profession === "Sniper" },
-	{ file: "operators-caster", profiles: "profiles-caster", holds: (profession) => profession === "Caster" },
-	{ file: "operators-specialist", profiles: "profiles-specialist", holds: (profession) => profession === "Specialist" },
-	{ file: "operators-supporter", profiles: "profiles-supporter", holds: (profession) => profession === "Supporter" },
-	{ file: "operators-defender", profiles: "profiles-defender", holds: (profession) => profession === "Defender" },
-	{ file: "operators-vanguard", profiles: "profiles-vanguard", holds: (profession) => profession === "Vanguard" },
-	{ file: "operators-medic", profiles: "profiles-medic", holds: (profession) => profession === "Medic" }
+const SHARDS: ReadonlyArray<Shard<string> & { profiles: string; details: string }> = [
+	{ file: "operators-guard", profiles: "profiles-guard", details: "details-guard", holds: (profession) => profession === "Guard" },
+	{ file: "operators-sniper", profiles: "profiles-sniper", details: "details-sniper", holds: (profession) => profession === "Sniper" },
+	{ file: "operators-caster", profiles: "profiles-caster", details: "details-caster", holds: (profession) => profession === "Caster" },
+	{ file: "operators-specialist", profiles: "profiles-specialist", details: "details-specialist", holds: (profession) => profession === "Specialist" },
+	{ file: "operators-supporter", profiles: "profiles-supporter", details: "details-supporter", holds: (profession) => profession === "Supporter" },
+	{ file: "operators-defender", profiles: "profiles-defender", details: "details-defender", holds: (profession) => profession === "Defender" },
+	{ file: "operators-vanguard", profiles: "profiles-vanguard", details: "details-vanguard", holds: (profession) => profession === "Vanguard" },
+	{ file: "operators-medic", profiles: "profiles-medic", details: "details-medic", holds: (profession) => profession === "Medic" }
 ];
 
 /** The store owns fetching and the cache that drops a failed load so a retry actually retries. */
@@ -67,12 +66,12 @@ const professionById = new Map(searchIndex.map((entry) => [entry.id, entry.profe
  * @param id The operator id.
  * @returns The shard, or null when the id is in no shard, which means it is not an operator.
  */
-function shardOf(id: string): (Shard<string> & { profiles: string }) | null {
+function shardOf(id: string): (Shard<string> & { profiles: string; details: string }) | null {
 	const profession = professionById.get(id);
 	if (!profession) {
 		return null;
 	}
-	return shardFor(SHARDS, profession) as (Shard<string> & { profiles: string }) | null;
+	return shardFor(SHARDS, profession) as (Shard<string> & { profiles: string; details: string }) | null;
 }
 
 /**
@@ -101,10 +100,10 @@ export async function loadOperator(id: string): Promise<Operator | undefined> {
 }
 
 /**
- * Load one operator's handbook text and base skills.
+ * Load one operator's handbook prose.
  *
- * Called by the lore panel rather than by the page, so the side file - the heaviest thing an operator page can pull - is fetched only once that
- * panel is scrolled near. A missing entry is not an error here: the panel shows it as a handbook with nothing in it.
+ * Called by `HandbookSection` rather than by the page, so the side file is fetched only once the handbook is on screen. A missing entry is not
+ * an error here: the panel shows it as a handbook with nothing in it.
  *
  * @param id The operator id.
  * @returns The profile, or undefined when the id is in no shard or has no entry in the side file.
@@ -119,10 +118,29 @@ export async function loadProfile(id: string): Promise<Profile | undefined> {
 }
 
 /**
+ * Load one operator's skills, handbook record and base skills.
+ *
+ * The operator page fetches this alongside `loadOperator`, so the two requests start together, unlike `loadProfile`, which waits for the
+ * handbook section to scroll into view.
+ *
+ * @param id The operator id.
+ * @returns The details, or undefined when the id is in no shard or has no entry in the details file.
+ */
+export async function loadOperatorDetails(id: string): Promise<OperatorDetails | undefined> {
+	const shard = shardOf(id);
+	if (!shard) {
+		return undefined;
+	}
+	const details = await store.loadFile<Record<string, OperatorDetails>>(shard.details);
+	return details[id];
+}
+
+/**
  * Load every operator, for the index, which genuinely renders all of them.
  *
- * All eight shards come to 1075 KB raw and 107 KB gzipped, both measured from the production build at the pinned sha. The filter axes the index
- * needs - subclass, nation, tags - are deliberately not in the search index, because that file renders on every route and must stay small.
+ * All eight shards come to 1122 KB raw and 116 KB gzipped, both measured from the production build at the pinned sha, now that skills, the
+ * handbook record and base skills live in the details files instead. The filter axes the index needs - subclass, nation, tags - are
+ * deliberately not in the search index, because that file renders on every route and must stay small.
  *
  * @returns Every operator, in shard order.
  */

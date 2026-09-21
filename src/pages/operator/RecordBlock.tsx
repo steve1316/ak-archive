@@ -19,17 +19,24 @@ const LONG_VALUE = 40;
 const EXAM_BAR_WIDTH = 96;
 
 /**
+ * The record's own width at which it fits two label/value pairs per row. It asks its container, not the window, because the page's three-column
+ * layout from `md` up can leave the record as little as ~360px wide on a window just over 900px, where two pairs spill under the Animations card.
+ */
+const TWO_PAIRS = "@container (min-width: 640px)";
+
+/**
  * The block's styles. Checked with `satisfies` rather than annotated as `SxProps<Theme>`, which is a union including functions and so cannot be
  * spread - the long-field styles below extend the plain ones. gfl's pages use the same pattern.
  */
 const styles = {
 	/**
-	 * Two label/value pairs per row on a wide screen, one on a narrow one. `gridAutoFlow: "row dense"` lets a short pair after a spanning long
-	 * value backfill the gap the long value's own row leaves empty, rather than leaving a hole beside it.
+	 * Two label/value pairs per row when the record itself is wide enough, one otherwise. `gridAutoFlow: "row dense"` lets a short pair after a
+	 * spanning long value backfill the gap the long value's own row leaves empty, rather than leaving a hole beside it.
 	 */
 	fields: {
 		display: "grid",
-		gridTemplateColumns: { xs: "auto minmax(0, 1fr)", sm: "auto minmax(0, 1fr) auto minmax(0, 1fr)" },
+		gridTemplateColumns: "auto minmax(0, 1fr)",
+		[TWO_PAIRS]: { gridTemplateColumns: "auto minmax(0, 1fr) auto minmax(0, 1fr)" },
 		gridAutoFlow: "row dense",
 		columnGap: 2.75,
 		rowGap: 0.875,
@@ -44,11 +51,14 @@ const styles = {
 	trait: { mt: 2, fontSize: 14, lineHeight: 1.55, borderLeft: 2, borderColor: "primary.main", pl: 1.25 }
 } satisfies Record<string, SxProps<Theme>>;
 
+/** The block's root: the container the record's column count is measured against. */
+const ROOT_SX = { mt: 2, containerType: "inline-size" } satisfies SxProps<Theme>;
+
 /** A long field's label, pinned to the first column so its value can span the rest. */
-const LONG_LABEL_SX = { ...styles.label, gridColumn: { sm: "1" } } satisfies SxProps<Theme>;
+const LONG_LABEL_SX = { ...styles.label, [TWO_PAIRS]: { gridColumn: "1" } } satisfies SxProps<Theme>;
 
 /** A long value, spanning every column after its label. */
-const LONG_VALUE_SX = { ...styles.value, gridColumn: { sm: "2 / -1" } } satisfies SxProps<Theme>;
+const LONG_VALUE_SX = { ...styles.value, [TWO_PAIRS]: { gridColumn: "2 / -1" } } satisfies SxProps<Theme>;
 
 /** Props for RecordBlock. */
 interface RecordBlockProps {
@@ -104,7 +114,7 @@ function renderFields(fields: RecordField[], graded: boolean) {
 export default function RecordBlock({ record, affiliation, trait }: RecordBlockProps) {
 	const basic = affiliation === null ? record.basic : [...record.basic, { label: "Affiliation", value: affiliation, grade: null }];
 	return (
-		<Box sx={{ mt: 2 }}>
+		<Box sx={ROOT_SX}>
 			{basic.length > 0 ? (
 				<Box component="dl" sx={styles.fields}>
 					{renderFields(basic, false)}

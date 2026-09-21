@@ -6,11 +6,11 @@ import { useParams, useSearchParams } from "react-router-dom";
 
 import { LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
 
-import { loadOperator } from "../../lib/data.js";
+import { loadOperator, loadOperatorDetails } from "../../lib/data.js";
 import { formsOf, readFormKey, writeFormKey } from "../../lib/forms.js";
 import { operatorPath, resolveOperatorParam } from "../../lib/routes.js";
 import NotFound404 from "../../not_found_404.js";
-import type { Controls, Operator as OperatorRecord } from "../../types/operator.js";
+import type { Controls, OperatorFull } from "../../types/operator.js";
 import AbilitiesCard from "./AbilitiesCard.js";
 import AnimationsCard, { StagePlaceholder } from "./AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
@@ -57,7 +57,7 @@ const ROW2_SX: SxProps<Theme> = { display: "grid", gap: 2, alignItems: "start", 
  * @param operator The loaded operator.
  * @returns The default control values.
  */
-function defaultControls(operator: OperatorRecord): Controls {
+function defaultControls(operator: OperatorFull): Controls {
 	const phase = Math.max(0, operator.stats.phases.length - 1);
 	const maxLevel = operator.stats.phases[phase]?.maxLevel ?? 1;
 	return { phase, level: maxLevel, trust: true, potential: 1 };
@@ -69,7 +69,7 @@ function defaultControls(operator: OperatorRecord): Controls {
  * @param operator The loaded operator.
  * @returns The team, group and nation that upstream names, joined, or null when it names none.
  */
-function affiliationOf(operator: OperatorRecord): string | null {
+function affiliationOf(operator: OperatorFull): string | null {
 	const names = [operator.team, operator.group, operator.nation].filter((name): name is string => name !== null);
 	return names.length > 0 ? names.join(", ") : null;
 }
@@ -86,7 +86,7 @@ export default function Operator() {
 	const id = resolveOperatorParam(useParams().id);
 	const [searchParams, setSearchParams] = useSearchParams();
 
-	const [operator, setOperator] = useState<OperatorRecord | null>(null);
+	const [operator, setOperator] = useState<OperatorFull | null>(null);
 	const [missing, setMissing] = useState(false);
 	const [error, setError] = useState(false);
 	// Bumped by the retry button to run the load again. The data store keeps whatever already loaded cached.
@@ -108,15 +108,22 @@ export default function Operator() {
 		setOperator(null);
 		setMissing(false);
 		setError(false);
-		loadOperator(id).then(
-			(loaded) => {
+		// Fetched together so the two requests start at once - the shard the index also loads, and the details file only this page needs.
+		Promise.all([loadOperator(id), loadOperatorDetails(id)]).then(
+			([loadedOperator, loadedDetails]) => {
 				if (!active) {
 					return;
 				}
-				if (!loaded) {
+				if (!loadedOperator) {
 					setMissing(true);
 					return;
 				}
+				// A real operator with no details entry is a broken import rather than a 404, so it takes the same retry path as a network failure.
+				if (!loadedDetails) {
+					setError(true);
+					return;
+				}
+				const loaded: OperatorFull = { ...loadedOperator, ...loadedDetails };
 				setOperator(loaded);
 				setControls(defaultControls(loaded));
 			},
