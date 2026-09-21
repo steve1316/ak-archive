@@ -108,6 +108,8 @@ def canonical_key(keys):
     elite 2 and ship no `_1`, and without this fallback they would publish no canonical art despite having art. `+` variants are never
     canonical: they are the same costume re-lit, not the base.
 
+    `src/lib/forms.ts` mirrors this rule by hand to find each operator's bare-published form - change one, update the other too.
+
     Args:
         keys: Every variant key an operator has.
 
