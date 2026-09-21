@@ -37,7 +37,7 @@ const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
 const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH]  (scans <staging>/assets/spine)";
+const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey]  (scans <staging>/assets/spine)";
 
 /** Attachment types whose vertices a deform timeline can offset. */
 const DEFORMABLE_TYPES = new Set(["mesh", "linkedmesh", "boundingbox", "path", "clipping"]);
@@ -47,6 +47,58 @@ const REGION_LIKE_TYPES = new Set(["region", "mesh", "linkedmesh"]);
 
 /** The 8-byte signature every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** Every feature `src/spine/features.ts` can report, in the same order as its `Feature` union. A JS survey script cannot enumerate a TS
+ * union type at runtime, so this list is kept in sync with it by hand. */
+const ALL_FEATURES = [
+	"region",
+	"mesh",
+	"weightedMesh",
+	"linkedMesh",
+	"clipping",
+	"path",
+	"point",
+	"boundingBox",
+	"ik",
+	"transformConstraint",
+	"pathConstraint",
+	"deform",
+	"drawOrder",
+	"twoColor",
+	"blendAdditive",
+	"blendMultiply",
+	"blendScreen",
+	"transformModeNonNormal",
+	"events"
+];
+
+/** Features every stage's runtime can already handle, even at stage 1: they draw nothing, so any stage's placeholder logic treats a rig
+ * that uses only these (plus its stage's own set) as fully supported. */
+const ALWAYS_SUPPORTED_FEATURES = ["events", "point", "boundingBox"];
+
+/** Features each stage adds on top of the previous stage's set, per the plan in `2026-09-21-a6d-spine-runtime-design.md`. */
+const STAGE_ADDS = {
+	1: ["region", "transformModeNonNormal"],
+	2: ["drawOrder", "twoColor", "blendAdditive", "blendMultiply", "blendScreen"],
+	3: ["mesh", "weightedMesh", "linkedMesh", "deform"],
+	4: ["clipping", "path", "ik", "transformConstraint", "pathConstraint"]
+};
+
+/** Every stage number the survey reports coverage for, in order. */
+const STAGES = [1, 2, 3, 4];
+
+/** Each stage's full feature set, cumulative from stage 1 through that stage, for the `--survey` coverage counts. */
+const STAGE_FEATURE_SETS = new Map(
+	STAGES.map((stage) => {
+		const set = new Set(ALWAYS_SUPPORTED_FEATURES);
+		for (let s = 1; s <= stage; s++) {
+			for (const feature of STAGE_ADDS[s]) {
+				set.add(feature);
+			}
+		}
+		return [stage, set];
+	})
+);
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -384,6 +436,107 @@ export function checkSkeleton(data, typeCounts) {
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
+// Survey
+
+/**
+ * Split a staged skeleton path into the operator, form and kind it belongs to, per the published layout
+ * `<spineDir>/<operatorId>/<formKey>/<kind>/<file>` that `spine_names.py` writes.
+ *
+ * @param {string} file The skeleton file's path.
+ * @param {string} spineDir The `assets/spine` root the file was found under.
+ * @returns {{ operatorId: string, formKey: string, kind: string } | null} The rig's identity, or null if the path is not 3 directories
+ *   deep under `spineDir`.
+ */
+function parseRigPath(file, spineDir) {
+	const parts = path.relative(spineDir, path.dirname(file)).split(path.sep);
+	if (parts.length !== 3) {
+		return null;
+	}
+	const [operatorId, formKey, kind] = parts;
+	return { operatorId, formKey, kind };
+}
+
+/**
+ * Checks whether every feature in a set is covered by a stage's cumulative feature set.
+ *
+ * @param {Set<string>} features The features a rig uses.
+ * @param {number} stage The stage number to check against, 1 to 4.
+ * @returns {boolean} True if the stage's runtime would draw the rig in full.
+ */
+function isFullySupported(features, stage) {
+	const supported = STAGE_FEATURE_SETS.get(stage);
+	for (const feature of features) {
+		if (!supported.has(feature)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * Creates an empty survey accumulator for `--survey`.
+ *
+ * @returns {object} The accumulator: per-feature usage counts by kind, per-stage rig counts, a rig total, and each operator's base battle
+ *   rig features, keyed by operator id.
+ */
+function createSurvey() {
+	return {
+		featureKindCounts: new Map(ALL_FEATURES.map((feature) => [feature, { battle: 0, back: 0, dorm: 0 }])),
+		rigStageCounts: new Map(STAGES.map((stage) => [stage, 0])),
+		rigsSurveyed: 0,
+		operatorBaseBattleFeatures: new Map()
+	};
+}
+
+/**
+ * Folds one parsed rig into a survey accumulator: its feature usage by kind, its stage coverage, and, when it is an operator's base
+ * battle rig, its feature set for the per-operator stage counts.
+ *
+ * @param {object} survey The accumulator from `createSurvey`.
+ * @param {{ operatorId: string, formKey: string, kind: string }} rigPath The rig's identity.
+ * @param {Set<string>} features The rig's features, from `featuresOf`.
+ */
+function recordRig(survey, rigPath, features) {
+	survey.rigsSurveyed++;
+	for (const feature of features) {
+		survey.featureKindCounts.get(feature)[rigPath.kind]++;
+	}
+	for (const stage of STAGES) {
+		if (isFullySupported(features, stage)) {
+			survey.rigStageCounts.set(stage, survey.rigStageCounts.get(stage) + 1);
+		}
+	}
+	if (rigPath.formKey === "base" && rigPath.kind === "battle") {
+		survey.operatorBaseBattleFeatures.set(rigPath.operatorId, features);
+	}
+}
+
+/**
+ * Prints the `--survey` report: per-feature usage by kind, then how many operators (by base battle rig) and rigs each stage's planned
+ * feature set would fully support.
+ *
+ * @param {object} survey The filled accumulator from `createSurvey`.
+ */
+function printSurvey(survey) {
+	console.log("");
+	console.log("Feature survey (rigs using each feature, by kind):");
+	for (const feature of ALL_FEATURES) {
+		const counts = survey.featureKindCounts.get(feature);
+		const total = counts.battle + counts.back + counts.dorm;
+		console.log(`  ${feature}: ${total} (battle ${counts.battle}, back ${counts.back}, dorm ${counts.dorm})`);
+	}
+
+	const operatorFeatures = [...survey.operatorBaseBattleFeatures.values()];
+	console.log("");
+	console.log(`Stage coverage (${survey.rigsSurveyed} rigs surveyed, ${operatorFeatures.length} operators with a base battle rig):`);
+	for (const stage of STAGES) {
+		const operatorCount = operatorFeatures.filter((features) => isFullySupported(features, stage)).length;
+		console.log(`  Stage ${stage}: ${operatorCount}/${operatorFeatures.length} operators, ${survey.rigStageCounts.get(stage)}/${survey.rigsSurveyed} rigs`);
+	}
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
 
 /**
@@ -408,6 +561,7 @@ async function main() {
 		console.error(`No .skel or .atlas files under ${spineDir}`);
 		process.exit(1);
 	}
+	const survey = process.argv.includes("--survey") ? createSurvey() : null;
 
 	const server = await createServer({ root: REPO_ROOT, server: { middlewareMode: true }, appType: "custom", logLevel: "error" });
 	let failed = 0;
@@ -422,6 +576,7 @@ async function main() {
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
+		const featuresOf = survey ? (await server.ssrLoadModule("/src/spine/features.ts")).featuresOf : null;
 
 		for (const file of atlasFiles) {
 			const shown = file.startsWith(REPO_ROOT + path.sep) ? path.relative(REPO_ROOT, file) : file;
@@ -490,6 +645,12 @@ async function main() {
 				repeatingKeys += result.repeatingKeys;
 				repeatingFiles++;
 			}
+			if (survey) {
+				const rigPath = parseRigPath(file, spineDir);
+				if (rigPath) {
+					recordRig(survey, rigPath, featuresOf(data));
+				}
+			}
 			const atlas = atlasByKey.get(pairingKey(file));
 			if (atlas) {
 				const regionNames = new Set();
@@ -521,6 +682,9 @@ async function main() {
 	console.log(`${skelFiles.length} skeletons parsed, ${failed} failed`);
 	console.log(`${atlasFiles.length} atlases parsed, ${pagesChecked} pages (${pagesWithDeclaredSize} with a declared size), ${atlasFailed} atlas(es) failed`);
 	console.log(`Largest packed extent across the corpus: ${(maxFillFraction * 100).toFixed(2)}% of a page's real PNG size`);
+	if (survey) {
+		printSurvey(survey);
+	}
 	process.exit(failed > 0 || atlasFailed > 0 ? 1 : 0);
 }
 
