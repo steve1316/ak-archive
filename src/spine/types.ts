@@ -611,3 +611,68 @@ export interface SkeletonData {
 	/** Every animation. */
 	animations: Animation[];
 }
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Atlas types
+
+/** Pixel format the atlas loader should use to store a page's image in memory. `RGBA8888` when the atlas omits the `format` field. */
+export type AtlasFormat = "Alpha" | "Intensity" | "LuminanceAlpha" | "RGB565" | "RGBA4444" | "RGB888" | "RGBA8888";
+
+/** Texture filter setting for a page's minification or magnification. `Nearest` when the atlas omits the `filter` field. */
+export type AtlasFilter = "Nearest" | "Linear" | "MipMap" | "MipMapNearestNearest" | "MipMapLinearNearest" | "MipMapNearestLinear" | "MipMapLinearLinear";
+
+/** Texture wrap setting for a page. `none` when the atlas omits the `repeat` field. */
+export type AtlasRepeat = "none" | "x" | "y" | "xy";
+
+/** One packed image region within an atlas page, looked up by name from a skeleton's region, mesh or linked mesh attachment. */
+export interface AtlasRegion {
+	/** The region's name. Multiple regions may share a name when they differ by `index`, for frame-by-frame animation. */
+	name: string;
+	/** X pixel position of the packed image within the page. */
+	x: number;
+	/** Y pixel position of the packed image within the page. */
+	y: number;
+	/** Packed width of the image within the page, in pixels. */
+	width: number;
+	/** Packed height of the image within the page, in pixels. */
+	height: number;
+	/** Left-edge whitespace stripped from the image before packing, in pixels. 0 when the atlas omits the `offset` field. */
+	offsetX: number;
+	/** Bottom-edge whitespace stripped from the image before packing, in pixels. 0 when the atlas omits the `offset` field. */
+	offsetY: number;
+	/** Width of the image before whitespace stripping, in pixels. Equal to `width` when the atlas omits the `orig` field. */
+	originalWidth: number;
+	/** Height of the image before whitespace stripping, in pixels. Equal to `height` when the atlas omits the `orig` field. */
+	originalHeight: number;
+	/** Rotation in degrees the region was packed at, counter clockwise: 0 for `false`, 90 for `true`, or the stated degree value. */
+	rotate: number;
+	/** Frame index for regions sharing a name in frame-by-frame animation, or -1 when the atlas omits the `index` field. */
+	index: number;
+}
+
+/** One page of a texture atlas: one packed image and the regions within it. */
+export interface AtlasPage {
+	/** The page image's file name, as written in the atlas, e.g. `char_002_amiya.png`. */
+	name: string;
+	/** Declared pixel width of the page image, or 0 when the atlas omits the `size` field. The staged corpus always omits it. */
+	width: number;
+	/** Declared pixel height of the page image, or 0 when the atlas omits the `size` field. The staged corpus always omits it. */
+	height: number;
+	/** Pixel format the atlas loader should use for this page's image. */
+	format: AtlasFormat;
+	/** Minification and magnification texture filter for this page, in that order. */
+	filter: [AtlasFilter, AtlasFilter];
+	/** Texture wrap setting for this page. */
+	repeat: AtlasRepeat;
+	/** True if this page's image has premultiplied alpha applied. False when the atlas omits the `pma` field. */
+	pma: boolean;
+	/** Every region packed into this page, in file order. */
+	regions: AtlasRegion[];
+}
+
+/** A parsed `.atlas` file: one or more packed pages. */
+export interface Atlas {
+	/** Every page the atlas declares, in file order. */
+	pages: AtlasPage[];
+}

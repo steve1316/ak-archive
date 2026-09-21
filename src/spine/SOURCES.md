@@ -11,4 +11,6 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
 - https://esotericsoftware.com/spine-json-format
 - https://esotericsoftware.com/spine-atlas-format
 
-Used for: data types, byte layout.
+Used for: data types, byte layout. The atlas format page specifically for `src/spine/atlas.ts` (Task 5): the page/region property names,
+their default values when a field is omitted, and the doc's stated blank-line page separator, which the staged corpus does not use (see
+`FORMAT-3.8.md`).

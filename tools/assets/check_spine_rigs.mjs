@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 /**
- * The corpus gate for the Spine runtime: parses every staged `.skel` file with `src/spine/binary.ts` and checks what it read.
+ * The corpus gate for the Spine runtime: parses every staged `.skel` and `.atlas` file with `src/spine/binary.ts` and `src/spine/atlas.ts`,
+ * and checks what it read.
  *
- * A reader can decode one rig and still misread another, so this runs the whole staged tree. A file fails when the reader throws, when
- * bytes are left over, or when a timeline points at a bone, slot, constraint, skin, attachment or event that does not exist. Key times
- * must never go down, except in attachment, color and deform timelines, where upstream rigs join up to 3 sorted runs of keys end to end
- * (see `FORMAT-3.8.md`). A 4th run still fails.
+ * A reader can decode one rig and still misread another, so this runs the whole staged tree. A `.skel` file fails when the reader throws,
+ * when bytes are left over, when a timeline points at a bone, slot, constraint, skin, attachment or event that does not exist, or when a
+ * region, mesh or linked mesh attachment's texture region is not in the atlas beside it. Key times must never go down, except in
+ * attachment, color and deform timelines, where upstream rigs join up to 3 sorted runs of keys end to end (see `FORMAT-3.8.md`). A 4th run
+ * still fails. An `.atlas` file fails when the reader throws, when a region's packed box (from its `x`/`y`/`width`/`height`, swapped when
+ * `rotate` is 90 or 270) does not fit inside its page's real PNG size, or when a page's declared image size does not match the PNG - the
+ * staged corpus never declares one, so that check is a backstop and the region box check is the one that runs on real data.
  *
  * Usage:
  *     node tools/assets/check_spine_rigs.mjs [--staging PATH]
  *
- * Scans every `.skel` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`.
+ * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`.
  */
 
 import fs from "node:fs";
@@ -38,6 +42,12 @@ const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH]  (
 /** Attachment types whose vertices a deform timeline can offset. */
 const DEFORMABLE_TYPES = new Set(["mesh", "linkedmesh", "boundingbox", "path", "clipping"]);
 
+/** Attachment types that draw from an atlas region, keyed by their `path` (or their own name when `path` is null). */
+const REGION_LIKE_TYPES = new Set(["region", "mesh", "linkedmesh"]);
+
+/** The 8-byte signature every PNG file starts with. */
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -62,25 +72,96 @@ function parseStaging(args) {
 }
 
 /**
- * List every `.skel` file under a directory, sorted so runs are comparable.
+ * List every file under a directory with the given extension, sorted so runs are comparable.
  *
  * @param {string} dir The directory to walk.
+ * @param {string} extension The file extension to match, including the dot (e.g. `.skel`).
  * @returns {string[]} The file paths.
  */
-function findSkels(dir) {
+function findFiles(dir, extension) {
 	const found = [];
 	const walk = (current) => {
 		for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
 			const full = path.join(current, entry.name);
 			if (entry.isDirectory()) {
 				walk(full);
-			} else if (entry.name.endsWith(".skel")) {
+			} else if (entry.name.endsWith(extension)) {
 				found.push(full);
 			}
 		}
 	};
 	walk(dir);
 	return found.sort();
+}
+
+/**
+ * Reads a PNG's pixel dimensions straight from its IHDR chunk, without decoding the image. The IHDR chunk always comes first, right after
+ * the 8-byte PNG signature, with width and height as big-endian 4-byte ints at offsets 16 and 20.
+ *
+ * @param {Buffer} buffer The whole PNG file.
+ * @returns {{ width: number, height: number }} The image's real pixel size.
+ */
+function readPngSize(buffer) {
+	for (let i = 0; i < PNG_SIGNATURE.length; i++) {
+		if (buffer[i] !== PNG_SIGNATURE[i]) {
+			throw new Error("not a PNG file (bad signature)");
+		}
+	}
+	return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+/**
+ * Check every region, mesh and linked mesh attachment in a parsed skeleton against the atlas beside it.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {Set<string>} regionNames Every region name the sibling atlas declares, across all its pages.
+ * @returns {string[]} A message for each attachment whose texture region is not in the atlas.
+ */
+export function checkAttachmentRegions(data, regionNames) {
+	const problems = [];
+	for (const skin of data.skins) {
+		for (const [slotIndex, attachments] of skin.attachments) {
+			for (const [placeholder, attachment] of attachments) {
+				if (!REGION_LIKE_TYPES.has(attachment.type)) {
+					continue;
+				}
+				const regionName = attachment.path ?? attachment.name;
+				if (!regionNames.has(regionName)) {
+					problems.push(`skin "${skin.name}" slot ${slotIndex} attachment "${placeholder}" (${attachment.type}): region "${regionName}" not in atlas`);
+				}
+			}
+		}
+	}
+	return problems;
+}
+
+/**
+ * Check every region on one atlas page against its real PNG size: a region's packed box, taken from `x`/`y` and its `width`/`height`
+ * (swapped when `rotate` is 90 or 270, since a rotated region occupies a box with its edges swapped on the page), must lie entirely
+ * inside the PNG. This is the check that actually runs on the staged corpus, unlike a declared page size, which no staged atlas has.
+ *
+ * @param {object} page A parsed atlas page.
+ * @param {{ width: number, height: number }} pngSize The page's real PNG pixel size, read from its IHDR chunk.
+ * @returns {{ problems: string[], maxRight: number, maxBottom: number }} A message for each region whose box overflows the PNG, and the
+ *   furthest right and bottom edge reached by any region on this page (0 when the page has no regions).
+ */
+export function checkRegionBounds(page, pngSize) {
+	const problems = [];
+	let maxRight = 0;
+	let maxBottom = 0;
+	for (const region of page.regions) {
+		const swapped = region.rotate === 90 || region.rotate === 270;
+		const boxWidth = swapped ? region.height : region.width;
+		const boxHeight = swapped ? region.width : region.height;
+		const right = region.x + boxWidth;
+		const bottom = region.y + boxHeight;
+		maxRight = Math.max(maxRight, right);
+		maxBottom = Math.max(maxBottom, bottom);
+		if (region.x < 0 || region.y < 0 || right > pngSize.width || bottom > pngSize.height) {
+			problems.push(`region "${region.name}" box (x=${region.x}, y=${region.y}, w=${boxWidth}, h=${boxHeight}) overflows PNG ${pngSize.width}x${pngSize.height}`);
+		}
+	}
+	return { problems, maxRight, maxBottom };
 }
 
 /**
@@ -306,13 +387,25 @@ export function checkSkeleton(data, typeCounts) {
 // Main
 
 /**
- * Parse and check every staged rig, print each failure and a summary, and exit 1 if anything failed.
+ * Read a file path's key for pairing a skeleton with the atlas beside it: the full path with its extension dropped, since both share a
+ * directory and a base name in the staged corpus.
+ *
+ * @param {string} file The file path.
+ * @returns {string} The path without its extension.
+ */
+function pairingKey(file) {
+	return file.slice(0, -path.extname(file).length);
+}
+
+/**
+ * Parse and check every staged rig and atlas, print each failure and a summary, and exit 1 if anything failed.
  */
 async function main() {
 	const spineDir = path.join(parseStaging(process.argv.slice(2)), "assets", "spine");
-	const files = fs.existsSync(spineDir) ? findSkels(spineDir) : [];
-	if (files.length === 0) {
-		console.error(`No .skel files under ${spineDir}`);
+	const skelFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".skel") : [];
+	const atlasFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".atlas") : [];
+	if (skelFiles.length === 0 && atlasFiles.length === 0) {
+		console.error(`No .skel or .atlas files under ${spineDir}`);
 		process.exit(1);
 	}
 
@@ -320,10 +413,69 @@ async function main() {
 	let failed = 0;
 	let repeatingKeys = 0;
 	let repeatingFiles = 0;
+	let atlasFailed = 0;
+	let pagesChecked = 0;
+	let pagesWithDeclaredSize = 0;
+	let maxFillFraction = 0;
 	const typeCounts = {};
+	const atlasByKey = new Map();
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
-		for (const file of files) {
+		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
+
+		for (const file of atlasFiles) {
+			const shown = file.startsWith(REPO_ROOT + path.sep) ? path.relative(REPO_ROOT, file) : file;
+			const dir = path.dirname(file);
+			let atlas;
+			try {
+				atlas = readAtlas(fs.readFileSync(file, "utf-8"));
+			} catch (error) {
+				atlasFailed++;
+				console.log(`${shown} @${error.line ?? "?"}: ${error.message}`);
+				continue;
+			}
+			atlasByKey.set(pairingKey(file), atlas);
+
+			let pageProblem = false;
+			for (const page of atlas.pages) {
+				pagesChecked++;
+				const pngPath = path.join(dir, page.name);
+				let size;
+				try {
+					size = readPngSize(fs.readFileSync(pngPath));
+				} catch (error) {
+					pageProblem = true;
+					console.log(`${shown} @-: page "${page.name}": ${error.message}`);
+					continue;
+				}
+				// A page size is only checked against its PNG when the atlas actually declared one: the staged corpus never does, so
+				// this branch is a backstop that stays unexercised here (see FORMAT-3.8.md). The region bounds check below is the one
+				// that actually runs on real data.
+				if (page.width > 0 && page.height > 0) {
+					pagesWithDeclaredSize++;
+					if (page.width !== size.width || page.height !== size.height) {
+						pageProblem = true;
+						console.log(`${shown} @-: page "${page.name}" declares ${page.width}x${page.height}, PNG is ${size.width}x${size.height}`);
+					}
+				}
+
+				const bounds = checkRegionBounds(page, size);
+				if (bounds.problems.length > 0) {
+					pageProblem = true;
+					for (const problem of bounds.problems) {
+						console.log(`${shown} @-: page "${page.name}" ${problem}`);
+					}
+				}
+				if (page.regions.length > 0) {
+					maxFillFraction = Math.max(maxFillFraction, bounds.maxRight / size.width, bounds.maxBottom / size.height);
+				}
+			}
+			if (pageProblem) {
+				atlasFailed++;
+			}
+		}
+
+		for (const file of skelFiles) {
 			const shown = file.startsWith(REPO_ROOT + path.sep) ? path.relative(REPO_ROOT, file) : file;
 			let data;
 			try {
@@ -337,6 +489,18 @@ async function main() {
 			if (result.repeatingKeys > 0) {
 				repeatingKeys += result.repeatingKeys;
 				repeatingFiles++;
+			}
+			const atlas = atlasByKey.get(pairingKey(file));
+			if (atlas) {
+				const regionNames = new Set();
+				for (const page of atlas.pages) {
+					for (const region of page.regions) {
+						regionNames.add(region.name);
+					}
+				}
+				result.problems.push(...checkAttachmentRegions(data, regionNames));
+			} else {
+				result.problems.push(`no atlas beside this skeleton (expected ${path.basename(pairingKey(file))}.atlas)`);
 			}
 			if (result.problems.length > 0) {
 				failed++;
@@ -354,8 +518,10 @@ async function main() {
 		.join(", ");
 	console.log(`Timelines: ${counts}`);
 	console.log(`Upstream repeated keys (allowed): ${repeatingKeys} slot or deform timelines in ${repeatingFiles} files`);
-	console.log(`${files.length} parsed, ${failed} failed`);
-	process.exit(failed > 0 ? 1 : 0);
+	console.log(`${skelFiles.length} skeletons parsed, ${failed} failed`);
+	console.log(`${atlasFiles.length} atlases parsed, ${pagesChecked} pages (${pagesWithDeclaredSize} with a declared size), ${atlasFailed} atlas(es) failed`);
+	console.log(`Largest packed extent across the corpus: ${(maxFillFraction * 100).toFixed(2)}% of a page's real PNG size`);
+	process.exit(failed > 0 || atlasFailed > 0 ? 1 : 0);
 }
 
 // Run only when called as a script, so a scratch check can import `checkSkeleton` without parsing the corpus.

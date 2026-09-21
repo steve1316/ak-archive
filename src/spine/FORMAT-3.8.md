@@ -194,3 +194,87 @@ Two things that are upstream data, not format differences:
   on purpose (for example, use only the first run, or search each run) rather than inherit whatever a sorted-key search happens to do.
 - **Bezier control X values can leave 0 to 1.** 418 of 10.2 million Bezier curves have `cx1` or `cx2` between -0.34 and 1.34. They are
   real editor handles, so nothing clamps them at read time.
+
+### Task 5: atlases
+
+Verified by parsing all 2,749 staged `.atlas` files with `src/spine/atlas.ts` and cross-checking every one of the 2,744 staged `.skel`
+files against the atlas beside it: 0 parse failures, 0 region-lookup failures, 0 region boxes overflow their page's real PNG size. The
+most tightly packed page in the corpus fills 100.00% of its PNG's width or height (see item 2).
+
+**1. Pages and regions are never separated by a blank line, unlike the doc's example.** Confirmed corpus-wide: none of the 2,749 files
+contain a single blank line (`grep -c "^$"` is 0 for every one of them). The doc's "A blank line after a region section denotes the end of
+regions for a page" does not apply here in the sense that no staged file exercises it, but the reader still honors it: a page's regions end
+at a blank line or the end of the file, exactly as documented, and the corpus's single-page files just happen to hit the end-of-file case.
+
+Confirmed separately, and load-bearing for fix rounds 2 and 3: **a page header line is never indented, and a region's own property line
+always is.** Checked across all 2,749 files (every page header line and every region property line, `format`/`filter`/`repeat` and
+`rotate`/`xy`/`size`/`orig`/`offset`/`index` alike): 0 exceptions. But a page header key line and a region's own *name* line are both
+unindented, so indentation of a line by itself cannot tell those two apart, and neither can the line's own key: a region can be named
+after something that reads like a page key (e.g. a region literally named `size: 10, 10`). What tells them apart is the line *after*:
+a region's own name is always followed by an indented property line, while a page header key line never is (its own next line is
+either another unindented header key or the first region's unindented name). So the rule `readPage` uses is: an unindented line whose
+*next* line is indented is a region's name; every other unindented line up to that point must be a known page property (`size`,
+`format`, `filter`, `repeat`, `pma`) or it throws.
+
+Fix round 2 replaced an earlier version that instead peeked at the line *after* a candidate boundary and guessed whether *that* line
+looked like a page-only header key - that lookahead let a malformed page property (a key it didn't recognize) fall through silently
+and get misread as a region named after the whole malformed line, e.g. `premult: true` becoming a fake region literally named
+`"premult: true"`. Fix round 2's replacement decided the header/region boundary by `PAGE_KEYS` membership of the *candidate line itself*, with no check on
+the next line at all - closer, but still wrong in the other direction: a region genuinely named `size: 10, 10` would be misread as the
+page declaring `size: 10, 10`, and the line after it (the region's real first property) would then throw a misleading "unknown page
+property" error. No staged file has a region name that coincidentally matches a page key, so this was a latent bug rather than a real
+corpus failure. Fix round 3 is the rule described above: it only trusts a line's own key once it has first confirmed, from the next
+line's indentation, that the line cannot be a region name.
+
+**2. A page header is always exactly `format`, `filter`, `repeat`, in that order, with no `size` and no `pma`.** Checked across all 2,749
+files: every page header has exactly this 3-field shape (`char_002_amiya/base/battle/char_002_amiya.atlas` lines 2-4 is representative).
+The doc's `size` field ("0,0 if omitted") and `pma` field ("false if omitted") are always omitted, so `AtlasPage.width`/`height` are always
+0 as parsed from the text, and `pma` is always `false`. PROJECT.md's note that raw Android atlases record 1.5x the real PNG size does not
+show up here: whatever staged these files (`Ark-Models` or `fexli`, per PROJECT.md) appears to drop the page `size` field entirely rather
+than emit a corrected one. Fix round 2 also tightened `pma` parsing: an earlier version treated any value other than the literal string
+`"true"` as `false`, so a typo like `pma: yes` silently became `false` instead of failing. `readPage` now accepts only `true` or `false`
+and throws on anything else.
+
+Because of that, the gate's original page-size check (`page.width > 0 && page.height > 0` before comparing to the PNG's real IHDR size)
+never fired on any of the 2,749 files, so it proved nothing about the real corpus - it only ever guarded a hypothetical future atlas
+that does declare a size. Fix round 1 kept that check (it is a handful of lines, and still catches a declared-but-wrong size if one ever
+shows up), but added the check that actually exercises the 1.5x trap on real data: every region's packed box, from its `xy` and its
+`width`/`height` (swapped when `rotate` is 90 or 270, since a rotated region's box has its edges swapped on the page), must lie inside
+its page's real PNG size read from the IHDR bytes. This runs on all 248,623 regions across all 2,749 pages and found 0 overflows. The
+gate also prints the largest fraction of a page any region's box reaches, across the whole corpus: 100.00%, meaning at least one page is
+packed edge to edge, which is the expected shape for a texture packer and confirms the check is a real constraint, not a slack one.
+`checkRegionBounds` in `check_spine_rigs.mjs` implements this.
+
+**3. A region's bounds are 4 split fields (`xy`, `size`, `orig`, `offset`), not the doc's 2 combined fields (`bounds`, `offsets`).** The
+doc describes one `bounds: x, y, w, h` field and one `offsets: offsetLeft, offsetBottom, origW, origH` field. Every one of the 248,623
+regions in the corpus instead uses 4 separate fields in a fixed order: `rotate, xy, size, orig, offset, index`
+(`char_002_amiya/base/battle/char_002_amiya.atlas` lines 5-10, region `F_Belt`). `xy` is the packed position, `size` the packed size (the
+doc's `bounds` split in two), `orig` the pre-stripping original size, and `offset` the left/bottom stripped whitespace (the doc's `offsets`
+split in two, with the trailing "and the original image size" half of `offsets` moved into `orig`). `readRegion` reads these 4 keys
+directly rather than the doc's 2.
+
+**4. `rotate` really does take a bare degree number, not just `true`/`false`.** The doc allows this ("Otherwise it may be false for 0
+rotation or a number representing degrees from 0 to 360"), and the corpus uses it: of 248,623 regions, `rotate` is `false` in 149,560,
+`true` in 95,328, `270` in 1,981 (e.g. `char_377_gdglow/sanrio_1/battle/char_377_gdglow_sanrio_1.atlas` line 517, region `F_L_Calf`) and
+`180` in 1,754 (e.g. `char_1016_agoat2/base/battle/char_1016_agoat2.atlas` line 118). No other values were found. `readRegion` maps `true`
+to 90 and `false` to 0. Fix round 2 narrowed the accepted degree values from the doc's full 0-360 range down to exactly `{0, 90, 180,
+270}` - the 4 values the corpus actually uses, and the only ones an axis-aligned packed box can have - and throws on anything else
+(e.g. `rotate: 45`), rather than accepting an arbitrary degree value the corpus never produces.
+
+**5. No atlas in the corpus has more than one page.** All 2,749 files parse to exactly 1 page each, matching the 2,749 PNGs 1-for-1.
+Since none of the 2,749 files contains a blank line (item 1), every one of them reads as a single page whose regions run to the end of
+the file - the doc's documented multi-page separator (a blank line) is the only thing that could start a second page, and the corpus
+never uses it.
+
+**6. Region `index` is always -1 and no `split`, `pad` or custom name/value pair appears anywhere.** All 248,623 regions have
+`index: -1`; frame-by-frame animation regions (sharing a name, different index) are not used by any staged rig. The doc documents a
+ninepatch `split`/`pad` field and arbitrary custom name/value pairs as valid region properties, but since neither appears anywhere in
+the corpus, fix round 2 made `readRegion` throw `AtlasFormatError` on any region property key besides `rotate`, `xy`, `size`, `orig`,
+`offset` and `index`, rather than silently reading an unrecognized key past without error the way an earlier version did (that earlier
+behavior is what let a typo'd key like `xyy:` pass silently, leaving the region at its 0,0 default instead of failing).
+
+One thing that is upstream data, not a format difference: **a region name can carry a trailing space, and it is significant.**
+`char_4184_dolris/avemujica_1/dorm/build_char_4184_dolris_avemujica_1.atlas` line 1020 has a region literally named `F_Weaon_Af3 ` (note
+the trailing space), and the sibling skeleton's mesh attachment in that same rig looks it up by that exact name, trailing space included.
+An earlier version of `readRegion` trimmed the region name line, which silently turned this into a 3-instance region-lookup failure the
+gate caught immediately (see the mutation tests in `task-5-report.md`). `readRegion` now takes the region name line as-is.
