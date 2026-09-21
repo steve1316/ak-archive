@@ -138,15 +138,17 @@ export function formsOf(operator: Operator): OperatorForm[] {
 }
 
 /**
- * Read the selected form from the query string, falling back to the first form for anything the operator does not have.
+ * Read the selected form from the query string, falling back to the first form for anything the operator does not have. The comparison is
+ * case-insensitive, matching how `formsOf` itself resolves file keys, so a link with the wrong case still opens the right form.
  *
  * @param params The page's query string.
  * @param forms The operator's forms.
- * @returns The selected form's key, or null when the operator has no forms.
+ * @returns The matched form's own key, or the first form's key when nothing matches, or null when the operator has no forms.
  */
 export function readFormKey(params: URLSearchParams, forms: OperatorForm[]): string | null {
 	const wanted = params.get(FORM_PARAM);
-	return forms.find((form) => form.key === wanted)?.key ?? forms[0]?.key ?? null;
+	const matched = wanted === null ? undefined : forms.find((form) => form.key.toLowerCase() === wanted.toLowerCase());
+	return matched?.key ?? forms[0]?.key ?? null;
 }
 
 /**
