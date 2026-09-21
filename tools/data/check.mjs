@@ -35,6 +35,9 @@ const MIN_POTENTIALS = 400;
 /** Every one of the 412 operators has at least one form at the pinned sha, so a zero here means the skin table grouping broke. */
 const MIN_FORMS = 410;
 
+/** Operators carrying at least one skill: the measured count at the pinned sha, exact for the same reason the asset floors are. */
+const MIN_SKILLED = 398;
+
 /**
  * Floors for the asset manifest, set to what the A3 publish actually produced. These are exact rather than slack like the counts above, because
  * the failure they catch is the pipeline claiming fewer assets than it published. Nothing else in the pipeline notices that: `hasPortrait` reads a
@@ -64,7 +67,7 @@ const FIXTURES = [
 ];
 
 /** The game's inline markup. Any of it in shipped text means `stripMarkup` missed a field. */
-const MARKUP = /<[^>]+>|\{[a-zA-Z@][^}]*\}/;
+const MARKUP = /<[^>]+>|\{-?[a-zA-Z@][^}]*\}/;
 
 // This pattern is duplicated from `tools/data/lib/text.mjs` on purpose. The importer's `isPlaceholder` exists to filter this out at import
 // time, so this gate exists to verify that filtering actually worked - importing the importer's own pattern here would make a bad filter pass
@@ -242,6 +245,34 @@ for (const operator of operators) {
 }
 if (withForms < MIN_FORMS) {
 	fail(`${withForms} operators have forms, below the floor of ${MIN_FORMS}`);
+}
+
+// Skills: every operator that has any has a sane shape, and the count holds.
+let withSkills = 0;
+for (const operator of operators) {
+	if (operator.skills.length > 0) {
+		withSkills += 1;
+	}
+	for (const skill of operator.skills) {
+		if (skill.levels.length !== 7 && skill.levels.length !== 10) {
+			fail(`${operator.id} skill ${skill.id} has ${skill.levels.length} levels, not 7 or 10`);
+		}
+		if (!/^[a-z0-9_]+$/.test(skill.icon)) {
+			fail(`${operator.id} skill ${skill.id} has an unpublishable icon key ${JSON.stringify(skill.icon)}`);
+		}
+		for (const level of skill.levels) {
+			if (level.description.length === 0) {
+				fail(`${operator.id} skill ${skill.id} has a level with no description`);
+			}
+			const joined = level.description.map((run) => run.text).join("");
+			if (joined.includes("  ")) {
+				fail(`${operator.id} skill ${skill.id} has a doubled space in its description: ${JSON.stringify(joined)}`);
+			}
+		}
+	}
+}
+if (withSkills < MIN_SKILLED) {
+	fail(`${withSkills} operators have skills, below the floor of ${MIN_SKILLED}`);
 }
 
 // Markup leakage, across everything the site ships.
@@ -443,6 +474,7 @@ console.log(`fixtures    ${FIXTURES.length} verified`);
 console.log(`talents    ${withTalents} operators carry at least one`);
 console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log(`forms       ${withForms} operators carry at least one`);
+console.log(`skills      ${withSkills} operators`);
 console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
 console.log(`record      ${withBasic} basic, ${withExam} exam`);
 console.log("markup      none leaked");

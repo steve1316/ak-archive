@@ -91,6 +91,44 @@ export interface OperatorFormEntry {
 	name: string;
 }
 
+/** One run of a skill description: plain text, or a value upstream marks as raised or lowered. */
+export interface SkillRun {
+	/** The run's text, with line breaks kept. */
+	text: string;
+	/** `"up"` for a raised value, `"down"` for a lowered one, null for plain text. */
+	emphasis: "up" | "down" | null;
+}
+
+/** A skill at one level. */
+export interface SkillLevel {
+	/** The skill's name at this level. */
+	name: string;
+	/** The description, resolved into runs. */
+	description: SkillRun[];
+	/** How the skill fires. */
+	trigger: "auto" | "manual" | "passive";
+	/** How SP comes back, or null for a skill with no SP. */
+	recovery: "auto" | "offensive" | "defensive" | null;
+	/** SP needed to fire. */
+	spCost: number;
+	/** SP at the start of a battle. */
+	initialSp: number;
+	/** Seconds the skill lasts, or 0 for an instant, toggled or ammo skill. */
+	duration: number;
+}
+
+/** One of an operator's combat skills. */
+export interface OperatorSkill {
+	/** Upstream skill id, such as `skchr_svrash_3`. */
+	id: string;
+	/** The published icon key, from `iconKey` in `tools/data/lib/skills.mjs`. */
+	icon: string;
+	/** The 0-based elite phase that unlocks this skill slot. */
+	unlockPhase: number;
+	/** One entry per level: 7 for a skill with no masteries, 10 (1-7, then M1-M3) otherwise. */
+	levels: SkillLevel[];
+}
+
 /** One operator, as a class shard holds it. */
 export interface Operator {
 	/** Upstream id, such as `char_002_amiya`. */
@@ -127,6 +165,8 @@ export interface Operator {
 	stats: OperatorStats;
 	/** Every costume upstream lists for this operator, in display order. The site keeps only those with published art. */
 	forms: OperatorFormEntry[];
+	/** Combat skills in slot order. Empty for the operators that have none. */
+	skills: OperatorSkill[];
 }
 
 /** One handbook section, such as Basic Info or Profile. */

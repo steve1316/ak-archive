@@ -46,8 +46,11 @@ export function stripMarkup(text) {
 		.trim();
 }
 
-/** One placeholder: `{key}`, or `{key:0%}` with one of the game's .NET-style number formats. */
-const PLACEHOLDER = /\{([a-zA-Z_][\w.@]*)(?::([^}]+))?\}/g;
+/**
+ * One placeholder: `{key}`, or `{key:0%}` with one of the game's .NET-style number formats. A leading `-` negates the value, as in `{-def:0%}`.
+ * Some skill keys carry a bracketed sub-state, as in `{amiya3_s_2[debuff].attack_speed}`, so the key class admits `[` and `]` too.
+ */
+const PLACEHOLDER = /\{(-?)([a-zA-Z_][\w.@\[\]]*)(?::([^}]+))?\}/g;
 
 /**
  * Format one blackboard value the way its placeholder asks.
@@ -74,7 +77,9 @@ function formatValue(value, format) {
  *
  * Trait and talent text ships with `{key}` placeholders rather than numbers, so a page would otherwise print the template. The values live in
  * the same record's `blackboard` as key/value pairs, and keys are matched case-insensitively because the text does not always agree with the
- * blackboard on case. A placeholder with no matching key is left alone, so `check.mjs` catches it rather than it becoming an empty string.
+ * blackboard on case. A placeholder with no matching key is left alone, so `check.mjs` catches it rather than it becoming an empty string. A
+ * leading "-" inside the braces negates the value before formatting, which is how upstream prints a stored negative as a positive after a
+ * literal minus sign.
  *
  * @param {string} text The templated text.
  * @param {Array<{key: string, value: number}>} blackboard The values for this record.
@@ -82,8 +87,8 @@ function formatValue(value, format) {
  */
 export function resolveTemplate(text, blackboard) {
 	const values = new Map(blackboard.map((entry) => [entry.key.toLowerCase(), entry.value]));
-	return (text ?? "").replace(PLACEHOLDER, (whole, key, format) => {
+	return (text ?? "").replace(PLACEHOLDER, (whole, negate, key, format) => {
 		const value = values.get(key.toLowerCase());
-		return value === undefined ? whole : formatValue(value, format);
+		return value === undefined ? whole : formatValue(negate ? -value : value, format);
 	});
 }
