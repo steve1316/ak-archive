@@ -10,6 +10,7 @@ import { loadOperator, loadProfile } from "../../lib/data.js";
 import { formsOf, readFormKey, writeFormKey } from "../../lib/forms.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Controls, Operator as OperatorRecord, Profile } from "../../types/operator.js";
+import AbilitiesCard from "./AbilitiesCard.js";
 import AnimationsCard, { StagePlaceholder } from "./AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import IdentityBlock from "./IdentityBlock.js";
@@ -17,7 +18,6 @@ import { NAVBAR_HEIGHT } from "./layout.js";
 import LorePanel from "./LorePanel.js";
 import RecordBlock from "./RecordBlock.js";
 import StatsPanel from "./StatsPanel.js";
-import TalentsPanel from "./TalentsPanel.js";
 
 /** Controls held before any operator has loaded. Never rendered, since the grid does not appear until the operator is set. */
 const INITIAL_CONTROLS: Controls = { phase: 0, level: 1, trust: true, potential: 1 };
@@ -29,7 +29,7 @@ const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { xs: 2, 
  * Everything above the fold. From `md` up it is at least one screen tall, and the first row takes whatever the second leaves, so slack goes to
  * the Animations stage rather than hollowing out a card. `1fr` is `minmax(auto, 1fr)`, so a row can grow but never shrink below its content.
  */
-const FOLD_SX: SxProps<Theme> = { display: "grid", gap: 1.75, gridTemplateRows: { md: "1fr auto" }, minHeight: { md: `calc(100dvh - ${NAVBAR_HEIGHT}px - 14px)` } };
+const FOLD_SX: SxProps<Theme> = { display: "grid", gap: 1, gridTemplateRows: { md: "1fr auto" }, minHeight: { md: `calc(100dvh - ${NAVBAR_HEIGHT}px - 14px)` } };
 
 /** Row 1: art card, identity and record, Animations. Stacked on a narrow screen. */
 const ROW1_SX: SxProps<Theme> = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } };
@@ -216,17 +216,11 @@ export default function Operator() {
 							</Box>
 							<Box sx={ROW2_SX}>
 								<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
-								<TalentsPanel operator={operator} controls={controls} />
+								<AbilitiesCard operator={operator} controls={controls} baseSkills={profile?.baseSkills ?? null} />
 							</Box>
 						</Box>
 						<LazySection minHeight={320}>
-							{profileFailed ? (
-								<LoadError what="the handbook" onRetry={handleProfileRetry} />
-							) : profile ? (
-								<LorePanel lore={profile.lore} baseSkills={profile.baseSkills} />
-							) : (
-								<Skeleton variant="rounded" height={320} />
-							)}
+							{profileFailed ? <LoadError what="the handbook" onRetry={handleProfileRetry} /> : profile ? <LorePanel lore={profile.lore} /> : <Skeleton variant="rounded" height={320} />}
 						</LazySection>
 					</>
 				) : (

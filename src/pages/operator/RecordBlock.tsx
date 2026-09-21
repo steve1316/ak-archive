@@ -77,11 +77,12 @@ function renderFields(fields: RecordField[], graded: boolean) {
 				</Box>
 				<Box component="dd" sx={long ? LONG_VALUE_SX : styles.value}>
 					{graded && field.grade !== null ? (
-						<Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+						<Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
 							{/* RankBar's own segments are `flex: 1` with no width, so the track needs an explicit width or every segment collapses to 0. */}
 							<Box sx={{ width: EXAM_BAR_WIDTH, flex: "none" }}>
 								<RankBar value={field.grade} max={EXAM_GRADE_COUNT} label={`${field.label}: ${field.value}`} />
 							</Box>
+							{/* Wraps below the bar on a narrow column rather than pushing past the dd, which scrolled the page sideways. */}
 							<span>{field.value}</span>
 						</Stack>
 					) : (

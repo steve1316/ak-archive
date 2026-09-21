@@ -12,6 +12,12 @@
 import type { Talent, TalentCandidate } from "../types/operator.js";
 
 /**
+ * A number in a talent description, or a parenthesised delta. The delta is upstream's own mark for what potential adds, such as `(+2%)` in
+ * `ATK +7% (+2%)`, so it is captured separately and never lined up against the base candidate.
+ */
+const VALUE_TOKEN = /\(([+-]?\d+(?:\.\d+)?%?)\)|[+-]?\d+(?:\.\d+)?%?/g;
+
+/**
  * Whether a candidate is unlocked at a phase and level.
  *
  * @param candidate The candidate.
@@ -84,4 +90,50 @@ export function candidateFor(talent: Talent, phase: number, level: number, poten
  */
 export function baseCandidate(talent: Talent): TalentCandidate | null {
 	return talent.candidates.reduce<TalentCandidate | null>((lowest, candidate) => (!lowest || candidate.requiredPotential < lowest.requiredPotential ? candidate : lowest), null);
+}
+
+/** One run of a talent description: plain text, or a value that moved away from the talent's base candidate. */
+export interface DescriptionSegment {
+	/** The run's text. */
+	text: string;
+	/** Whether this run is a value the controls changed. */
+	changed: boolean;
+}
+
+/**
+ * Split a talent description into runs, marking the values the current controls changed.
+ *
+ * Bare numbers are compared in order against the base candidate's bare numbers, so `+12%` beside a base of `+5%` is marked and an unchanged
+ * `+20%` is not. A parenthesised delta is always marked. With no baseline nothing is marked, since there is nothing to have changed from.
+ *
+ * @param description The current candidate's description.
+ * @param baseline The base candidate's description, or null when the talent has none.
+ * @returns The runs, in order. Joined, they reproduce `description` exactly.
+ */
+export function changedValueSegments(description: string, baseline: string | null): DescriptionSegment[] {
+	const baseValues = baseline === null ? null : [...baseline.matchAll(VALUE_TOKEN)].filter((match) => match[1] === undefined).map((match) => match[0]);
+	const segments: DescriptionSegment[] = [];
+	let cursor = 0;
+	let bareIndex = 0;
+	for (const match of description.matchAll(VALUE_TOKEN)) {
+		const start = match.index;
+		if (start > cursor) {
+			segments.push({ text: description.slice(cursor, start), changed: false });
+		}
+		let changed = false;
+		if (baseValues !== null) {
+			if (match[1] !== undefined) {
+				changed = true;
+			} else {
+				changed = match[0] !== baseValues[bareIndex];
+				bareIndex += 1;
+			}
+		}
+		segments.push({ text: match[0], changed });
+		cursor = start + match[0].length;
+	}
+	if (cursor < description.length) {
+		segments.push({ text: description.slice(cursor), changed: false });
+	}
+	return segments;
 }

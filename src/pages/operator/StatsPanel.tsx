@@ -1,31 +1,40 @@
 import { useMemo } from "react";
 import type { MouseEvent } from "react";
 
-import { Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Box, Paper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { LevelSlider } from "archive-kit";
 
 import { statsAt } from "../../lib/stats.js";
-import type { Controls, Operator, StatValues } from "../../types/operator.js";
+import type { Controls, Operator, StatValues, TrustBonus } from "../../types/operator.js";
+import { SECTION_HEADING_SX, SECTION_SX } from "./layout.js";
 
-/** One stat row: the label the panel shows and the `StatValues` field it reads, in display order. */
-const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues }> = [
-	{ label: "Max HP", key: "maxHp" },
-	{ label: "ATK", key: "atk" },
-	{ label: "DEF", key: "def" },
-	{ label: "Arts Resist", key: "magicResistance" },
-	{ label: "DP Cost", key: "cost" },
-	{ label: "Block", key: "blockCnt" },
-	{ label: "Attack Interval", key: "baseAttackTime" },
-	{ label: "Redeploy", key: "respawnTime" }
+/** One single-stat row: its label, the `StatValues` field it reads, and the `TrustBonus` field that marks what full trust adds to it. */
+const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues; trustKey: keyof TrustBonus }> = [
+	{ label: "HP", key: "maxHp", trustKey: "maxHp" },
+	{ label: "ATK", key: "atk", trustKey: "atk" },
+	{ label: "DEF", key: "def", trustKey: "def" },
+	{ label: "Arts resist", key: "magicResistance", trustKey: "magicResistance" }
 ];
 
 /** The potential ranks offered, 1 through 6. Rank 1 is the operator as recruited and never carries a `potentials` entry. */
 const POTENTIAL_RANKS: ReadonlyArray<number> = [1, 2, 3, 4, 5, 6];
 
-/** Styles shared by the panel's three button rows: full width, with every button given an equal share. */
-const TOGGLE_ROW_SX: SxProps<Theme> = { width: "100%", "& .MuiToggleButton-root": { flex: 1 } };
+/** One row of the stat list: label on the left, value (and any trust badge) on the right. */
+const ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "baseline", justifyContent: "space-between", py: 0.625, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } };
+
+/** The stat list itself, above the controls. */
+const ROWS_SX: SxProps<Theme> = { flex: "none" };
+
+/** The trust bonus badge shown after a stat's value. */
+const TRUST_BADGE_SX: SxProps<Theme> = { ml: 0.75, color: "primary.main" };
+
+/** The controls block below the stat list. */
+const CONTROLS_SX: SxProps<Theme> = { flex: "none", mt: 1.75, display: "flex", flexDirection: "column", gap: 1.25 };
+
+/** The trust and potential row: a single trust toggle beside the potential group. */
+const TRUST_POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1 };
 
 /** Props for StatsPanel. */
 interface StatsPanelProps {
@@ -38,21 +47,20 @@ interface StatsPanelProps {
 }
 
 /**
- * The operator page's stats panel: elite phase, level, trust and potential controls, plus the eight stats those controls resolve to.
+ * The operator page's stats card: the eight stats those controls resolve to, then the elite phase, level, trust and potential controls that pick
+ * them, matching the locked design's order of value first, controls below.
  *
- * The panel owns no state. Every control reads its value from `controls` and reports a change through `onChange`, so the page stays the single
- * source of truth for the controls that the talents and skins panels will also read.
+ * The card owns no state. Every control reads its value from `controls` and reports a change through `onChange`, so the page stays the single
+ * source of truth for the controls that the Abilities card also reads.
  *
  * @param props Component props.
- * @returns The panel.
+ * @returns The card.
  */
 export default function StatsPanel({ operator, controls, onChange }: StatsPanelProps) {
 	const { phase, level, trust, potential } = controls;
 
 	const maxLevel = operator.stats.phases[phase]?.maxLevel ?? 1;
 	const stats = useMemo(() => statsAt(operator, phase, level, { trust, potential }), [operator, phase, level, trust, potential]);
-	// The exact rank the potential picker has selected, not every rank up to it, since this is only for the CUSTOM-rank description below.
-	const potentialEntry = operator.potentials.find((entry) => entry.rank === potential);
 
 	const handlePhaseChange = (_event: MouseEvent<HTMLElement>, value: number | null) => {
 		if (value !== null) {
@@ -60,10 +68,8 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 		}
 	};
 
-	const handleTrustChange = (_event: MouseEvent<HTMLElement>, value: boolean | null) => {
-		if (value !== null) {
-			onChange({ trust: value });
-		}
+	const handleTrustToggle = () => {
+		onChange({ trust: !trust });
 	};
 
 	const handlePotentialChange = (_event: MouseEvent<HTMLElement>, value: number | null) => {
@@ -73,12 +79,45 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 	};
 
 	return (
-		<Card>
-			<CardContent>
-				<Typography variant="caption" color="text.secondary">
-					Elite phase
-				</Typography>
-				<ToggleButtonGroup value={phase} exclusive onChange={handlePhaseChange} sx={TOGGLE_ROW_SX} aria-label="Elite phase">
+		<Paper variant="outlined" sx={SECTION_SX}>
+			<Typography variant="h6" component="h2" sx={SECTION_HEADING_SX}>
+				Stats
+			</Typography>
+			<Box sx={ROWS_SX}>
+				{STAT_ROWS.map((row) => {
+					const bonus = operator.stats.trustBonus[row.trustKey];
+					return (
+						<Box key={row.key} sx={ROW_SX}>
+							<Typography variant="body2" color="text.secondary">
+								{row.label}
+							</Typography>
+							<Typography variant="body2">
+								{stats[row.key]}
+								{trust && bonus > 0 ? (
+									<Box component="span" sx={TRUST_BADGE_SX}>
+										<Typography component="span" variant="caption">{`+${bonus}`}</Typography>
+									</Box>
+								) : null}
+							</Typography>
+						</Box>
+					);
+				})}
+				<Box sx={ROW_SX}>
+					<Typography variant="body2" color="text.secondary">
+						Cost / Block
+					</Typography>
+					<Typography variant="body2">{`${stats.cost} / ${stats.blockCnt}`}</Typography>
+				</Box>
+				<Box sx={ROW_SX}>
+					<Typography variant="body2" color="text.secondary">
+						Interval / Redeploy
+					</Typography>
+					<Typography variant="body2">{`${stats.baseAttackTime}s / ${stats.respawnTime}s`}</Typography>
+				</Box>
+			</Box>
+
+			<Box sx={CONTROLS_SX}>
+				<ToggleButtonGroup value={phase} exclusive size="small" onChange={handlePhaseChange} aria-label="Elite phase">
 					{operator.stats.phases.map((_phaseEntry, index) => (
 						<ToggleButton key={index} value={index}>
 							{`E${index}`}
@@ -86,53 +125,21 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 					))}
 				</ToggleButtonGroup>
 
-				<LevelSlider id="stats-level-label" label="Level" value={level} max={maxLevel} onChange={(newLevel) => onChange({ level: newLevel })} sx={{ mt: 2 }} />
+				<LevelSlider id="stats-level-label" label="Level" value={level} max={maxLevel} onChange={(newLevel) => onChange({ level: newLevel })} />
 
-				<Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: "block" }}>
-					Trust
-				</Typography>
-				<ToggleButtonGroup value={trust} exclusive onChange={handleTrustChange} sx={TOGGLE_ROW_SX} aria-label="Trust">
-					<ToggleButton value={false}>None</ToggleButton>
-					<ToggleButton value={true}>Full</ToggleButton>
-				</ToggleButtonGroup>
-
-				<Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: "block" }}>
-					Potential
-				</Typography>
-				<ToggleButtonGroup value={potential} exclusive onChange={handlePotentialChange} sx={TOGGLE_ROW_SX} aria-label="Potential">
-					{POTENTIAL_RANKS.map((rank) => (
-						<ToggleButton key={rank} value={rank}>
-							{`P${rank}`}
-						</ToggleButton>
-					))}
-				</ToggleButtonGroup>
-				{potentialEntry?.type === "CUSTOM" ? (
-					<Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-						{potentialEntry.description}
-					</Typography>
-				) : null}
-
-				<TableContainer sx={{ mt: 2 }}>
-					<Table size="small">
-						<TableHead>
-							<TableRow>
-								<TableCell>Stat</TableCell>
-								<TableCell align="right">Value</TableCell>
-							</TableRow>
-						</TableHead>
-						<TableBody>
-							{STAT_ROWS.map((row) => (
-								<TableRow key={row.key}>
-									<TableCell component="th" scope="row">
-										{row.label}
-									</TableCell>
-									<TableCell align="right">{stats[row.key]}</TableCell>
-								</TableRow>
-							))}
-						</TableBody>
-					</Table>
-				</TableContainer>
-			</CardContent>
-		</Card>
+				<Box sx={TRUST_POTENTIAL_ROW_SX}>
+					<ToggleButton value="trust" size="small" selected={trust} onChange={handleTrustToggle}>
+						Full trust
+					</ToggleButton>
+					<ToggleButtonGroup value={potential} exclusive size="small" onChange={handlePotentialChange} aria-label="Potential">
+						{POTENTIAL_RANKS.map((rank) => (
+							<ToggleButton key={rank} value={rank}>
+								{`P${rank}`}
+							</ToggleButton>
+						))}
+					</ToggleButtonGroup>
+				</Box>
+			</Box>
+		</Paper>
 	);
 }
