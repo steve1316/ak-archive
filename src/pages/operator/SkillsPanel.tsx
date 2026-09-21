@@ -6,9 +6,12 @@ import type { SelectChangeEvent, SxProps, Theme } from "@mui/material";
 
 import { skillIconUrl } from "../../lib/icons.js";
 import type { OperatorSkill, SkillLevel, SkillRun } from "../../types/operator.js";
-import { RAISED_BG, TIGHT_RADIUS } from "./layout.js";
+import { RAISED_TILE_SX, TIGHT_RADIUS } from "./layout.js";
 
-/** Opens the level menu to the right of its field, as gfl's skills panel does. A module constant, so the Select is not handed a new object each render. */
+/**
+ * Opens the level menu to the right of its field, as gfl's skills panel does.
+ * A module constant, so the Select is not handed a new object each render.
+ */
 const LEVEL_MENU_PROPS = {
 	anchorOrigin: { vertical: "top", horizontal: "right" },
 	transformOrigin: { vertical: "top", horizontal: "left" }
@@ -27,7 +30,7 @@ const SWITCH_SX: SxProps<Theme> = { width: "100%", mb: 1.25, "& .MuiToggleButton
 const SWITCH_ICON_SX: SxProps<Theme> = { width: 26, height: 26, borderRadius: TIGHT_RADIUS };
 
 /** The skill card. */
-const CARD_SX: SxProps<Theme> = { border: 1, borderColor: "divider", borderRadius: 1, p: 1.5, backgroundColor: RAISED_BG };
+const CARD_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1.5 };
 
 /** The card's header row: icon, name and badges, then the level field at the right. */
 const HEAD_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1.5 };

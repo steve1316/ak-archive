@@ -7,7 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { eliteIconUrl, potentialIconUrl } from "../../lib/icons.js";
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
 import type { BaseSkill, Controls, Operator } from "../../types/operator.js";
-import { RAISED_BG, SECTION_SX } from "./layout.js";
+import { RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "./layout.js";
 import SkillsPanel from "./SkillsPanel.js";
 
 /** The gap between tiles, both across columns and from one tile to the next down a column. */
@@ -23,15 +23,7 @@ const TILES_SX: SxProps<Theme> = { columnCount: { xs: 1, sm: 2 }, columnGap: TIL
 /**
  * One tile, on the kit's raised surface. `breakInside: "avoid"` keeps a tile's border and background from splitting across the two columns.
  */
-const TILE_SX: SxProps<Theme> = {
-	border: 1,
-	borderColor: "divider",
-	borderRadius: 1,
-	p: 1.25,
-	mb: TILES_GAP,
-	breakInside: "avoid",
-	backgroundColor: RAISED_BG
-};
+const TILE_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1.25, mb: TILES_GAP, breakInside: "avoid" };
 
 /** A tile's title row. */
 const TILE_TITLE_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1, fontWeight: 600, fontSize: 14.5 };
@@ -52,7 +44,13 @@ const NAME_SX: SxProps<Theme> = { fontWeight: 700 };
 const LOCKED_NAME_SX: SxProps<Theme> = { fontWeight: 700, color: "text.disabled" };
 
 /** The tab strip: compact, scrolling sideways on a narrow screen rather than wrapping. */
-const TABS_SX: SxProps<Theme> = { flex: "none", minHeight: 40, mb: 1.5, borderBottom: 1, borderColor: "divider", "& .MuiTab-root": { minHeight: 40, py: 1, textTransform: "none", fontWeight: 600 } };
+const TABS_SX: SxProps<Theme> = {
+	...TAB_STRIP_SX,
+	flex: "none",
+	minHeight: 40,
+	mb: 1.5,
+	"& .MuiTab-root": { ...TAB_STRIP_SX["& .MuiTab-root"], minHeight: 40, py: 1 }
+};
 
 /** One potential row: the rank's icon, then what it does. */
 const POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } };

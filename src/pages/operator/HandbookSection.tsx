@@ -19,6 +19,8 @@ const ROOT_MARGIN = "0px 0px -1px 0px";
 interface HandbookSectionProps {
 	/** The operator whose handbook to load. */
 	id: string;
+	/** The selected form's illustration, which the handbook draws behind its right side, or null for none. */
+	artUrl: string | null;
 }
 
 /**
@@ -30,7 +32,7 @@ interface HandbookSectionProps {
  * @param props Component props.
  * @returns A placeholder until the section is on screen, then the handbook, its loading skeleton, or a retry notice.
  */
-export default function HandbookSection({ id }: HandbookSectionProps) {
+export default function HandbookSection({ id, artUrl }: HandbookSectionProps) {
 	const ref = useRef<HTMLDivElement | null>(null);
 	const [near, setNear] = useState(false);
 	const [lore, setLore] = useState<LoreSection[] | null>(null);
@@ -93,5 +95,5 @@ export default function HandbookSection({ id }: HandbookSectionProps) {
 	if (lore === null) {
 		return <Skeleton variant="rounded" height={320} />;
 	}
-	return <LorePanel lore={lore} />;
+	return <LorePanel key={id} lore={lore} artUrl={artUrl} />;
 }

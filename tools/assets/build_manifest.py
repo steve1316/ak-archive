@@ -168,7 +168,12 @@ def build_manifest(staging_dir, operator_ids):
         operator_ids: Every known operator id.
 
     Returns:
-        A dict with `portraits`, `illustrations`, `skins`, `variants` and `skillIcons` keys, each with its entries sorted so a re-run of an unchanged tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant. `variants` records each kind's variant keys separately, in that kind's own upstream spelling. `skins` merges them, which loses both whether a kind has the file and how it spells it - upstream lower-cases some keys under `charpor/` only. `skillIcons` is a flat list of the encoded skill icon keys, listed because a page shows one per skill and the import gate checks every skill has one. Potentials, elites and classes are fixed sets and are not part of the manifest.
+        A dict with `portraits`, `illustrations`, `skins`, `variants` and `skillIcons` keys, each with its entries sorted so a re-run of an unchanged
+        tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant. `variants` records each
+        kind's variant keys separately, in that kind's own upstream spelling. `skins` merges them, which loses both whether a kind has the file and
+        how it spells it - upstream lower-cases some keys under `charpor/` only. `skillIcons` is a flat list of the encoded skill icon keys, listed
+        because a page shows one per skill and the import gate checks every skill has one. Potentials, elites and classes are fixed sets and
+        are not part of the manifest.
     """
     portraits, portrait_variants = scan_kind(staging_dir, "portraits", operator_ids)
     illustrations, illustration_variants = scan_kind(staging_dir, "illustrations", operator_ids)

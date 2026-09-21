@@ -35,10 +35,13 @@ const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { xs: 2, 
  */
 const FOLD_SX: SxProps<Theme> = (theme) => ({
 	display: "grid",
-	gap: 1,
+	gap: 2,
 	gridTemplateRows: { md: "1fr auto" },
 	minHeight: { md: `calc(100dvh - ${NAVBAR_HEIGHT}px - ${theme.spacing(PAGE_TOP_PADDING)})` }
 });
+
+/** Space between the fold and the handbook below it, the same as between the two rows above. */
+const HANDBOOK_SX: SxProps<Theme> = { mt: 2 };
 
 /** Row 1: art card, identity and record, Animations. Stacked on a narrow screen. */
 const ROW1_SX: SxProps<Theme> = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } };
@@ -197,7 +200,9 @@ export default function Operator() {
 								<AbilitiesCard operator={operator} controls={controls} />
 							</Box>
 						</Box>
-						<HandbookSection id={operator.id} />
+						<Box sx={HANDBOOK_SX}>
+							<HandbookSection id={operator.id} artUrl={form?.illustration ?? null} />
+						</Box>
 					</>
 				) : (
 					<Typography variant="body1" color="text.secondary" role="status">

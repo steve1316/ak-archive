@@ -31,7 +31,7 @@ const ROWS_SX: SxProps<Theme> = { flex: "none" };
 const TRUST_BADGE_SX: SxProps<Theme> = { ml: 0.75, color: "primary.main" };
 
 /** The controls block below the stat list. */
-const CONTROLS_SX: SxProps<Theme> = { flex: "none", mt: 1.75, display: "flex", flexDirection: "column", gap: 1.25 };
+const CONTROLS_SX: SxProps<Theme> = { flex: "none", mt: 0.75, display: "flex", flexDirection: "column", gap: 1.25 };
 
 /** The trust and potential row: a single trust toggle beside the potential group. */
 const TRUST_POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1 };

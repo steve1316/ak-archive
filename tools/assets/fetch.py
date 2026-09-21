@@ -6,7 +6,8 @@ The two fetches are unrelated and share nothing but this command line and the sp
 directories are checked out of a repo that is 17.8 GB whole - this pulls about 9.2 GB. `--only icons` pulls `skills`, `potential_hub`, `elite_hub` and
 `profession_large_hub` out of `ArknightsAssets/ArknightsAssets2` the same way. Its `en` branch is refreshed hourly by the repo's own GitHub Actions
 job, so it stays current on its own and the 8 class icons no longer depend on the dead `Aceship/Arknight-Images` mirror. Neither stage produces
-anything the site reads - later pipeline stages re-encode this staged tree to WebP and publish it. See `PROJECT.md` for the mirror decisions behind both sources.
+anything the site reads - later pipeline stages re-encode this staged tree to WebP and publish it.
+See `PROJECT.md` for the mirror decisions behind both sources.
 
 Usage:
     python3 -u tools/assets/fetch.py [--only {art,icons}]
