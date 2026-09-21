@@ -66,6 +66,24 @@ def is_base_variant(key):
     return BASE_VARIANT.match(key) is not None
 
 
+def is_redundant_crop(key, keys):
+    """
+    Whether a variant is a redundant crop of another variant the same operator already has.
+
+    Upstream ships a "b" twin of many keys: the same artwork, at a different crop and about half the resolution. Comparing char_172_svrash's
+    `_2` against `_2b` confirmed this - same art, no content of its own. 1005 of these were published before this rule existed, at 171.8 MB.
+
+    Args:
+        key: The variant key to check.
+        keys: Every variant key the same operator has.
+
+    Returns:
+        True when `key` ends in "b" and the same operator also has the key with that "b" stripped. A bare "b" key never matches, since
+        stripping it would leave an empty base to look for.
+    """
+    return len(key) > 1 and key.endswith("b") and key[:-1] in keys
+
+
 def normalise_key(key):
     """
     Make a variant key safe to put in a URL path.

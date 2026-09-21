@@ -25,7 +25,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from names import canonical_key, is_test_variant, output_name, parse_asset
+from names import canonical_key, is_redundant_crop, is_test_variant, output_name, parse_asset
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -132,14 +132,14 @@ def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
 
     Returns:
         A `(jobs, skipped)` pair. `jobs` is a list of `(input_path, output_path, label)` triples. `skipped` is a
-        dict with `unrecognised` and `test` counts. Both are empty when `upstream_name`'s source directory does not
-        exist - that stage simply has nothing to do.
+        dict with `unrecognised`, `test` and `redundant` counts. Both are empty when `upstream_name`'s source
+        directory does not exist - that stage simply has nothing to do.
     """
     source_dir = os.path.join(staging_dir, "upstream", upstream_name)
     dest_dir = os.path.join(staging_dir, "assets", published_name)
 
     jobs = []
-    skipped = {"unrecognised": 0, "test": 0}
+    skipped = {"unrecognised": 0, "test": 0, "redundant": 0}
     if not os.path.isdir(source_dir):
         print(f"skipping {published_name}: {source_dir} does not exist")
         return jobs, skipped
@@ -162,9 +162,15 @@ def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
         keys_by_operator.setdefault(operator_id, []).append(key)
         files_by_operator.setdefault(operator_id, []).append((name, key))
 
+    # The redundant check runs here, once every key for an operator is known, rather than beside the test-variant
+    # check above - it needs the operator's whole key set to tell a "b" crop from the base it duplicates.
     for operator_id, files in files_by_operator.items():
-        canonical = canonical_key(keys_by_operator[operator_id])
+        keys = keys_by_operator[operator_id]
+        canonical = canonical_key(keys)
         for name, key in files:
+            if is_redundant_crop(key, keys):
+                skipped["redundant"] += 1
+                continue
             out_name = output_name(operator_id, key, canonical)
             label = f"{upstream_name}/{name} -> {published_name}/{out_name}"
             jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, out_name), label))
@@ -270,8 +276,8 @@ def print_skip_summary(skipped):
     Print the per-reason skip counts for a run.
 
     Args:
-        skipped: A dict mapping a skip reason (`unrecognised`, `test`, `already_exists`) to how many files were
-            skipped for it.
+        skipped: A dict mapping a skip reason (`unrecognised`, `test`, `redundant`, `already_exists`) to how many
+            files were skipped for it.
     """
     print("skipped: " + ", ".join(f"{reason}={count}" for reason, count in skipped.items()))
 
@@ -293,7 +299,7 @@ def main():
     operator_ids = load_operator_ids()
 
     jobs = []
-    skipped = {"unrecognised": 0, "test": 0}
+    skipped = {"unrecognised": 0, "test": 0, "redundant": 0}
     for upstream_name, published_name in KINDS.items():
         if published_name not in stages:
             continue
@@ -301,6 +307,7 @@ def main():
         jobs.extend(kind_jobs)
         skipped["unrecognised"] += kind_skipped["unrecognised"]
         skipped["test"] += kind_skipped["test"]
+        skipped["redundant"] += kind_skipped["redundant"]
 
     if "classes" in stages:
         jobs.extend(plan_classes(args.staging))

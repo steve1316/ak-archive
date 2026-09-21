@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from names import canonical_key, is_base_variant, is_test_variant, normalise_key, output_name, parse_asset
+from names import canonical_key, is_base_variant, is_redundant_crop, is_test_variant, normalise_key, output_name, parse_asset
 
 IDS = {"char_002_amiya", "char_1001_amiya2", "char_1037_amiya3", "char_010_chen"}
 
@@ -36,6 +36,22 @@ def test_base_variants_are_plain_numbers_optionally_plus():
     assert is_base_variant("1+") is True
     assert is_base_variant("2b") is False
     assert is_base_variant("epoque_4") is False
+
+
+def test_redundant_crop_is_recognised_when_its_base_is_present():
+    assert is_redundant_crop("2b", ["1", "2", "2b"]) is True
+
+
+def test_redundant_crop_is_not_recognised_when_its_base_is_absent():
+    assert is_redundant_crop("2b", ["1", "2b"]) is False
+
+
+def test_redundant_crop_handles_a_bare_b_key_without_crashing():
+    assert is_redundant_crop("b", ["b"]) is False
+
+
+def test_redundant_crop_is_false_for_a_normal_key():
+    assert is_redundant_crop("epoque_4", ["1", "epoque_4"]) is False
 
 
 def test_plus_normalises_for_url_safety():

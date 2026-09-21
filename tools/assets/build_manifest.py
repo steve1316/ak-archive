@@ -19,6 +19,10 @@ import argparse
 import glob
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from names import canonical_key, is_base_variant, is_redundant_crop
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -92,7 +96,11 @@ def scan_kind(staging_dir, kind, operator_ids):
 
     Returns:
         A `(canonical, variants)` pair. `canonical` is a set of operator ids that have a bare `<id>.webp`. `variants` maps an operator id to
-        the list of variant keys its `<id>_<key>.webp` files carry. Both are empty when `kind`'s directory does not exist yet.
+        the list of variant keys its `<id>_<key>.webp` files carry, minus any key `is_redundant_crop` says duplicates another key the same
+        operator already has - the encoded tree can still hold those files locally even after names.py stopped producing new ones, since
+        nothing here deletes a stale file. An operator left with no keys after that filtering is left out of `variants` entirely rather than
+        mapped to an empty list, matching `build_manifest`'s own promise that `skins` only names an operator that has one. Both are empty
+        when `kind`'s directory does not exist yet.
     """
     source_dir = os.path.join(staging_dir, "assets", kind)
     canonical = set()
@@ -100,6 +108,7 @@ def scan_kind(staging_dir, kind, operator_ids):
     if not os.path.isdir(source_dir):
         return canonical, variants
 
+    keys_by_operator = {}
     for name in sorted(os.listdir(source_dir)):
         if not name.endswith(".webp"):
             continue
@@ -111,7 +120,25 @@ def scan_kind(staging_dir, kind, operator_ids):
         if key is None:
             canonical.add(operator_id)
         else:
-            variants.setdefault(operator_id, []).append(key)
+            keys_by_operator.setdefault(operator_id, []).append(key)
+
+    # The redundant check needs an operator's whole key set, so it runs in its own pass once keys_by_operator is complete.
+    for operator_id, keys in keys_by_operator.items():
+        full_keys = set(keys)
+        if operator_id in canonical:
+            # The canonical variant's own key never survives as a literal entry here - output_name drops it, so its file carries no suffix
+            # at all. A numbered "*b" crop of that exact variant would otherwise find no base to match, so its number is reconstructed with
+            # the same rule canonical_key used to pick it in the first place, from every base-variant number this operator's keys still show
+            # or imply, and added back in as a stand-in before the redundant check runs. This assumes every "*b" crop upstream ships beside
+            # its base - true for every operator in the real data today, but not something this reconstruction can prove from the encoded
+            # tree alone.
+            implied_numbers = {key[:-1] for key in keys if key.endswith("b") and len(key) > 1 and is_base_variant(key[:-1])}
+            phantom_canonical = canonical_key({key for key in keys if is_base_variant(key)} | implied_numbers)
+            if phantom_canonical is not None:
+                full_keys.add(phantom_canonical)
+        kept = [key for key in keys if not is_redundant_crop(key, full_keys)]
+        if kept:
+            variants[operator_id] = kept
     return canonical, variants
 
 

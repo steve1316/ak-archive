@@ -12,6 +12,7 @@ site while looking perfectly correct in the GitHub repo browser.
 
 Usage:
     python3 -u tools/assets/publish.py add [--confirm] [--staging PATH]
+    python3 -u tools/assets/publish.py remove [--confirm] [--staging PATH]
     python3 -u tools/assets/publish.py wait-live [PATH ...] [--sample N] [--staging PATH]
 """
 
@@ -25,7 +26,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from publish_checks import BATCH_BYTES, WARN_TOTAL_BYTES, check_sizes, compare_manifests, plan_batches
+from publish_checks import BATCH_BYTES, WARN_TOTAL_BYTES, batch_message, check_sizes, compare_manifests, plan_batches, plan_removals, redundant_crop_base
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -56,6 +57,13 @@ REQUEST_TIMEOUT_SECONDS = 30
 
 # How many stale manifest claims to name before summarising the rest. A manifest built against the wrong tree can be wrong about all 3502 files.
 STALE_CLAIMS_SHOWN = 10
+
+# A removal that takes more than this share of the published tree is a mistaken pattern, not an intention.
+MAX_REMOVAL_SHARE = 0.4
+
+# The stem suffix that marks a redundant crop, the one convention names.py and encode.py already enforce upstream. This is the single
+# definition both `run_remove` and `publishable_files` read, so a removal and the next publish can never disagree about what counts as redundant.
+REDUNDANT_CROP_SUFFIX = "b"
 
 # GitHub rejects the Python default User-Agent on raw.githubusercontent.com requests.
 USER_AGENT = "ak-archive-asset-publish/1.0 (fan site asset pipeline; https://github.com/steve1316/ak-archive)"
@@ -234,6 +242,37 @@ def walk_encoded(encoded_dir):
     return sorted(files)
 
 
+def publishable_files(encoded_dir, suffix=REDUNDANT_CROP_SUFFIX):
+    """
+    The files the encoded tree actually publishes, once redundant crops are filtered out.
+
+    This is the one place that decides what gets pushed, so every caller that needs to describe, size, check or copy the tree reads from here
+    instead of `walk_encoded` directly - `run_add`'s size and manifest checks, its summary line, its copy into the clone, and `wait-live`'s
+    sample all end up describing the exact same set this way. The encoded tree can still hold a redundant crop from before names.py and
+    encode.py started refusing to produce them, since nothing in this pipeline deletes a stale file - this is what keeps one from leaking back
+    out even so.
+
+    Args:
+        encoded_dir: Root of the encoded output, `<staging>/assets`.
+        suffix: The stem suffix a redundant crop carries. Defaults to `REDUNDANT_CROP_SUFFIX`.
+
+    Returns:
+        `(path, size)` pairs from `walk_encoded`, minus any file `redundant_crop_base` finds a base for among its own siblings.
+    """
+    files = walk_encoded(encoded_dir)
+
+    by_directory = {}
+    for path, _size in files:
+        directory, _slash, name = path.rpartition("/")
+        by_directory.setdefault(directory, set()).add(name)
+
+    def is_redundant(path):
+        directory, _slash, name = path.rpartition("/")
+        return redundant_crop_base(name, suffix, by_directory[directory]) is not None
+
+    return [(path, size) for path, size in files if not is_redundant(path)]
+
+
 def check_manifest_against_tree(manifest, files):
     """
     Cross-check what the manifest claims against the files actually about to be published.
@@ -271,9 +310,13 @@ def check_manifest_against_tree(manifest, files):
     return problems
 
 
-def copy_into_clone(encoded_dir, publish_dir):
+def copy_into_clone(encoded_dir, publish_dir, files):
     """
-    Copy the encoded tree into the clone, and the site's manifest in beside it.
+    Copy exactly `files` from the encoded tree into the clone, and the site's manifest in beside it.
+
+    Copies one file at a time from `files` rather than a whole-tree `shutil.copytree`, so the clone only ever receives what `run_add` already
+    checked and counted as publishable - the same list `check_sizes`, `check_manifest_against_tree` and the summary line describe. That is
+    what keeps a `remove` run durable: a redundant crop `publishable_files` already filtered out never has a path to copy back in.
 
     A file whose bytes have not changed copies back identical, so git reports it as unmodified and it is not re-published. That is what keeps a
     re-run cheap. The timestamps `copy2` preserves have nothing to do with it - git re-hashes a file whenever its mtime moves.
@@ -281,6 +324,7 @@ def copy_into_clone(encoded_dir, publish_dir):
     Args:
         encoded_dir: Root of the encoded output.
         publish_dir: The clone of the assets repo.
+        files: `(path, size)` pairs to copy in, as `publishable_files` returns them.
 
     Returns:
         True when the site's manifest was copied in, False when it has not been built yet.
@@ -288,8 +332,11 @@ def copy_into_clone(encoded_dir, publish_dir):
     Raises:
         OSError: If a file cannot be read or written.
     """
-    if os.path.isdir(encoded_dir):
-        shutil.copytree(encoded_dir, publish_dir, dirs_exist_ok=True)
+    for path, _size in files:
+        source = os.path.join(encoded_dir, path)
+        destination = os.path.join(publish_dir, path)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        shutil.copy2(source, destination)
     if not os.path.exists(MANIFEST_PATH):
         return False
     shutil.copy2(MANIFEST_PATH, os.path.join(publish_dir, MANIFEST_NAME))
@@ -355,7 +402,7 @@ def with_sizes(publish_dir, paths):
 # Publishing
 
 
-def publish_batches(publish_dir, batches, confirm):
+def publish_batches(publish_dir, batches, new_paths, confirm):
     """
     Commit and push each batch. This is the only function in this file that writes to the remote, and it holds the only `git push`.
 
@@ -364,6 +411,7 @@ def publish_batches(publish_dir, batches, confirm):
     Args:
         publish_dir: The clone of the assets repo.
         batches: Batches of `(path, size)` pairs, as `plan_batches` returns them.
+        new_paths: The paths the repo does not have yet, used to describe each batch as adding or updating rather than always adding.
         confirm: Must be True. `main` already checks `--confirm`, and this second gate keeps the push unreachable even if a future caller forgets to.
 
     Returns:
@@ -380,13 +428,89 @@ def publish_batches(publish_dir, batches, confirm):
         paths = [path for path, _size in batch]
         add_command = ["git", "-C", publish_dir, "add", "--pathspec-from-file=-", "--pathspec-file-nul"]
         subprocess.run(add_command, input="\0".join(paths), text=True, check=True)
-        subprocess.run(["git", "-C", publish_dir, "commit", "-m", f"Add asset batch {number} of {len(batches)} ({len(paths)} files)"], check=True)
+
+        added = sum(1 for path in paths if path in new_paths)
+        message = batch_message(added, len(paths) - added, number, len(batches))
+        subprocess.run(["git", "-C", publish_dir, "commit", "-m", message], check=True)
 
         result = subprocess.run(["git", "-C", publish_dir, "push", "origin", BRANCH], check=False)
         if result.returncode != 0:
             print(f"push failed on batch {number} of {len(batches)} - re-run `publish.py add --confirm` to resume from the files still unpublished")
             return 1
         print(f"pushed batch {number} of {len(batches)}, {len(paths)} files")
+    return 0
+
+
+def run_remove(args):
+    """
+    Run the `remove` flow: clone, select the redundant crop files, summarise, and delete them only with `--confirm`.
+
+    This is the only flow in this file that deletes published work, so it refuses to select everything: a run that would remove more than
+    `MAX_REMOVAL_SHARE` of the tree is treated as a mistaken pattern rather than an intention. It always targets `REDUNDANT_CROP_SUFFIX` - there
+    is no way to pass a different suffix on the command line. A general delete-by-arbitrary-suffix would be a footgun on a command that
+    permanently deletes from a public repo, and `publishable_files` only ever knows how to filter this one convention, so an arbitrary suffix
+    here could never be kept consistent with what the next `add` republishes anyway. A future need to purge a different suffix is a one-line
+    code change, which is the right amount of friction for an irreversible public deletion.
+
+    A file only matches when a base file backs it up, not merely because its own name ends in the suffix. Some operator ids end in "b" on
+    their own (Bobbing is `bobb`, Gracebearer is `graceb`), and their plain art file would otherwise look identical to a crop-variant name.
+    Deleting one of those would destroy the operator's only art rather than a duplicate, so the match requires the base file to exist too.
+
+    Args:
+        args: Parsed `remove` arguments, carrying `staging` and `confirm`.
+
+    Returns:
+        0 on success or on a dry run, 1 when the run was refused or a push failed.
+
+    Raises:
+        subprocess.CalledProcessError: If a `git` command fails.
+    """
+    publish_dir = os.path.join(args.staging, "publish")
+    clone_or_refresh(publish_dir)
+
+    # walk_encoded does not prune .git. Its other caller, run_add, walks the encoded tree, which has no .git, so pruning belongs here rather
+    # than in the shared helper. Left uncounted, hundreds of git internals would inflate this denominator and weaken the MAX_REMOVAL_SHARE guard.
+    published = [(path, size) for path, size in walk_encoded(publish_dir) if not path.startswith(".git/")]
+
+    by_directory = {}
+    for path, _size in published:
+        directory, _slash, name = path.rpartition("/")
+        by_directory.setdefault(directory, set()).add(name)
+
+    def matches(path):
+        directory, _slash, name = path.rpartition("/")
+        return redundant_crop_base(name, REDUNDANT_CROP_SUFFIX, by_directory[directory]) is not None
+
+    removals = plan_removals(published, matches)
+    removal_bytes = sum(size for _path, size in removals)
+    share = len(removals) / len(published) if published else 0
+
+    print(f"target   {REPO} on {BRANCH}")
+    print(f"tree     {len(published)} files")
+    print(f"matching {len(removals)} files, {format_bytes(removal_bytes)}, {share * 100:.1f}% of the tree")
+
+    if not removals:
+        print("nothing matched, nothing was written to the remote")
+        return 0
+
+    if share > MAX_REMOVAL_SHARE:
+        print(f"refusing to remove {share * 100:.1f}% of the tree, over the {MAX_REMOVAL_SHARE * 100:.0f}% ceiling - the redundant-crop predicate may be matching more than intended")
+        return 1
+
+    if not args.confirm:
+        print("--confirm was not passed: nothing was written to the remote. Re-run `publish.py remove --confirm` to delete.")
+        return 0
+
+    paths = [path for path, _size in removals]
+    remove_command = ["git", "-C", publish_dir, "rm", "--quiet", "--pathspec-from-file=-", "--pathspec-file-nul"]
+    subprocess.run(remove_command, input="\0".join(paths), text=True, check=True)
+    subprocess.run(["git", "-C", publish_dir, "commit", "-m", f"Remove {len(paths)} redundant {REDUNDANT_CROP_SUFFIX} variant files"], check=True)
+
+    result = subprocess.run(["git", "-C", publish_dir, "push", "origin", BRANCH], check=False)
+    if result.returncode != 0:
+        print("push failed - re-run `publish.py remove --confirm` to resume")
+        return 1
+    print(f"removed {len(paths)} files, {format_bytes(removal_bytes)}")
     return 0
 
 
@@ -411,7 +535,7 @@ def run_add(args):
 
     clone_or_refresh(publish_dir)
 
-    files = walk_encoded(encoded_dir)
+    files = publishable_files(encoded_dir)
     problems = check_sizes(files)
     if problems:
         print("refusing to publish, nothing was written:")
@@ -451,7 +575,7 @@ def run_add(args):
     # Read what the asset repo already has before the copy overwrites it, so the comparison is against the committed manifest rather than our own.
     committed_manifest = load_manifest(os.path.join(publish_dir, MANIFEST_NAME))
 
-    if not copy_into_clone(encoded_dir, publish_dir):
+    if not copy_into_clone(encoded_dir, publish_dir, files):
         print(f"no manifest at {MANIFEST_PATH} - a dry run is fine without one, a `--confirm` run is refused above until build_manifest.py has run")
     for problem in compare_manifests(regenerated_manifest, committed_manifest):
         print(f"manifest drift: {problem}")
@@ -473,7 +597,7 @@ def run_add(args):
         print("--confirm was not passed: nothing was written to the remote. Re-run `publish.py add --confirm` to publish.")
         return 0
 
-    return publish_batches(publish_dir, batches, confirm=args.confirm)
+    return publish_batches(publish_dir, batches, set(new), confirm=args.confirm)
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -486,7 +610,7 @@ def sample_paths(files, count):
     Pick an evenly spread sample of published paths to poll.
 
     Args:
-        files: `(path, size)` pairs from the encoded tree.
+        files: `(path, size)` pairs from the publishable tree, as `publishable_files` returns them.
         count: How many paths to pick.
 
     Returns:
@@ -555,7 +679,10 @@ def wait_live(paths, timeout, interval):
 
 def run_wait_live(args):
     """
-    Run the `wait-live` flow, polling either the paths named on the command line or a sample of the encoded tree.
+    Run the `wait-live` flow, polling either the paths named on the command line or a sample of the publishable tree.
+
+    Samples `publishable_files`, not `walk_encoded` directly - a redundant crop is never copied into the clone, so polling one would always
+    time out.
 
     Args:
         args: Parsed `wait-live` arguments, carrying `paths`, `sample` and `staging`.
@@ -563,7 +690,7 @@ def run_wait_live(args):
     Returns:
         0 once every sampled path is served, 1 on timeout or when there was nothing to poll.
     """
-    paths = args.paths or sample_paths(walk_encoded(os.path.join(args.staging, "assets")), args.sample)
+    paths = args.paths or sample_paths(publishable_files(os.path.join(args.staging, "assets")), args.sample)
     print(f"polling {len(paths)} path(s) under {RAW_BASE}")
     return wait_live(paths, LIVE_TIMEOUT_SECONDS, LIVE_INTERVAL_SECONDS)
 
@@ -587,6 +714,10 @@ def main():
     add_command.add_argument("--confirm", action="store_true", help="Actually commit and push. Without it the run stops after the summary and writes nothing to the remote.")
     add_command.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
 
+    remove_command = subcommands.add_parser("remove", help="Delete published redundant-crop files, only with --confirm.")
+    remove_command.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
+    remove_command.add_argument("--confirm", action="store_true", help="Actually delete and push. Without it this is a dry run.")
+
     live_command = subcommands.add_parser("wait-live", help="Poll the asset host until published files are served.")
     live_command.add_argument("paths", nargs="*", help="Published paths to poll, such as classes/guard.webp. Defaults to a sample of the encoded tree.")
     live_command.add_argument("--sample", type=int, default=DEFAULT_SAMPLE, help=f"How many paths to sample when none are named. Defaults to {DEFAULT_SAMPLE}.")
@@ -595,6 +726,8 @@ def main():
     args = parser.parse_args()
     if args.command == "add":
         return run_add(args)
+    if args.command == "remove":
+        return run_remove(args)
     return run_wait_live(args)
 
 
