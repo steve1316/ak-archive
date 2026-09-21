@@ -83,6 +83,14 @@ export interface PotentialRank {
 	modifiers: Partial<StatValues>;
 }
 
+/** One costume the operator can be shown in, as the importer reads it from `skin_table`. */
+export interface OperatorFormEntry {
+	/** Variant key in the art pipeline's spelling, such as `2` or `summer_4`. `1` is the base art. */
+	key: string;
+	/** What the form's chip reads: `Base`, `Elite 1`, `Elite 2`, or the skin's name. */
+	name: string;
+}
+
 /** One operator, as a class shard holds it. */
 export interface Operator {
 	/** Upstream id, such as `char_002_amiya`. */
@@ -117,6 +125,8 @@ export interface Operator {
 	potentials: PotentialRank[];
 	/** The stat block. */
 	stats: OperatorStats;
+	/** Every costume upstream lists for this operator, in display order. The site keeps only those with published art. */
+	forms: OperatorFormEntry[];
 }
 
 /** One handbook section, such as Basic Info or Profile. */

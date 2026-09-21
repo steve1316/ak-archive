@@ -151,8 +151,7 @@ def build_manifest(staging_dir, operator_ids):
         operator_ids: Every known operator id.
 
     Returns:
-        A dict with `portraits`, `illustrations` and `skins` keys, each with its entries sorted by operator id so a re-run of an unchanged
-        tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant.
+        A dict with `portraits`, `illustrations`, `skins`, and `variants` keys, each with its entries sorted by operator id so a re-run of an unchanged tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant. `variants` records each kind's variant keys separately, in that kind's own upstream spelling. `skins` merges them, which loses both whether a kind has the file and how it spells it - upstream lower-cases some keys under `charpor/` only.
     """
     portraits, portrait_variants = scan_kind(staging_dir, "portraits", operator_ids)
     illustrations, illustration_variants = scan_kind(staging_dir, "illustrations", operator_ids)
@@ -166,6 +165,10 @@ def build_manifest(staging_dir, operator_ids):
         "portraits": {operator_id: operator_id in portraits for operator_id in sorted(operator_ids)},
         "illustrations": {operator_id: operator_id in illustrations for operator_id in sorted(operator_ids)},
         "skins": {operator_id: skins[operator_id] for operator_id in sorted(skins)},
+        "variants": {
+            "portraits": {operator_id: sorted(keys) for operator_id, keys in sorted(portrait_variants.items())},
+            "illustrations": {operator_id: sorted(keys) for operator_id, keys in sorted(illustration_variants.items())},
+        },
     }
 
 

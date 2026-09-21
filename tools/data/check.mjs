@@ -31,6 +31,9 @@ const MIN_TALENTS = 410;
 /** 409 of the 412 operators have potential ranks at the pinned sha. Three ship `potentialRanks` as `{}`, which is legitimately empty. */
 const MIN_POTENTIALS = 400;
 
+/** Every one of the 412 operators has at least one form at the pinned sha, so a zero here means the skin table grouping broke. */
+const MIN_FORMS = 410;
+
 /**
  * Floors for the asset manifest, set to what the A3 publish actually produced. These are exact rather than slack like the counts above, because
  * the failure they catch is the pipeline claiming fewer assets than it published. Nothing else in the pipeline notices that: `hasPortrait` reads a
@@ -207,6 +210,31 @@ if (withPotentials < MIN_POTENTIALS) {
 	fail(`${withPotentials} operators have potential ranks, below the floor of ${MIN_POTENTIALS}`);
 }
 
+// Forms. The page's chips, backdrop and art card all key off these, so a missing array or a duplicated key breaks switching quietly.
+let withForms = 0;
+for (const operator of operators) {
+	if (!Array.isArray(operator.forms)) {
+		fail(`${operator.id} has no forms array`);
+		continue;
+	}
+	if (operator.forms.length > 0) {
+		withForms += 1;
+	}
+	const seen = new Set();
+	for (const form of operator.forms) {
+		if (!form.key || !form.name) {
+			fail(`${operator.id} has a form with an empty key or name`);
+		}
+		if (seen.has(form.key)) {
+			fail(`${operator.id} lists form ${form.key} twice`);
+		}
+		seen.add(form.key);
+	}
+}
+if (withForms < MIN_FORMS) {
+	fail(`${withForms} operators have forms, below the floor of ${MIN_FORMS}`);
+}
+
 // Markup leakage, across everything the site ships.
 for (const shard of SHARDS) {
 	for (const [data, name] of [
@@ -314,9 +342,20 @@ let illustrationCount = 0;
 if (hasManifest) {
 	const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 	for (const [section, entries] of Object.entries(manifest)) {
-		for (const id of Object.keys(entries)) {
-			if (!byId.has(id)) {
-				fail(`asset manifest names ${id} in ${section}, which is in no shard`);
+		// The variants section has a nested structure with portraits and illustrations keys
+		if (section === "variants") {
+			for (const [kind, kindEntries] of Object.entries(entries)) {
+				for (const id of Object.keys(kindEntries)) {
+					if (!byId.has(id)) {
+						fail(`asset manifest names ${id} in ${section}.${kind}, which is in no shard`);
+					}
+				}
+			}
+		} else {
+			for (const id of Object.keys(entries)) {
+				if (!byId.has(id)) {
+					fail(`asset manifest names ${id} in ${section}, which is in no shard`);
+				}
 			}
 		}
 	}
@@ -345,6 +384,7 @@ console.log(`search index ${searchIndex.length} entries`);
 console.log(`fixtures    ${FIXTURES.length} verified`);
 console.log(`talents    ${withTalents} operators carry at least one`);
 console.log(`potentials  ${withPotentials} operators carry at least one`);
+console.log(`forms       ${withForms} operators carry at least one`);
 console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
 console.log("markup      none leaked");
 console.log("placeholders none leaked");

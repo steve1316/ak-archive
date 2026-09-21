@@ -15,13 +15,14 @@ import path from "node:path";
 import { buildOperator, selectOperators } from "./lib/operators.mjs";
 import { buildProfile } from "./lib/profiles.mjs";
 import { SHARDS, shardFor } from "./lib/shards.mjs";
+import { buildForms } from "./lib/skins.mjs";
 import { loadTable, readLock } from "./lib/upstream.mjs";
 
 /** Where generated data is written. */
 const OUT_DIR = "src/data";
 
-/** The six tables v1 reads. `uniequip_table` rather than `uniequip_data`, which is not localised - see PROJECT.md. */
-const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbook_team_table", "handbook_info_table", "building_data"];
+/** The tables the import reads. `uniequip_table` rather than `uniequip_data`, which is not localised - see PROJECT.md. */
+const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbook_team_table", "handbook_info_table", "building_data", "skin_table"];
 
 /**
  * Write a JSON file with a trailing newline, creating its directory.
@@ -45,12 +46,13 @@ function writeJson(file, value) {
 async function main() {
 	const lock = readLock();
 	console.log(`upstream ${lock.repo}@${lock.sha.slice(0, 10)} (${lock.server})`);
-	const [characterTable, patchTable, uniequip, teams, handbook, building] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
+	const [characterTable, patchTable, uniequip, teams, handbook, building, skins] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
 
 	const context = { subProfDict: uniequip.subProfDict, teams };
 	const profileContext = { handbookDict: handbook.handbookDict, buildingChars: building.chars, buildingBuffs: building.buffs, buildingRooms: building.rooms };
+	const forms = buildForms(skins.charSkins);
 
-	const operators = selectOperators(characterTable, patchTable).map(([id, row]) => ({ id, row, record: buildOperator(id, row, context) }));
+	const operators = selectOperators(characterTable, patchTable).map(([id, row]) => ({ id, row, record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [] } }));
 	console.log(`operators: ${operators.length}`);
 
 	const byShard = new Map(SHARDS.map((shard) => [shard.key, []]));
