@@ -10,6 +10,7 @@ import { loadOperator, loadProfile } from "../../lib/data.js";
 import { formsOf, readFormKey, writeFormKey } from "../../lib/forms.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Controls, Operator as OperatorRecord, Profile } from "../../types/operator.js";
+import AnimationsCard, { StagePlaceholder } from "./AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import IdentityBlock from "./IdentityBlock.js";
 import { NAVBAR_HEIGHT } from "./layout.js";
@@ -211,6 +212,7 @@ export default function Operator() {
 									<IdentityBlock operator={operator} forms={forms} formKey={formKey} onFormChange={handleFormChange} />
 									<RecordBlock record={profile?.record ?? null} affiliation={affiliationOf(operator)} trait={operator.description} />
 								</Box>
+								<AnimationsCard interactive={false} renderStage={() => <StagePlaceholder profession={operator.profession} />} />
 							</Box>
 							<Box sx={ROW2_SX}>
 								<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
