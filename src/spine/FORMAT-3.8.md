@@ -150,7 +150,9 @@ next animation's name, so there is no trailing duration either. `Animation.durat
 offset 0x9720 (38688): IK timeline count `04`, constraint `00`, 2 frames, then `00000000` (time 0), `3f800000` (mix 1.0), `00000000`
 (softness 0.0), `01` (bend), `00` (compress), `00` (stretch), `01` (stepped curve), then the second key at `3fe22222` (1.767). Over the
 corpus, all 168,547 bend bytes are 1 or -1, every softness is 0 or more, and compress/stretch are read with a strict 0/1 check that never
-trips.
+trips. That check cannot tell compress from stretch, so the order was tested against each IK constraint's own setup values: of 2,087 first
+keys, 1,805 match the constraint's setup compress and stretch in the order above, and 0 match with the two swapped. Compress is also only
+ever set on 1-bone constraints (1,344 keys), which is the only case where it has any effect.
 
 **3. Transform constraint keyframes carry a curve.** The page lists 4 mixes per key and no curve. At
 `char_400_weedy/sightseer_1/battle/char_400_weedy_sightseer_1.skel` offset 163696: constraint `0x0c`, 5 frames, time 0, four `3f800000`
@@ -180,9 +182,15 @@ is the one the bytes support.
 Two things that are upstream data, not format differences:
 
 - **Key times sometimes go down.** 943 timelines in 84 files, all attachment, color or deform timelines, have a key time lower than the one
-  before it. Most (690) are the same key list written twice, like `0, 1, 0, 1` on `char_002_amiya`'s `Start` slot 4 attachment timeline at
-  offset 157478: `04 01 00 04`, then four keys `(0, F_Hood) (1, F_Hood) (0, F_Hood) (1, F_Hood)`. The frame count byte really is 4, so this
-  is what the file says, not a misread. No bone, constraint, draw order or event timeline does it. The gate allows it only in those three
-  timeline types, and a runtime must not assume sorted keys there.
+  before it. Each one is 2 or 3 sorted runs of keys joined end to end, never more: 684 are an exact repeat of the first run, 259 have runs
+  with different times, and in 69 the second run goes past the end of the first. One example is `char_002_amiya`'s `Start` slot 4
+  attachment timeline at offset 157478: `04 01 00 04`, then four keys `(0, F_Hood) (1, F_Hood) (0, F_Hood) (1, F_Hood)`. Another is
+  `char_1001_amiya2/base/back/char_1001_amiya2.skel` at 0x12cb3, a color timeline with 5 keys at `0.567, 0.733, 0, 0.567, 0.733`. The frame
+  count byte really says 4 and 5, so this is what the files hold, not a misread, and other readings of these bytes fail 1,677 to 2,492
+  files. No bone, constraint, draw order or event timeline does it. The gate allows it only in those three timeline types, and only for up
+  to 3 runs.
+
+  **Note for Stage 2:** a binary search over these keys is undefined, since it assumes sorted times. The player must pick a rule for them
+  on purpose (for example, use only the first run, or search each run) rather than inherit whatever a sorted-key search happens to do.
 - **Bezier control X values can leave 0 to 1.** 418 of 10.2 million Bezier curves have `cx1` or `cx2` between -0.34 and 1.34. They are
   real editor handles, so nothing clamps them at read time.
