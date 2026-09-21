@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Box, Typography } from "@mui/material";
+import { Box, Skeleton, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { useParams, useSearchParams } from "react-router-dom";
 
 import { LazySection, LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
 
-import { loadOperator } from "../../lib/data.js";
+import { loadOperator, loadProfile } from "../../lib/data.js";
 import { formsOf, readFormKey, writeFormKey } from "../../lib/forms.js";
 import NotFound404 from "../../not_found_404.js";
-import type { Controls, Operator as OperatorRecord } from "../../types/operator.js";
+import type { Controls, Operator as OperatorRecord, Profile } from "../../types/operator.js";
 import ArtCard from "./ArtCard.js";
 import IdentityBlock from "./IdentityBlock.js";
 import { NAVBAR_HEIGHT } from "./layout.js";
 import LorePanel from "./LorePanel.js";
+import RecordBlock from "./RecordBlock.js";
 import StatsPanel from "./StatsPanel.js";
 import TalentsPanel from "./TalentsPanel.js";
 
@@ -50,6 +51,17 @@ function defaultControls(operator: OperatorRecord): Controls {
 }
 
 /**
+ * The operator's affiliations for the record, most specific first.
+ *
+ * @param operator The loaded operator.
+ * @returns The team, group and nation that upstream names, joined, or null when it names none.
+ */
+function affiliationOf(operator: OperatorRecord): string | null {
+	const names = [operator.team, operator.group, operator.nation].filter((name): name is string => name !== null);
+	return names.length > 0 ? names.join(", ") : null;
+}
+
+/**
  * The operator detail page, laid out to the locked design: a backdrop of the selected form's art, then everything a reader needs above the fold.
  *
  * The selected form lives in the query string as `?skin=`, as gfl's doll page keeps its selection, so a form can be linked to and the art viewer
@@ -67,6 +79,12 @@ export default function Operator() {
 	// Bumped by the retry button to run the load again. The data store keeps whatever already loaded cached.
 	const [attempt, setAttempt] = useState(0);
 	const [controls, setControls] = useState<Controls>(INITIAL_CONTROLS);
+	// The profile carries the record and base skills, which are above the fold, so it loads at mount. Null while loading.
+	const [profile, setProfile] = useState<Profile | null>(null);
+	// True when the profile failed to load, which shows a retry in the handbook's place instead of taking the whole page down.
+	const [profileFailed, setProfileFailed] = useState(false);
+	// Bumped by the handbook's retry button, separately from the page's, so a failed side file does not reload the operator.
+	const [profileAttempt, setProfileAttempt] = useState(0);
 
 	const forms = useMemo(() => (operator ? formsOf(operator) : []), [operator]);
 	const formKey = readFormKey(searchParams, forms);
@@ -106,7 +124,32 @@ export default function Operator() {
 		};
 	}, [id, attempt]);
 
+	useEffect(() => {
+		if (!id) {
+			return;
+		}
+		let active = true;
+		setProfile(null);
+		setProfileFailed(false);
+		loadProfile(id).then(
+			(loaded) => {
+				if (active) {
+					setProfile(loaded ?? { lore: [], record: { basic: [], exam: [] }, baseSkills: [] });
+				}
+			},
+			() => {
+				if (active) {
+					setProfileFailed(true);
+				}
+			}
+		);
+		return () => {
+			active = false;
+		};
+	}, [id, profileAttempt]);
+
 	const handleRetry = useCallback(() => setAttempt((current) => current + 1), []);
+	const handleProfileRetry = useCallback(() => setProfileAttempt((current) => current + 1), []);
 
 	// Applies a control change from the stats panel. A phase change clamps `level` into the new phase's max in this same update, rather than a
 	// separate effect that runs after paint, so a render can never show a level or a stat computed from a level the new phase does not reach.
@@ -164,7 +207,10 @@ export default function Operator() {
 						<Box sx={FOLD_SX} data-region="fold">
 							<Box sx={ROW1_SX}>
 								<ArtCard name={operator.name} portrait={form?.portrait ?? null} illustration={form?.illustration ?? null} artLink={artLink} />
-								<IdentityBlock operator={operator} forms={forms} formKey={formKey} onFormChange={handleFormChange} />
+								<Box sx={{ minWidth: 0 }}>
+									<IdentityBlock operator={operator} forms={forms} formKey={formKey} onFormChange={handleFormChange} />
+									<RecordBlock record={profile?.record ?? null} affiliation={affiliationOf(operator)} trait={operator.description} />
+								</Box>
 							</Box>
 							<Box sx={ROW2_SX}>
 								<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
@@ -172,7 +218,13 @@ export default function Operator() {
 							</Box>
 						</Box>
 						<LazySection minHeight={320}>
-							<LorePanel operatorId={operator.id} />
+							{profileFailed ? (
+								<LoadError what="the handbook" onRetry={handleProfileRetry} />
+							) : profile ? (
+								<LorePanel lore={profile.lore} baseSkills={profile.baseSkills} />
+							) : (
+								<Skeleton variant="rounded" height={320} />
+							)}
 						</LazySection>
 					</>
 				) : (

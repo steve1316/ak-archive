@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { parseRecord } from "./lib/record.mjs";
 import { SHARDS } from "./lib/shards.mjs";
 
 /** Where the importer writes. */
@@ -41,6 +42,14 @@ const MIN_FORMS = 410;
  */
 const MIN_PORTRAITS = 391;
 const MIN_ILLUSTRATIONS = 412;
+
+/** 410 operators have a parsed Basic Info at the pinned sha, 404 a parsed Physical Exam. Robots and a few others use their own labels or none. */
+const MIN_RECORD_BASIC = 400;
+const MIN_RECORD_EXAM = 395;
+
+// This count is duplicated from `tools/data/lib/record.mjs`'s `GRADES` on purpose. The gate checks the importer's output, so importing the
+// importer's own scale here would make a bad scale pass its own test - the same reasoning as the `PLACEHOLDER` pattern above.
+const RECORD_GRADE_COUNT = 7;
 
 /**
  * Stats verified by hand against the Fandom wiki, at final phase, max level, full trust, potential 1.
@@ -264,6 +273,55 @@ for (const shard of SHARDS) {
 	}
 }
 
+// The handbook record. Its sections must have moved out of the lore, and every grade must sit on the scale the record bar draws.
+let withBasic = 0;
+let withExam = 0;
+for (const shard of SHARDS) {
+	for (const [id, profile] of Object.entries(shardProfiles.get(shard.key))) {
+		const { basic, exam } = profile.record ?? { basic: [], exam: [] };
+		if (basic.length > 0) {
+			withBasic += 1;
+		}
+		if (exam.length > 0) {
+			withExam += 1;
+		}
+		for (const field of [...basic, ...exam]) {
+			if (!field.label) {
+				fail(`${id} has a record field with no label`);
+			}
+			if (field.grade !== null && (field.grade < 1 || field.grade > RECORD_GRADE_COUNT)) {
+				fail(`${id} grades ${field.label} ${field.grade}, off the ${RECORD_GRADE_COUNT}-step scale`);
+			}
+		}
+		// A record-titled section is allowed to remain in the lore - that's how Amiya's second dossier survives - but only when something
+		// proves it is a genuine second dossier and not splitRecord failing to remove what it already captured. Content alone cannot always
+		// tell the two apart: Amiya's two Physical Exams happen to carry identical grades, even though her two Basic Infos plainly differ.
+		// So a leftover only counts as proven-genuine when at least one of this operator's leftover record sections differs from its
+		// captured slot - Amiya clears that bar on Basic Info, which is enough to trust her matching Physical Exam too. An operator whose
+		// every leftover record section matches its capture has no such evidence, so those matches mean removal failed.
+		const candidates = [];
+		for (const section of profile.lore) {
+			const slotFields = section.title === "Basic Info" ? basic : section.title === "Physical Exam" ? exam : null;
+			if (slotFields === null || slotFields.length === 0) {
+				continue;
+			}
+			const matches = JSON.stringify(parseRecord(section.text)) === JSON.stringify(slotFields);
+			candidates.push({ title: section.title, matches });
+		}
+		if (candidates.length > 0 && candidates.every((candidate) => candidate.matches)) {
+			for (const candidate of candidates) {
+				fail(`${id} still carries ${candidate.title} in its lore after parsing it`);
+			}
+		}
+	}
+}
+if (withBasic < MIN_RECORD_BASIC) {
+	fail(`${withBasic} operators have a basic record, below the floor of ${MIN_RECORD_BASIC}`);
+}
+if (withExam < MIN_RECORD_EXAM) {
+	fail(`${withExam} operators have an exam record, below the floor of ${MIN_RECORD_EXAM}`);
+}
+
 // Profile placeholders. Upstream ships a locked handbook entry as literal full-width question marks for content not yet unlocked, and it must
 // not survive the import - Amiya carries the only one at the pinned sha, in her lore, but base skills are walked too since they come from the
 // same handbook side data.
@@ -386,6 +444,7 @@ console.log(`talents    ${withTalents} operators carry at least one`);
 console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log(`forms       ${withForms} operators carry at least one`);
 console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
+console.log(`record      ${withBasic} basic, ${withExam} exam`);
 console.log("markup      none leaked");
 console.log("placeholders none leaked");
 if (hasManifest) {

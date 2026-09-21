@@ -153,10 +153,30 @@ export interface BaseSkill {
 	level: number;
 }
 
+/** One field of the handbook's bracketed record, such as `[Height] 192cm`. */
+export interface RecordField {
+	/** The label, verbatim from upstream, such as `Height` or `Place of Production`. Robots and a few operators use their own. */
+	label: string;
+	/** The value, with any continuation lines joined by a space. Can be a redaction of block characters, or a whole paragraph. */
+	value: string;
+	/** Position on the physical exam scale, 1 (Feeble) to 7 (Exceptional), or null when the value is not a single grade. */
+	grade: number | null;
+}
+
+/** The parts of the handbook that are a record of fields rather than prose. */
+export interface HandbookRecord {
+	/** The Basic Info fields, in upstream order. Empty when the operator has no parseable Basic Info. */
+	basic: RecordField[];
+	/** The Physical Exam fields, in upstream order. */
+	exam: RecordField[];
+}
+
 /** An operator's heavy side data, loaded only by the operator page. */
 export interface Profile {
 	/** Handbook sections, in the game's order. */
 	lore: LoreSection[];
+	/** The handbook's Basic Info and Physical Exam, parsed. Those two sections no longer appear in `lore` once parsed. */
+	record: HandbookRecord;
 	/** RIIC base skills. */
 	baseSkills: BaseSkill[];
 }

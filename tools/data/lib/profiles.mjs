@@ -6,14 +6,15 @@
 
 import { asArray } from "./json.mjs";
 import { phaseOf } from "./operators.mjs";
+import { splitRecord } from "./record.mjs";
 import { isPlaceholder, stripMarkup } from "./text.mjs";
 
 /**
- * One operator's lore sections and base skills.
+ * One operator's lore sections, handbook record and base skills.
  *
  * @param {string} id The operator id.
  * @param {object} context Lookups: `handbookDict` from `handbook_info_table`, and `chars`, `buffs` plus `rooms` from `building_data`.
- * @returns {{lore: Array<{title: string, text: string}>, baseSkills: Array<object>}} The side record.
+ * @returns {{lore: Array<{title: string, text: string}>, record: object, baseSkills: Array<object>}} The side record.
  */
 export function buildProfile(id, { handbookDict, buildingChars, buildingBuffs, buildingRooms }) {
 	const sections = asArray(handbookDict[id]?.storyTextAudio);
@@ -52,5 +53,6 @@ export function buildProfile(id, { handbookDict, buildingChars, buildingBuffs, b
 			});
 		}
 	}
-	return { lore, baseSkills };
+	const { record, lore: prose } = splitRecord(lore);
+	return { lore: prose, record, baseSkills };
 }
