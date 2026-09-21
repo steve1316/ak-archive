@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { Box, Paper, Skeleton, Stack, Typography } from "@mui/material";
+import { Box, Paper, Stack, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
@@ -71,8 +71,6 @@ interface AbilitiesCardProps {
 	operator: Operator;
 	/** The page's controls, which pick each talent's candidate. */
 	controls: Controls;
-	/** The operator's base skills, or null while the profile is loading. */
-	baseSkills: BaseSkill[] | null;
 }
 
 /**
@@ -124,7 +122,7 @@ function resolveTalents(operator: Operator, phase: number, level: number, potent
  * @param props Component props.
  * @returns The card.
  */
-export default function AbilitiesCard({ operator, controls, baseSkills }: AbilitiesCardProps) {
+export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps) {
 	const { phase, level, potential } = controls;
 
 	const talents = useMemo(() => resolveTalents(operator, phase, level, potential), [operator, phase, level, potential]);
@@ -175,25 +173,21 @@ export default function AbilitiesCard({ operator, controls, baseSkills }: Abilit
 						</Stack>
 					</Box>
 				) : null}
-				{baseSkills === null || baseSkills.length > 0 ? (
+				{operator.baseSkills.length > 0 ? (
 					<Box sx={TILE_SX}>
 						<Box sx={TILE_TITLE_SX}>Base skills</Box>
-						{baseSkills === null ? (
-							<Skeleton variant="rounded" height={64} sx={{ mt: 0.875 }} />
-						) : (
-							<Stack spacing={0.875} sx={BODY_SX}>
-								{baseSkills.map((skill) => (
-									<Box key={skill.id}>
-										<Typography component="span" sx={{ fontWeight: 700 }}>
-											{skill.name}
-										</Typography>
-										<Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-											{baseSkillMeta(skill)}
-										</Typography>
-									</Box>
-								))}
-							</Stack>
-						)}
+						<Stack spacing={0.875} sx={BODY_SX}>
+							{operator.baseSkills.map((skill) => (
+								<Box key={skill.id}>
+									<Typography component="span" sx={{ fontWeight: 700 }}>
+										{skill.name}
+									</Typography>
+									<Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+										{baseSkillMeta(skill)}
+									</Typography>
+								</Box>
+							))}
+						</Stack>
 					</Box>
 				) : null}
 			</Box>

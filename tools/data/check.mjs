@@ -308,8 +308,9 @@ for (const shard of SHARDS) {
 let withBasic = 0;
 let withExam = 0;
 for (const shard of SHARDS) {
-	for (const [id, profile] of Object.entries(shardProfiles.get(shard.key))) {
-		const { basic, exam } = profile.record ?? { basic: [], exam: [] };
+	const profiles = shardProfiles.get(shard.key);
+	for (const operator of shardOperators.get(shard.key)) {
+		const { basic, exam } = operator.record;
 		if (basic.length > 0) {
 			withBasic += 1;
 		}
@@ -318,10 +319,10 @@ for (const shard of SHARDS) {
 		}
 		for (const field of [...basic, ...exam]) {
 			if (!field.label) {
-				fail(`${id} has a record field with no label`);
+				fail(`${operator.id} has a record field with no label`);
 			}
 			if (field.grade !== null && (field.grade < 1 || field.grade > RECORD_GRADE_COUNT)) {
-				fail(`${id} grades ${field.label} ${field.grade}, off the ${RECORD_GRADE_COUNT}-step scale`);
+				fail(`${operator.id} grades ${field.label} ${field.grade}, off the ${RECORD_GRADE_COUNT}-step scale`);
 			}
 		}
 		// A record-titled section is allowed to remain in the lore - that's how Amiya's second dossier survives - but only when something
@@ -330,8 +331,9 @@ for (const shard of SHARDS) {
 		// So a leftover only counts as proven-genuine when at least one of this operator's leftover record sections differs from its
 		// captured slot - Amiya clears that bar on Basic Info, which is enough to trust her matching Physical Exam too. An operator whose
 		// every leftover record section matches its capture has no such evidence, so those matches mean removal failed.
+		const lore = profiles[operator.id]?.lore ?? [];
 		const candidates = [];
-		for (const section of profile.lore) {
+		for (const section of lore) {
 			const slotFields = section.title === "Basic Info" ? basic : section.title === "Physical Exam" ? exam : null;
 			if (slotFields === null || slotFields.length === 0) {
 				continue;
@@ -341,7 +343,7 @@ for (const shard of SHARDS) {
 		}
 		if (candidates.length > 0 && candidates.every((candidate) => candidate.matches)) {
 			for (const candidate of candidates) {
-				fail(`${id} still carries ${candidate.title} in its lore after parsing it`);
+				fail(`${operator.id} still carries ${candidate.title} in its lore after parsing it`);
 			}
 		}
 	}
@@ -354,22 +356,23 @@ if (withExam < MIN_RECORD_EXAM) {
 }
 
 // Profile placeholders. Upstream ships a locked handbook entry as literal full-width question marks for content not yet unlocked, and it must
-// not survive the import - Amiya carries the only one at the pinned sha, in her lore, but base skills are walked too since they come from the
-// same handbook side data.
+// not survive the import - Amiya carries the only one at the pinned sha, in her lore. Base skills are walked too since they come from the same
+// handbook parse, though they now ride in the shard rather than the side file.
 for (const shard of SHARDS) {
 	const profiles = shardProfiles.get(shard.key);
-	for (const [id, profile] of Object.entries(profiles)) {
-		for (const [index, section] of profile.lore.entries()) {
+	for (const operator of shardOperators.get(shard.key)) {
+		const lore = profiles[operator.id]?.lore ?? [];
+		for (const [index, section] of lore.entries()) {
 			if (PLACEHOLDER.test(section.title) || PLACEHOLDER.test(section.text)) {
-				fail(`${id} lore section ${index} kept a placeholder: ${JSON.stringify(section.title)} / ${JSON.stringify(section.text)}`);
+				fail(`${operator.id} lore section ${index} kept a placeholder: ${JSON.stringify(section.title)} / ${JSON.stringify(section.text)}`);
 			}
 		}
-		for (const [index, skill] of profile.baseSkills.entries()) {
+		for (const [index, skill] of operator.baseSkills.entries()) {
 			if (PLACEHOLDER.test(skill.name ?? "") || PLACEHOLDER.test(skill.description ?? "")) {
-				fail(`${id} base skill ${index} kept a placeholder: ${JSON.stringify(skill.name)}`);
+				fail(`${operator.id} base skill ${index} kept a placeholder: ${JSON.stringify(skill.name)}`);
 			}
 			if (RAW_ROOM_ENUM.test(skill.room ?? "")) {
-				fail(`${id} base skill ${index} has an unresolved room: ${JSON.stringify(skill.room)}`);
+				fail(`${operator.id} base skill ${index} has an unresolved room: ${JSON.stringify(skill.room)}`);
 			}
 		}
 	}

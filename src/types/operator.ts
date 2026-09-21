@@ -167,6 +167,10 @@ export interface Operator {
 	forms: OperatorFormEntry[];
 	/** Combat skills in slot order. Empty for the operators that have none. */
 	skills: OperatorSkill[];
+	/** The handbook's Basic Info and Physical Exam, parsed. Those two sections are not in the lore. */
+	record: HandbookRecord;
+	/** RIIC base skills. */
+	baseSkills: BaseSkill[];
 }
 
 /** One handbook section, such as Basic Info or Profile. */
@@ -211,14 +215,10 @@ export interface HandbookRecord {
 	exam: RecordField[];
 }
 
-/** An operator's heavy side data, loaded only by the operator page. */
+/** An operator's handbook prose, the one thing still loaded on demand. */
 export interface Profile {
 	/** Handbook sections, in the game's order. */
 	lore: LoreSection[];
-	/** The handbook's Basic Info and Physical Exam, parsed. Those two sections no longer appear in `lore` once parsed. */
-	record: HandbookRecord;
-	/** RIIC base skills. */
-	baseSkills: BaseSkill[];
 }
 
 /** One entry in the navbar's search index. Deliberately tiny - it renders on every route. */

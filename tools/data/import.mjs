@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { buildOperator, selectOperators } from "./lib/operators.mjs";
-import { buildProfile } from "./lib/profiles.mjs";
+import { buildHandbook } from "./lib/profiles.mjs";
 import { SHARDS, shardFor } from "./lib/shards.mjs";
 import { buildSkills } from "./lib/skills.mjs";
 import { buildForms } from "./lib/skins.mjs";
@@ -53,11 +53,10 @@ async function main() {
 	const profileContext = { handbookDict: handbook.handbookDict, buildingChars: building.chars, buildingBuffs: building.buffs, buildingRooms: building.rooms };
 	const forms = buildForms(skins.charSkins);
 
-	const operators = selectOperators(characterTable, patchTable).map(([id, row]) => ({
-		id,
-		row,
-		record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [], skills: buildSkills(row, skillTable) }
-	}));
+	const operators = selectOperators(characterTable, patchTable).map(([id, row]) => {
+		const handbook = buildHandbook(id, profileContext);
+		return { id, row, side: handbook.side, record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [], skills: buildSkills(row, skillTable), ...handbook.shard } };
+	});
 	console.log(`operators: ${operators.length}`);
 
 	const byShard = new Map(SHARDS.map((shard) => [shard.key, []]));
@@ -69,7 +68,7 @@ async function main() {
 	for (const shard of SHARDS) {
 		const entries = byShard.get(shard.key);
 		const records = entries.map((entry) => entry.record);
-		const profiles = Object.fromEntries(entries.map((entry) => [entry.id, buildProfile(entry.id, profileContext)]));
+		const profiles = Object.fromEntries(entries.map((entry) => [entry.id, entry.side]));
 		const a = writeJson(path.join(OUT_DIR, `${shard.file}.json`), records);
 		const b = writeJson(path.join(OUT_DIR, `${shard.profiles}.json`), profiles);
 		total += a + b;

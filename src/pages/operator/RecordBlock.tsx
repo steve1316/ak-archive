@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 
-import { Box, Skeleton, Stack } from "@mui/material";
+import { Box, Stack } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { RankBar } from "archive-kit";
@@ -52,8 +52,8 @@ const LONG_VALUE_SX = { ...styles.value, gridColumn: { sm: "2 / -1" } } satisfie
 
 /** Props for RecordBlock. */
 interface RecordBlockProps {
-	/** The parsed record, or null while the profile is still loading. */
-	record: HandbookRecord | null;
+	/** The parsed record. */
+	record: HandbookRecord;
 	/** The operator's affiliations joined for display, or null when upstream names none. Not part of the handbook, so passed separately. */
 	affiliation: string | null;
 	/** The operator's trait, or null. */
@@ -102,25 +102,19 @@ function renderFields(fields: RecordField[], graded: boolean) {
  * @returns The block.
  */
 export default function RecordBlock({ record, affiliation, trait }: RecordBlockProps) {
-	const basic = record === null ? [] : affiliation === null ? record.basic : [...record.basic, { label: "Affiliation", value: affiliation, grade: null }];
+	const basic = affiliation === null ? record.basic : [...record.basic, { label: "Affiliation", value: affiliation, grade: null }];
 	return (
 		<Box sx={{ mt: 2 }}>
-			{record === null ? (
-				<Skeleton variant="rounded" height={132} />
-			) : (
-				<>
-					{basic.length > 0 ? (
-						<Box component="dl" sx={styles.fields}>
-							{renderFields(basic, false)}
-						</Box>
-					) : null}
-					{record.exam.length > 0 ? (
-						<Box component="dl" sx={[styles.fields, { mt: 1.5 }]}>
-							{renderFields(record.exam, true)}
-						</Box>
-					) : null}
-				</>
-			)}
+			{basic.length > 0 ? (
+				<Box component="dl" sx={styles.fields}>
+					{renderFields(basic, false)}
+				</Box>
+			) : null}
+			{record.exam.length > 0 ? (
+				<Box component="dl" sx={[styles.fields, { mt: 1.5 }]}>
+					{renderFields(record.exam, true)}
+				</Box>
+			) : null}
 			{trait ? <Box sx={styles.trait}>{trait}</Box> : null}
 		</Box>
 	);

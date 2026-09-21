@@ -1,7 +1,7 @@
 /**
- * The operator page's side data: handbook lore and RIIC base skills.
+ * The operator's handbook, parsed once and split into what the shard carries and what loads on scroll.
  *
- * This is split out of the shard because only the operator page reads it. The index never does, and the lore alone is most of the weight.
+ * The lore is the only part still split out. It is most of the weight and only the operator page reads it, so it stays a side file.
  */
 
 import { asArray } from "./json.mjs";
@@ -10,13 +10,14 @@ import { splitRecord } from "./record.mjs";
 import { isPlaceholder, stripMarkup } from "./text.mjs";
 
 /**
- * One operator's lore sections, handbook record and base skills.
+ * One operator's lore sections, handbook record and base skills, split into a shard half and a side half.
  *
  * @param {string} id The operator id.
  * @param {object} context Lookups: `handbookDict` from `handbook_info_table`, and `chars`, `buffs` plus `rooms` from `building_data`.
- * @returns {{lore: Array<{title: string, text: string}>, record: object, baseSkills: Array<object>}} The side record.
+ * @returns {{shard: {record: object, baseSkills: Array<object>}, side: {lore: Array<{title: string, text: string}>}}} The record and base
+ *   skills sit above the fold, so they ride in the shard the page already loads, and the lore alone stays in the side file.
  */
-export function buildProfile(id, { handbookDict, buildingChars, buildingBuffs, buildingRooms }) {
+export function buildHandbook(id, { handbookDict, buildingChars, buildingBuffs, buildingRooms }) {
 	const sections = asArray(handbookDict[id]?.storyTextAudio);
 	const lore = sections
 		.map((section) => ({
@@ -54,5 +55,5 @@ export function buildProfile(id, { handbookDict, buildingChars, buildingBuffs, b
 		}
 	}
 	const { record, lore: prose } = splitRecord(lore);
-	return { lore: prose, record, baseSkills };
+	return { shard: { record, baseSkills }, side: { lore: prose } };
 }
