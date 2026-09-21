@@ -8,6 +8,7 @@ import { eliteIconUrl, potentialIconUrl } from "../../lib/icons.js";
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
 import type { BaseSkill, Controls, Operator } from "../../types/operator.js";
 import { RAISED_BG, SECTION_SX } from "./layout.js";
+import SkillsPanel from "./SkillsPanel.js";
 
 /** The gap between tiles, both across columns and from one tile to the next down a column. */
 const TILES_GAP = 1.5;
@@ -133,7 +134,11 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 
 	const talents = useMemo(() => resolveTalents(operator, phase, level, potential), [operator, phase, level, potential]);
 	const tabs = useMemo(() => {
-		const list: { key: AbilityTab; label: string }[] = [{ key: "talents", label: "Talents" }];
+		const list: { key: AbilityTab; label: string }[] = [];
+		if (operator.skills.length > 0) {
+			list.push({ key: "skills", label: "Skills" });
+		}
+		list.push({ key: "talents", label: "Talents" });
 		if (operator.potentials.length > 0) {
 			list.push({ key: "potentials", label: "Potentials" });
 		}
@@ -142,7 +147,7 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 		}
 		return list;
 	}, [operator]);
-	const [tab, setTab] = useState<AbilityTab>("talents");
+	const [tab, setTab] = useState<AbilityTab>("skills");
 	// A tab the new operator lacks falls back to the first, without an effect or a frame of the wrong tab.
 	const shown = tabs.some((entry) => entry.key === tab) ? tab : (tabs[0]?.key ?? "talents");
 	const handleTab = useCallback((_event: SyntheticEvent, value: AbilityTab) => setTab(value), []);
@@ -208,6 +213,7 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 					<Tab key={entry.key} value={entry.key} label={entry.label} />
 				))}
 			</Tabs>
+			{shown === "skills" ? <SkillsPanel key={operator.id} skills={operator.skills} phase={controls.phase} /> : null}
 			{shown === "talents" ? <Box sx={TILES_SX}>{talentTiles}</Box> : null}
 			{shown === "potentials" ? potentialRows : null}
 			{shown === "base" ? baseSkillRows : null}
