@@ -1,12 +1,11 @@
 """
 Fetch the raw material for the asset pipeline: operator art from one GitHub mirror, class icons from another.
 
-The two fetches are unrelated and share nothing but this command line. `--only art` pulls `charpor` (portraits) and `charpack`
-(illustrations) out of `fexli/ArknightsResource` with a sparse, blobless clone, so only the two wanted directories are checked out
-of a repo that is 17.8 GB whole - this pulls about 6.5 GB. `--only icons` downloads the 8 class icons from `Aceship/Arknight-Images`,
-a repo that is dead (last push 2024-05-01) but still serves; those icons never change, so this takes them once and stops depending
-on it. Neither stage produces anything the site reads - later pipeline stages re-encode this staged tree to WebP and publish it.
-See `PROJECT.md` for the mirror decisions behind both sources.
+The two fetches are unrelated and share nothing but this command line. `--only art` pulls `charpor` (portraits), `charpack` (illustrations), and
+`spine` (chibi rigs) out of `fexli/ArknightsResource` with a sparse, blobless clone, so only the three wanted directories are checked out of a repo
+that is 17.8 GB whole - this pulls about 9.2 GB. `--only icons` downloads the 8 class icons from `Aceship/Arknight-Images`, a repo that is dead (last
+push 2024-05-01) but still serves; those icons never change, so this takes them once and stops depending on it. Neither stage produces anything the
+site reads - later pipeline stages re-encode this staged tree to WebP and publish it. See `PROJECT.md` for the mirror decisions behind both sources.
 
 Usage:
     python3 -u tools/assets/fetch.py [--only {art,icons}]
@@ -29,10 +28,10 @@ STAGING_DIR = os.path.join(TOOLS_DIR, ".staging")
 UPSTREAM_DIR = os.path.join(STAGING_DIR, "upstream")
 CLASSES_DIR = os.path.join(STAGING_DIR, "classes")
 
-# Art mirror: a sparse, blobless clone of this repo, narrowed to the two directories the site needs.
+# Art mirror: a sparse, blobless clone of this repo, narrowed to the three directories the site needs.
 CLONE_URL = "https://github.com/fexli/ArknightsResource.git"
 ART_BRANCH = "main"
-ART_DIRS = ("charpor", "charpack")
+ART_DIRS = ("charpor", "charpack", "spine")
 LOCK_PATH = os.path.join(TOOLS_DIR, "upstream.lock.json")
 
 # Icon mirror: dead but still serving, kept only for these 8 files.
@@ -135,20 +134,27 @@ def remove_invalid_clone(path):
 
 def clone_or_refresh_art():
     """
-    Materialise `charpor` and `charpack` from the upstream art mirror at `<staging>/upstream`.
+    Materialise `ART_DIRS` from the upstream art mirror at `<staging>/upstream`.
 
     A blobless, sparse clone pulls the whole ref list but skips file content until checkout, and sparse-checkout then narrows the
-    checkout to the two wanted directories, so the ~17.8 GB repo costs about 6.5 GB instead of the whole tree. When the clone
-    already exists, this fetches and hard-checks-out the latest commit instead of cloning again, so a re-run refreshes rather
-    than failing on an existing directory.
+    checkout to the wanted directories, so the ~17.8 GB repo costs a fraction of the whole tree. When the clone already exists,
+    this re-applies the sparse-checkout cone before fetching and hard-checking-out the latest commit, instead of cloning again,
+    so a re-run refreshes rather than failing on an existing directory.
 
-    A 6.5 GB transfer is exactly the kind that gets interrupted - SIGINT, a dropped connection, an OOM kill - which leaves
+    The refresh branch sets the cone before `checkout -f`, not after. `checkout -f` force-replaces the working tree to match
+    the *current* sparse-checkout cone, deleting anything outside it - so if `ART_DIRS` has grown since the clone was made, the
+    old cone is still what `checkout -f` enforces unless the cone is widened first. Setting it first means the force-checkout
+    materialises the newly-added directories instead of wiping out a partial fetch of them from a prior interrupted run.
+
+    A large transfer is exactly the kind that gets interrupted - SIGINT, a dropped connection, an OOM kill - which leaves
     `<staging>/upstream` present but without a complete `.git`. Presence alone would send the next run down the refresh branch,
     where `git fetch` fails on a non-repo and the script stays wedged until someone manually removes the directory. So presence
     is checked with `is_git_repo` first: an invalid directory is reported and removed, then cloned fresh, rather than left to
     block every future run. `--progress` is passed to `clone` and `fetch` so a run redirected to a log file - the way this
     pipeline is normally run - still shows the transfer moving instead of going silent, since git only emits its live meter
-    when stderr is a tty.
+    when stderr is a tty. `gc.auto` is disabled on the clone right after it is created or refreshed, since this is a gitignored
+    scratch clone that gains nothing from git's automatic maintenance, and a large fetch otherwise triggers a multi-minute
+    cruft repack that roughly doubles `.git` on disk.
 
     Raises:
         subprocess.CalledProcessError: If any `git` command fails.
@@ -159,11 +165,14 @@ def clone_or_refresh_art():
         remove_invalid_clone(UPSTREAM_DIR)
 
     if os.path.isdir(UPSTREAM_DIR):
+        subprocess.run(["git", "-C", UPSTREAM_DIR, "config", "gc.auto", "0"], check=True)
+        subprocess.run(["git", "-C", UPSTREAM_DIR, "sparse-checkout", "set", *ART_DIRS], check=True)
         subprocess.run(["git", "-C", UPSTREAM_DIR, "fetch", "--progress", "--depth", "1", "origin", "main"], check=True)
         subprocess.run(["git", "-C", UPSTREAM_DIR, "checkout", "-f", "origin/main"], check=True)
     else:
         os.makedirs(STAGING_DIR, exist_ok=True)
         subprocess.run(["git", "clone", "--filter=blob:none", "--sparse", "--progress", "--depth", "1", CLONE_URL, UPSTREAM_DIR], check=True)
+        subprocess.run(["git", "-C", UPSTREAM_DIR, "config", "gc.auto", "0"], check=True)
         subprocess.run(["git", "-C", UPSTREAM_DIR, "sparse-checkout", "set", *ART_DIRS], check=True)
 
 
