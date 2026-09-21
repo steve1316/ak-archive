@@ -3,8 +3,9 @@ Build the manifest the site reads to know which operators have real art.
 
 Walks the **encoded output** under `--staging`, not the staged upstream tree, so the manifest can only ever claim a file that really exists.
 For `portraits/` and `illustrations/`, a file named exactly `<id>.webp` means that operator has canonical art. A file named `<id>_<key>.webp`
-is a variant, and its key is collected into `skins` for that operator, for the later phase that imports `skin_table.json`. Class icons carry
-no per-operator presence and are not part of the manifest. See `encode.py` for how these filenames are produced.
+is a variant, and its key is collected into `skins` for that operator, for the later phase that imports `skin_table.json`. Skill icons are listed
+in `skillIcons`, since a page shows one per skill and the import gate checks every skill has one. Potential, elite and class icons are fixed sets
+with no per-operator presence to record, so they stay outside the manifest. See `encode.py` for how these filenames are produced.
 
 `portraits` and `illustrations` carry an entry for every operator, `false` included. The site cannot tell the difference - `hasPortrait` reads a
 missing id and a `false` id the same way - but a reader can: `false` means this operator has no art upstream and never will, where a missing id
@@ -142,6 +143,22 @@ def scan_kind(staging_dir, kind, operator_ids):
     return canonical, variants
 
 
+def scan_skill_icons(staging_dir):
+    """
+    List the skill icon keys the encoded tree actually holds.
+
+    Args:
+        staging_dir: Root of the `--staging` tree.
+
+    Returns:
+        The sorted keys. Empty when no skill icons are encoded.
+    """
+    folder = os.path.join(staging_dir, "assets", "skills")
+    if not os.path.isdir(folder):
+        return []
+    return sorted(name[: -len(".webp")] for name in os.listdir(folder) if name.endswith(".webp"))
+
+
 def build_manifest(staging_dir, operator_ids):
     """
     Walk both encoded art kinds and assemble the manifest the site reads.
@@ -151,7 +168,7 @@ def build_manifest(staging_dir, operator_ids):
         operator_ids: Every known operator id.
 
     Returns:
-        A dict with `portraits`, `illustrations`, `skins`, and `variants` keys, each with its entries sorted by operator id so a re-run of an unchanged tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant. `variants` records each kind's variant keys separately, in that kind's own upstream spelling. `skins` merges them, which loses both whether a kind has the file and how it spells it - upstream lower-cases some keys under `charpor/` only.
+        A dict with `portraits`, `illustrations`, `skins`, `variants` and `skillIcons` keys, each with its entries sorted so a re-run of an unchanged tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant. `variants` records each kind's variant keys separately, in that kind's own upstream spelling. `skins` merges them, which loses both whether a kind has the file and how it spells it - upstream lower-cases some keys under `charpor/` only. `skillIcons` is a flat list of the encoded skill icon keys, listed because a page shows one per skill and the import gate checks every skill has one. Potentials, elites and classes are fixed sets and are not part of the manifest.
     """
     portraits, portrait_variants = scan_kind(staging_dir, "portraits", operator_ids)
     illustrations, illustration_variants = scan_kind(staging_dir, "illustrations", operator_ids)
@@ -169,6 +186,7 @@ def build_manifest(staging_dir, operator_ids):
             "portraits": {operator_id: sorted(keys) for operator_id, keys in sorted(portrait_variants.items())},
             "illustrations": {operator_id: sorted(keys) for operator_id, keys in sorted(illustration_variants.items())},
         },
+        "skillIcons": scan_skill_icons(staging_dir),
     }
 
 

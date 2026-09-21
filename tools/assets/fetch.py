@@ -1,11 +1,12 @@
 """
-Fetch the raw material for the asset pipeline: operator art from one GitHub mirror, class icons from another.
+Fetch the raw material for the asset pipeline: operator art from one GitHub mirror, skill/potential/elite/class icons from another.
 
-The two fetches are unrelated and share nothing but this command line. `--only art` pulls `charpor` (portraits), `charpack` (illustrations), and
-`spine` (chibi rigs) out of `fexli/ArknightsResource` with a sparse, blobless clone, so only the three wanted directories are checked out of a repo
-that is 17.8 GB whole - this pulls about 9.2 GB. `--only icons` downloads the 8 class icons from `Aceship/Arknight-Images`, a repo that is dead (last
-push 2024-05-01) but still serves; those icons never change, so this takes them once and stops depending on it. Neither stage produces anything the
-site reads - later pipeline stages re-encode this staged tree to WebP and publish it. See `PROJECT.md` for the mirror decisions behind both sources.
+The two fetches are unrelated and share nothing but this command line and the sparse-clone machinery. `--only art` pulls `charpor` (portraits),
+`charpack` (illustrations), and `spine` (chibi rigs) out of `fexli/ArknightsResource` with a sparse, blobless clone, so only the three wanted
+directories are checked out of a repo that is 17.8 GB whole - this pulls about 9.2 GB. `--only icons` pulls `skills`, `potential_hub`, `elite_hub` and
+`profession_large_hub` out of `ArknightsAssets/ArknightsAssets2` the same way. Its `en` branch is refreshed hourly by the repo's own GitHub Actions
+job, so it stays current on its own and the 8 class icons no longer depend on the dead `Aceship/Arknight-Images` mirror. Neither stage produces
+anything the site reads - later pipeline stages re-encode this staged tree to WebP and publish it. See `PROJECT.md` for the mirror decisions behind both sources.
 
 Usage:
     python3 -u tools/assets/fetch.py [--only {art,icons}]
@@ -16,7 +17,6 @@ import json
 import os
 import shutil
 import subprocess
-import urllib.request
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -34,12 +34,17 @@ ART_BRANCH = "main"
 ART_DIRS = ("charpor", "charpack", "spine")
 LOCK_PATH = os.path.join(TOOLS_DIR, "upstream.lock.json")
 
-# Icon mirror: dead but still serving, kept only for these 8 files.
-ICON_BASE = "https://raw.githubusercontent.com/Aceship/Arknight-Images/main/classes"
-ICON_CLASSES = ("caster", "defender", "guard", "medic", "sniper", "specialist", "supporter", "vanguard")
+# Icon mirror: `en` is refreshed by the repo's own hourly GitHub Actions job from each new EN client, so it stays current on its own.
+ICONS_CLONE_URL = "https://github.com/ArknightsAssets/ArknightsAssets2.git"
+ICONS_REPO = "ArknightsAssets/ArknightsAssets2"
+ICONS_BRANCH = "en"
+ICONS_DIR = os.path.join(STAGING_DIR, "icons-upstream")
+ICONS_ARTS = "assets/dyn/arts"
+ICON_DIRS = tuple(f"{ICONS_ARTS}/{name}" for name in ("skills", "potential_hub", "elite_hub", "profession_large_hub"))
+ICONS_LOCK_PATH = os.path.join(TOOLS_DIR, "icons.lock.json")
 
-# GitHub rejects the Python default User-Agent on raw.githubusercontent.com requests.
-USER_AGENT = "ak-archive-asset-fetch/1.0 (fan site asset pipeline; https://github.com/steve1316/ak-archive)"
+# Upstream's `profession_large_hub/icon_profession_<stem>_large.png` stem, mapped to the class name the site already publishes under `classes/`.
+CLASS_FILES = {"caster": "caster", "medic": "medic", "pioneer": "vanguard", "sniper": "sniper", "special": "specialist", "support": "supporter", "tank": "defender", "warrior": "guard"}
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -132,22 +137,22 @@ def remove_invalid_clone(path):
     shutil.rmtree(real_path)
 
 
-def clone_or_refresh_art():
+def clone_or_refresh_sparse(path, url, branch, dirs):
     """
-    Materialise `ART_DIRS` from the upstream art mirror at `<staging>/upstream`.
+    Materialise `dirs` from a sparse mirror at `path`.
 
     A blobless, sparse clone pulls the whole ref list but skips file content until checkout, and sparse-checkout then narrows the
-    checkout to the wanted directories, so the ~17.8 GB repo costs a fraction of the whole tree. When the clone already exists,
+    checkout to the wanted directories, so a large repo costs a fraction of the whole tree. When the clone already exists,
     this re-applies the sparse-checkout cone before fetching and hard-checking-out the latest commit, instead of cloning again,
     so a re-run refreshes rather than failing on an existing directory.
 
     The refresh branch sets the cone before `checkout -f`, not after. `checkout -f` force-replaces the working tree to match
-    the *current* sparse-checkout cone, deleting anything outside it - so if `ART_DIRS` has grown since the clone was made, the
+    the *current* sparse-checkout cone, deleting anything outside it - so if `dirs` has grown since the clone was made, the
     old cone is still what `checkout -f` enforces unless the cone is widened first. Setting it first means the force-checkout
     materialises the newly-added directories instead of wiping out a partial fetch of them from a prior interrupted run.
 
     A large transfer is exactly the kind that gets interrupted - SIGINT, a dropped connection, an OOM kill - which leaves
-    `<staging>/upstream` present but without a complete `.git`. Presence alone would send the next run down the refresh branch,
+    `path` present but without a complete `.git`. Presence alone would send the next run down the refresh branch,
     where `git fetch` fails on a non-repo and the script stays wedged until someone manually removes the directory. So presence
     is checked with `is_git_repo` first: an invalid directory is reported and removed, then cloned fresh, rather than left to
     block every future run. `--progress` is passed to `clone` and `fetch` so a run redirected to a log file - the way this
@@ -156,32 +161,44 @@ def clone_or_refresh_art():
     scratch clone that gains nothing from git's automatic maintenance, and a large fetch otherwise triggers a multi-minute
     cruft repack that roughly doubles `.git` on disk.
 
+    Args:
+        path: Directory to clone into, or refresh if it already holds a clone.
+        url: Git URL of the mirror to clone.
+        branch: Branch to clone or fetch.
+        dirs: Directories to narrow the sparse-checkout cone to.
+
     Raises:
         subprocess.CalledProcessError: If any `git` command fails.
         AssertionError: If recovering from an invalid clone would remove a path outside `STAGING_DIR`.
     """
-    if os.path.isdir(UPSTREAM_DIR) and not is_git_repo(UPSTREAM_DIR):
-        print(f"{UPSTREAM_DIR} exists but is not a valid git repository - a previous clone was likely interrupted, removing it")
-        remove_invalid_clone(UPSTREAM_DIR)
+    if os.path.isdir(path) and not is_git_repo(path):
+        print(f"{path} exists but is not a valid git repository - a previous clone was likely interrupted, removing it")
+        remove_invalid_clone(path)
 
-    if os.path.isdir(UPSTREAM_DIR):
-        subprocess.run(["git", "-C", UPSTREAM_DIR, "config", "gc.auto", "0"], check=True)
-        subprocess.run(["git", "-C", UPSTREAM_DIR, "sparse-checkout", "set", *ART_DIRS], check=True)
-        subprocess.run(["git", "-C", UPSTREAM_DIR, "fetch", "--progress", "--depth", "1", "origin", "main"], check=True)
-        subprocess.run(["git", "-C", UPSTREAM_DIR, "checkout", "-f", "origin/main"], check=True)
+    if os.path.isdir(path):
+        subprocess.run(["git", "-C", path, "config", "gc.auto", "0"], check=True)
+        subprocess.run(["git", "-C", path, "sparse-checkout", "set", *dirs], check=True)
+        subprocess.run(["git", "-C", path, "fetch", "--progress", "--depth", "1", "origin", branch], check=True)
+        subprocess.run(["git", "-C", path, "checkout", "-f", f"origin/{branch}"], check=True)
     else:
         os.makedirs(STAGING_DIR, exist_ok=True)
-        subprocess.run(["git", "clone", "--filter=blob:none", "--sparse", "--progress", "--depth", "1", CLONE_URL, UPSTREAM_DIR], check=True)
-        subprocess.run(["git", "-C", UPSTREAM_DIR, "config", "gc.auto", "0"], check=True)
-        subprocess.run(["git", "-C", UPSTREAM_DIR, "sparse-checkout", "set", *ART_DIRS], check=True)
+        subprocess.run(["git", "clone", "--filter=blob:none", "--sparse", "--progress", "--depth", "1", "--branch", branch, url, path], check=True)
+        subprocess.run(["git", "-C", path, "config", "gc.auto", "0"], check=True)
+        subprocess.run(["git", "-C", path, "sparse-checkout", "set", *dirs], check=True)
 
 
-def write_lock():
+def write_lock(path, repo, branch, lock_path):
     """
-    Record the commit the art was taken from, mirroring `tools/data/upstream.lock.json`.
+    Record the commit a mirror was taken from, mirroring `tools/data/upstream.lock.json`.
 
     Without this the published art has no provenance. The mirror is a moving branch with no releases, so once the staging clone is deleted there is
     no way to answer which upstream commit a given file came from, or to reproduce the encode. The lock is small and committed, unlike the clone.
+
+    Args:
+        path: Directory holding the clone to read the current commit from.
+        repo: The `owner/name` of the mirror, recorded for provenance.
+        branch: The branch the clone tracks, recorded for provenance.
+        lock_path: File to write the lock JSON to.
 
     Returns:
         The recorded sha.
@@ -189,10 +206,10 @@ def write_lock():
     Raises:
         subprocess.CalledProcessError: If `git rev-parse` fails.
     """
-    result = subprocess.run(["git", "-C", UPSTREAM_DIR, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+    result = subprocess.run(["git", "-C", path, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
     sha = result.stdout.strip()
-    lock = {"repo": "fexli/ArknightsResource", "branch": ART_BRANCH, "sha": sha}
-    with open(LOCK_PATH, "w") as handle:
+    lock = {"repo": repo, "branch": branch, "sha": sha}
+    with open(lock_path, "w") as handle:
         json.dump(lock, handle, indent="\t")
         handle.write("\n")
     return sha
@@ -206,8 +223,8 @@ def fetch_art():
         subprocess.CalledProcessError: If any `git` command fails.
         AssertionError: If recovering from an invalid clone would remove a path outside `STAGING_DIR`.
     """
-    clone_or_refresh_art()
-    print(f"art/sha: {write_lock()}")
+    clone_or_refresh_sparse(UPSTREAM_DIR, CLONE_URL, ART_BRANCH, ART_DIRS)
+    print(f"art/sha: {write_lock(UPSTREAM_DIR, 'fexli/ArknightsResource', ART_BRANCH, LOCK_PATH)}")
     for name in ART_DIRS:
         count, total = directory_stats(os.path.join(UPSTREAM_DIR, name))
         print(f"art/{name}: {count} files, {format_bytes(total)}")
@@ -218,41 +235,27 @@ def fetch_art():
 # Icons
 
 
-def download_icon(name):
-    """
-    Download one class icon to `<staging>/classes/<name>.png`, skipping it if already staged.
-
-    Args:
-        name: The class name, e.g. `caster`.
-
-    Raises:
-        urllib.error.URLError: If the request fails outright.
-        urllib.error.HTTPError: If GitHub returns a non-2xx status.
-    """
-    dest = os.path.join(CLASSES_DIR, f"{name}.png")
-    if os.path.exists(dest):
-        return
-    url = f"{ICON_BASE}/class_{name}.png"
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request) as response:
-        data = response.read()
-    with open(dest, "wb") as handle:
-        handle.write(data)
-
-
 def fetch_icons():
     """
-    Download the 8 class icons, then print the file count and total bytes staged.
+    Clone or refresh the icon mirror, record its sha, copy the 8 class icons into `<staging>/classes`, then print what was staged.
+
+    The class icons used to come from `Aceship/Arknight-Images`, which stopped updating in 2024. They are copied into the same place under the
+    same names, so `encode.py` and the published `classes/` paths do not change.
 
     Raises:
-        urllib.error.URLError: If a download fails outright.
-        urllib.error.HTTPError: If GitHub returns a non-2xx status.
+        subprocess.CalledProcessError: If any `git` command fails.
+        AssertionError: If recovering from an invalid clone would remove a path outside `STAGING_DIR`.
+        FileNotFoundError: If upstream no longer has one of the 8 class icons.
     """
+    clone_or_refresh_sparse(ICONS_DIR, ICONS_CLONE_URL, ICONS_BRANCH, ICON_DIRS)
+    print(f"icons/sha: {write_lock(ICONS_DIR, ICONS_REPO, ICONS_BRANCH, ICONS_LOCK_PATH)}")
     os.makedirs(CLASSES_DIR, exist_ok=True)
-    for name in ICON_CLASSES:
-        download_icon(name)
-    count, total = directory_stats(CLASSES_DIR)
-    print(f"icons: {count} files, {format_bytes(total)}")
+    source = os.path.join(ICONS_DIR, ICONS_ARTS, "profession_large_hub")
+    for stem, name in CLASS_FILES.items():
+        shutil.copyfile(os.path.join(source, f"icon_profession_{stem}_large.png"), os.path.join(CLASSES_DIR, f"{name}.png"))
+    for directory in ICON_DIRS:
+        count, total = directory_stats(os.path.join(ICONS_DIR, directory))
+        print(f"icons/{directory.rsplit('/', 1)[-1]}: {count} files, {format_bytes(total)}")
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////

@@ -434,6 +434,10 @@ let illustrationCount = 0;
 if (hasManifest) {
 	const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 	for (const [section, entries] of Object.entries(manifest)) {
+		// skillIcons is a flat list of icon keys, not a map of operator ids, so it carries no ids to check here.
+		if (section === "skillIcons") {
+			continue;
+		}
 		// The variants section has a nested structure with portraits and illustrations keys
 		if (section === "variants") {
 			for (const [kind, kindEntries] of Object.entries(entries)) {
@@ -460,6 +464,15 @@ if (hasManifest) {
 	}
 	if (illustrationCount < MIN_ILLUSTRATIONS) {
 		fail(`asset manifest records ${illustrationCount} illustrations, below the floor of ${MIN_ILLUSTRATIONS}`);
+	}
+	// Every skill a page can show must have its icon published. A missing one would render a broken image in the Skills tab.
+	const skillIcons = new Set(manifest.skillIcons ?? []);
+	for (const operator of operators) {
+		for (const skill of operator.skills) {
+			if (!skillIcons.has(skill.icon)) {
+				fail(`${operator.id} skill ${skill.id} has no published icon ${skill.icon}`);
+			}
+		}
 	}
 }
 

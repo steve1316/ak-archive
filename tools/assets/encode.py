@@ -12,13 +12,14 @@ against the real staged tree, but both are silent, so this script counts what ea
 the end of every run - that is what makes a future upstream change visible in the run log instead of vanishing.
 
 Usage:
-    python3 -u tools/assets/encode.py [--dry-run] [--only {portraits,illustrations,classes}] [--staging PATH]
+    python3 -u tools/assets/encode.py [--dry-run] [--only {portraits,illustrations,classes,skills,potentials,elites}] [--staging PATH]
 """
 
 import argparse
 import glob
 import json
 import os
+import re
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -44,6 +45,12 @@ QUALITY = 85
 
 # Upstream directory to published directory.
 KINDS = {"charpor": "portraits", "charpack": "illustrations"}
+
+# Where Task 3's icon clone keeps its art, relative to `--staging`.
+ICONS_ARTS_DIR = os.path.join("icons-upstream", "assets", "dyn", "arts")
+
+# Fixed icon sets: (upstream folder, upstream file prefix, how many, published folder). File `i` publishes as `<folder>/<i>.webp`.
+NUMBERED_ICONS = {"potentials": ("potential_hub", "potential_", 6), "elites": ("elite_hub", "elite_", 3)}
 
 # How often the real encode reports a running count and byte total.
 PROGRESS_EVERY = 100
@@ -113,8 +120,10 @@ def needs_encode(input_path, output_path):
 # //////////////////////////////////////////////////////////////////////////////////////////////////
 # Planning
 
-# A planned job is an (input_path, output_path, label) triple. `label` is the "input -> output" line --dry-run
+# A planned job is an (input_path, output_path, label, kind) quadruple. `label` is the "input -> output" line --dry-run
 # prints, precomputed at plan time from the same names the job was built from, rather than reconstructed from paths.
+# `kind` is the published directory name, such as `portraits` or `classes` - `encode_one` reads it to decide whether
+# a job needs the class-only glyph conversion.
 
 
 def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
@@ -131,9 +140,9 @@ def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
         operator_ids: Every known operator id.
 
     Returns:
-        A `(jobs, skipped)` pair. `jobs` is a list of `(input_path, output_path, label)` triples. `skipped` is a
-        dict with `unrecognised`, `test` and `redundant` counts. Both are empty when `upstream_name`'s source
-        directory does not exist - that stage simply has nothing to do.
+        A `(jobs, skipped)` pair. `jobs` is a list of `(input_path, output_path, label, kind)` quadruples, `kind` always
+        `published_name`. `skipped` is a dict with `unrecognised`, `test` and `redundant` counts. Both are empty when
+        `upstream_name`'s source directory does not exist - that stage simply has nothing to do.
     """
     source_dir = os.path.join(staging_dir, "upstream", upstream_name)
     dest_dir = os.path.join(staging_dir, "assets", published_name)
@@ -173,7 +182,7 @@ def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
                 continue
             out_name = output_name(operator_id, key, canonical)
             label = f"{upstream_name}/{name} -> {published_name}/{out_name}"
-            jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, out_name), label))
+            jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, out_name), label, published_name))
     return jobs, skipped
 
 
@@ -186,7 +195,8 @@ def plan_classes(staging_dir):
         staging_dir: The root of the `--staging` tree.
 
     Returns:
-        A list of `(input_path, output_path, label)` triples. Empty when the classes directory does not exist.
+        A list of `(input_path, output_path, label, kind)` quadruples, `kind` always `"classes"`. Empty when the classes
+        directory does not exist.
     """
     source_dir = os.path.join(staging_dir, "classes")
     dest_dir = os.path.join(staging_dir, "assets", "classes")
@@ -202,8 +212,85 @@ def plan_classes(staging_dir):
         stem = name[: -len(".png")]
         out_name = f"{stem}.webp"
         label = f"classes/{name} -> classes/{out_name}"
-        jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, out_name), label))
+        jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, out_name), label, "classes"))
     return jobs
+
+
+def icon_key(stem):
+    """
+    The published key for a skill icon, the same rule as `iconKey` in `tools/data/lib/skills.mjs`.
+
+    Args:
+        stem: The upstream file stem after `skill_icon_`, such as `skcom_powerstrike[3]`.
+
+    Returns:
+        The key, such as `skcom_powerstrike_3`.
+    """
+    return re.sub(r"_+$", "", re.sub(r"[^a-z0-9_]+", "_", stem.lower()))
+
+
+def load_skill_icon_keys():
+    """
+    Read every skill icon key the importer wrote, so only icons a page can show are encoded.
+
+    Returns:
+        A set of keys.
+    """
+    keys = set()
+    for path in sorted(glob.glob(os.path.join(DATA_DIR, "operators-*.json"))):
+        with open(path, encoding="utf-8") as handle:
+            for operator in json.load(handle):
+                keys.update(skill["icon"] for skill in operator.get("skills", []))
+    return keys
+
+
+def plan_skills(staging_dir, wanted):
+    """
+    Work out a job for every skill icon an operator uses.
+
+    Args:
+        staging_dir: The root of the `--staging` tree.
+        wanted: Every key the importer wrote.
+
+    Returns:
+        A `(jobs, missing)` pair: the `(input_path, output_path, label, kind)` quadruples, `kind` always `"skills"`, and
+        the sorted keys upstream has no file for.
+    """
+    source_dir = os.path.join(staging_dir, ICONS_ARTS_DIR, "skills")
+    dest_dir = os.path.join(staging_dir, "assets", "skills")
+    if not os.path.isdir(source_dir):
+        print(f"skipping skills: {source_dir} does not exist")
+        return [], sorted(wanted)
+    jobs = []
+    found = set()
+    for name in sorted(os.listdir(source_dir)):
+        if not (name.startswith("skill_icon_") and name.endswith(".png")):
+            continue
+        key = icon_key(name[len("skill_icon_") : -len(".png")])
+        if key in wanted and key not in found:
+            found.add(key)
+            jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, f"{key}.webp"), f"skills/{name} -> skills/{key}.webp", "skills"))
+    return jobs, sorted(wanted - found)
+
+
+def plan_numbered(staging_dir, published_name):
+    """
+    Work out the jobs for one fixed, numbered icon set.
+
+    Args:
+        staging_dir: The root of the `--staging` tree.
+        published_name: A key of `NUMBERED_ICONS`, such as `potentials`.
+
+    Returns:
+        A list of `(input_path, output_path, label, kind)` quadruples, `kind` always `published_name`.
+    """
+    folder, prefix, count = NUMBERED_ICONS[published_name]
+    source_dir = os.path.join(staging_dir, ICONS_ARTS_DIR, folder)
+    dest_dir = os.path.join(staging_dir, "assets", published_name)
+    return [
+        (os.path.join(source_dir, f"{prefix}{index}.png"), os.path.join(dest_dir, f"{index}.webp"), f"{folder}/{prefix}{index}.png -> {published_name}/{index}.webp", published_name)
+        for index in range(count)
+    ]
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -211,15 +298,37 @@ def plan_classes(staging_dir):
 # Encoding
 
 
+def whiten_glyph(image):
+    """
+    Turn a white-glyph-on-black source into a white glyph on transparency, with alpha taken from the source's brightness.
+
+    Upstream ships each class icon as a white glyph over an opaque black square, since the game itself draws it on a dark
+    panel of its own. The site instead draws the icon on a card over the page background, so the black square has to become
+    transparency rather than staying a black square. Luminance stands in for alpha because the source is already just white
+    on black: a white pixel becomes fully opaque, a black pixel fully transparent, with no other colour to account for.
+
+    Args:
+        image: The source image, already converted to `RGBA`.
+
+    Returns:
+        A new `RGBA` image, solid white, with alpha equal to the source's grayscale luminance.
+    """
+    glyph = Image.new("RGBA", image.size, (255, 255, 255, 0))
+    glyph.putalpha(image.convert("L"))
+    return glyph
+
+
 def encode_one(job):
     """
     Encode one staged PNG to WebP, downscaling only when it exceeds `MAX_EDGE` on its longest edge.
 
-    Runs in a worker process, so it takes a plain (input_path, output_path) pair rather than anything holding open
-    file handles or process-local state.
+    Runs in a worker process, so it takes a plain (input_path, output_path, kind) triple rather than anything holding
+    open file handles or process-local state. A `classes` job additionally passes through `whiten_glyph`, so the class
+    badge and the Animations placeholder get a transparent glyph instead of upstream's white-on-black square.
 
     Args:
-        job: An `(input_path, output_path)` pair.
+        job: An `(input_path, output_path, kind)` triple. `kind` is the published directory name, such as `portraits`
+            or `classes`.
 
     Returns:
         The number of bytes written to `output_path`.
@@ -228,7 +337,7 @@ def encode_one(job):
         OSError: If the input cannot be read or the output cannot be written.
         PIL.UnidentifiedImageError: If the input is not a readable image.
     """
-    input_path, output_path = job
+    input_path, output_path, kind = job
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with Image.open(input_path) as image:
         image = image.convert("RGBA")
@@ -237,6 +346,8 @@ def encode_one(job):
             scale = MAX_EDGE / longest_edge
             new_size = (round(image.width * scale), round(image.height * scale))
             image = image.resize(new_size, Image.LANCZOS)
+        if kind == "classes":
+            image = whiten_glyph(image)
         image.save(output_path, "WEBP", quality=QUALITY, method=6)
     return os.path.getsize(output_path)
 
@@ -250,7 +361,7 @@ def encode_all(jobs):
     real throughput rather than stalling on whichever file happened to be submitted first.
 
     Args:
-        jobs: A list of `(input_path, output_path, label)` triples to encode.
+        jobs: A list of `(input_path, output_path, label, kind)` quadruples to encode.
 
     Returns:
         A `(count, total_bytes)` pair for the files actually encoded.
@@ -262,7 +373,7 @@ def encode_all(jobs):
     count = 0
     total_bytes = 0
     with ProcessPoolExecutor(max_workers=os.cpu_count() or 1) as executor:
-        futures = [executor.submit(encode_one, (input_path, output_path)) for input_path, output_path, _label in jobs]
+        futures = [executor.submit(encode_one, (input_path, output_path, kind)) for input_path, output_path, _label, kind in jobs]
         for future in as_completed(futures):
             total_bytes += future.result()
             count += 1
@@ -291,11 +402,11 @@ def main():
     """Parse arguments and run the encode pipeline for the selected stages."""
     parser = argparse.ArgumentParser(description="Re-encode staged upstream art into the WebP files the site publishes.")
     parser.add_argument("--dry-run", action="store_true", help="Print input -> output for every file and encode nothing.")
-    parser.add_argument("--only", choices=("portraits", "illustrations", "classes"), help="Run only this stage. Defaults to all three.")
+    parser.add_argument("--only", choices=("portraits", "illustrations", "classes", "skills", "potentials", "elites"), help="Run only this stage. Defaults to all six.")
     parser.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
     args = parser.parse_args()
 
-    stages = (args.only,) if args.only else ("portraits", "illustrations", "classes")
+    stages = (args.only,) if args.only else ("portraits", "illustrations", "classes", "skills", "potentials", "elites")
     operator_ids = load_operator_ids()
 
     jobs = []
@@ -312,18 +423,32 @@ def main():
     if "classes" in stages:
         jobs.extend(plan_classes(args.staging))
 
+    missing = []
+    if "skills" in stages:
+        skill_jobs, missing = plan_skills(args.staging, load_skill_icon_keys())
+        jobs.extend(skill_jobs)
+    for published_name in NUMBERED_ICONS:
+        if published_name in stages:
+            jobs.extend(plan_numbered(args.staging, published_name))
+
     to_encode = [job for job in jobs if needs_encode(job[0], job[1])]
     skipped["already_exists"] = len(jobs) - len(to_encode)
 
     if args.dry_run:
-        for _input_path, _output_path, label in jobs:
+        for _input_path, _output_path, label, _kind in jobs:
             print(label)
         print_skip_summary(skipped)
+        if missing:
+            print(f"missing skill icons: {len(missing)}: {', '.join(missing[:10])}")
+            sys.exit(1)
         return
 
     count, total_bytes = encode_all(to_encode)
     print(f"encoded {count} files, {format_bytes(total_bytes)}")
     print_skip_summary(skipped)
+    if missing:
+        print(f"missing skill icons: {len(missing)}: {', '.join(missing[:10])}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
