@@ -194,8 +194,8 @@ export interface SearchEntry {
 }
 
 /**
- * The operator page's four control values. The stats, talents and skins panels all read the same four, so the page owns them in one place and
- * passes them down, rather than each panel keeping its own copy.
+ * The operator page's four control values. The Stats and Abilities cards both read the same four, so the page owns them in one place and
+ * passes them down, rather than each card keeping its own copy.
  */
 export interface Controls {
 	/** 0-based elite phase index. */

@@ -5,6 +5,8 @@ import { Link } from "react-router-dom";
 
 import { ART_TOP_ANCHOR, ArtPlaceholder, CARD_ASPECT, FAB_EXPAND_SX } from "archive-kit";
 
+import { TIGHT_RADIUS } from "./layout.js";
+
 /**
  * The card's width. The portrait file is 180x360 and nothing larger exists upstream, so any wider card upscales it. At the target DPR of 1.76
  * even this is painted across 317 device pixels.
@@ -23,7 +25,7 @@ const IMAGE_SX: SxProps<Theme> = {
 	objectPosition: ART_TOP_ANCHOR,
 	border: 1,
 	borderColor: "divider",
-	borderRadius: "3px"
+	borderRadius: TIGHT_RADIUS
 };
 
 /** Props for ArtCard. */

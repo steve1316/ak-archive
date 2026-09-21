@@ -9,6 +9,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import OperatorArtCard from "../../components/OperatorArtCard.js";
 import RarityStars from "../../components/RarityStars.js";
 import { searchIndex } from "../../lib/data.js";
+import { operatorPath } from "../../lib/routes.js";
 import type { SearchEntry } from "../../types/operator.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -246,7 +247,7 @@ export default memo(function OperatorCarousel({ ids, onShuffle }: OperatorCarous
 				>
 					{shown.map((entry) => (
 						<Box key={entry.id} sx={{ width, flexShrink: 0 }}>
-							<OperatorArtCard id={entry.id} name={entry.name} rarity={entry.rarity} to={`/operator/${entry.id}`}>
+							<OperatorArtCard id={entry.id} name={entry.name} rarity={entry.rarity} to={operatorPath(entry.id)}>
 								<Box sx={{ p: 1 }}>
 									<Typography variant="subtitle2" noWrap>
 										{entry.name}

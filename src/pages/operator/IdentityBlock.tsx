@@ -5,6 +5,7 @@ import RarityStars from "../../components/RarityStars.js";
 import { classIconUrl } from "../../lib/assets.js";
 import type { OperatorForm } from "../../lib/forms.js";
 import type { Operator } from "../../types/operator.js";
+import { RAISED_BG, TIGHT_RADIUS } from "./layout.js";
 
 /** The class badge: the published class icon beside the class name, on the raised surface the mockup sits it on. */
 const BADGE_SX: SxProps<Theme> = {
@@ -15,8 +16,8 @@ const BADGE_SX: SxProps<Theme> = {
 	py: 0.375,
 	border: 1,
 	borderColor: "divider",
-	borderRadius: "3px",
-	backgroundColor: (theme) => theme.palette.raised ?? theme.palette.background.paper,
+	borderRadius: TIGHT_RADIUS,
+	backgroundColor: RAISED_BG,
 	fontWeight: 600,
 	fontSize: 13
 };
@@ -40,11 +41,11 @@ const CHIPS_SX: SxProps<Theme> = { flexWrap: "wrap", gap: 0.625, mt: 1.25 };
 const CHIP_UNSELECTED_SX: SxProps<Theme> = (theme) => ({
 	border: "1px solid",
 	borderColor: "divider",
-	borderRadius: "3px",
+	borderRadius: TIGHT_RADIUS,
 	backgroundColor: "rgba(13, 14, 18, 0.55)",
 	color: "text.secondary",
 	fontWeight: 400,
-	"&:hover, &.Mui-focusVisible": { backgroundColor: theme.palette.raised ?? theme.palette.background.paper, borderColor: "text.secondary" }
+	"&:hover, &.Mui-focusVisible": { backgroundColor: RAISED_BG(theme), borderColor: "text.secondary" }
 });
 
 /**
@@ -55,7 +56,7 @@ const CHIP_UNSELECTED_SX: SxProps<Theme> = (theme) => ({
 const CHIP_SELECTED_SX: SxProps<Theme> = (theme) => ({
 	border: "1px solid",
 	borderColor: "primary.main",
-	borderRadius: "3px",
+	borderRadius: TIGHT_RADIUS,
 	backgroundColor: "primary.main",
 	color: theme.palette.primary.contrastText,
 	fontWeight: 600,

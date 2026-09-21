@@ -5,16 +5,29 @@ import { Box, Paper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/ma
 import type { SxProps, Theme } from "@mui/material";
 
 import { classIconUrl } from "../../lib/assets.js";
-import { SECTION_HEADING_SX, SECTION_SX } from "./layout.js";
+import { SECTION_HEADING_GAP, SECTION_HEADING_SX, SECTION_SX, TIGHT_RADIUS } from "./layout.js";
 
 /** Which of an operator's two chibi rigs is on the stage. Named after upstream's own split: `build_<id>` is battle, `<id>/Back` is dorm. */
 export type RigKind = "battle" | "dorm";
 
-/** The stage. Takes every pixel the card has left, which is what lets row 1's slack land here instead of in an empty box. */
-const STAGE_SX: SxProps<Theme> = { position: "relative", flex: 1, minHeight: 240, border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", display: "grid", placeItems: "center" };
+/**
+ * The stage. Takes every pixel the card has left, which is what lets row 1's slack land here instead of in an empty box. The tight radius
+ * matches the art card beside it in row 1.
+ */
+const STAGE_SX: SxProps<Theme> = {
+	position: "relative",
+	flex: 1,
+	minHeight: 240,
+	border: 1,
+	borderColor: "divider",
+	borderRadius: TIGHT_RADIUS,
+	overflow: "hidden",
+	display: "grid",
+	placeItems: "center"
+};
 
 /** The Battle/Dorm switch. */
-const KIND_SX: SxProps<Theme> = { flex: "none", mb: 1.125 };
+const KIND_SX: SxProps<Theme> = { flex: "none", mb: SECTION_HEADING_GAP };
 
 /** The interaction hint under the stage. */
 const CAPTION_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center" };

@@ -10,6 +10,7 @@ import { ArtPlaceholder, ArtZoomControls, containArtSx, LoadError, useArtPanBoun
 
 import { loadOperator } from "../../lib/data.js";
 import { formsOf, readFormKey, writeFormKey } from "../../lib/forms.js";
+import { operatorPath, resolveOperatorParam } from "../../lib/routes.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Operator } from "../../types/operator.js";
 
@@ -54,7 +55,7 @@ const STAGE_SX: SxProps<Theme> = { flexGrow: 1, position: "relative", overflow: 
  * @returns The viewer.
  */
 export default function OperatorArt() {
-	const { id } = useParams();
+	const id = resolveOperatorParam(useParams().id);
 	const navigate = useNavigate();
 	const location = useLocation();
 	const [searchParams, setSearchParams] = useSearchParams();
@@ -111,18 +112,17 @@ export default function OperatorArt() {
 		};
 	}, [id, loadAttempt]);
 
-	// Opened from the operator page's "View full art" button, going back pops that real history entry rather than pushing a new one on top of
-	// it, so the browser Back button does not land the reader right back in the viewer it just closed. But the form switcher above writes with
-	// history replace, so a pop would show the operator page's form from when the viewer opened rather than the one last shown here. Popping
-	// only happens when the query string is still what it was at mount. Any other close - a form was switched, or the viewer was opened cold
-	// from a pasted link with nothing to pop - goes straight to the operator page with the viewer's current query string, replacing the
-	// viewer's own history entry so it does not linger either.
+	// Opened from the operator page's "View full art" button, so closing pops that real history entry instead of pushing a new one on top of it.
+	// Popping only happens when the query string is still what it was at mount, since the form switcher above writes with history replace and a
+	// pop after switching forms would show the operator page's form from when the viewer opened rather than the one last shown here. Any other
+	// close - a form was switched, or the viewer was opened cold from a pasted link - replace-navigates to the operator page with the current
+	// query string instead, so the viewer's own history entry does not linger either.
 	const close = useCallback(() => {
 		if (location.key !== "default" && location.search === initialSearch.current) {
 			void navigate(-1);
 			return;
 		}
-		void navigate(id ? `/operator/${id}${location.search}` : "/operators", { replace: true });
+		void navigate(id ? `${operatorPath(id)}${location.search}` : "/operators", { replace: true });
 	}, [location.key, location.search, navigate, id]);
 
 	useCloseOnEscape(close);

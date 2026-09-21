@@ -28,5 +28,20 @@ export const SECTION_SX: SxProps<Theme> = (theme) => ({
 	minHeight: 0
 });
 
+/** The gap under a section card's heading, shared with any control row that sits directly beneath one, such as the Animations card's switch. */
+export const SECTION_HEADING_GAP = 1.125;
+
 /** A section card's heading. Never grows, so it cannot push the card's flexible child out of the box. */
-export const SECTION_HEADING_SX: SxProps<Theme> = { mb: 1.125, flex: "none" };
+export const SECTION_HEADING_SX: SxProps<Theme> = { mb: SECTION_HEADING_GAP, flex: "none" };
+
+/** The tight corner radius the art card and the identity badge/chips share, smaller than the theme's default `borderRadius: 1`. */
+export const TIGHT_RADIUS = "3px";
+
+/**
+ * The raised-surface fill used for badges, chips and tiles that sit a shade lighter than the section card behind them. `raised` is optional on
+ * MUI's augmented `Palette`, hence the fallback. Usable directly as an `sx` property value, or called with a theme already in scope.
+ *
+ * @param theme The active theme.
+ * @returns The raised background colour.
+ */
+export const RAISED_BG = (theme: Theme): string => theme.palette.raised ?? theme.palette.background.paper;

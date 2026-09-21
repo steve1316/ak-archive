@@ -5,7 +5,7 @@ import type { SxProps, Theme } from "@mui/material";
 
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
 import type { BaseSkill, Controls, Operator } from "../../types/operator.js";
-import { SECTION_HEADING_SX, SECTION_SX } from "./layout.js";
+import { RAISED_BG, SECTION_HEADING_SX, SECTION_SX } from "./layout.js";
 
 /** The gap between tiles, both across columns and from one tile to the next down a column. */
 const TILES_GAP = 1.5;
@@ -19,7 +19,6 @@ const TILES_SX: SxProps<Theme> = { columnCount: { xs: 1, sm: 2 }, columnGap: TIL
 
 /**
  * One tile, on the kit's raised surface. `breakInside: "avoid"` keeps a tile's border and background from splitting across the two columns.
- * `raised` is optional on MUI's augmented `Palette`, hence the fallback.
  */
 const TILE_SX: SxProps<Theme> = {
 	border: 1,
@@ -28,7 +27,7 @@ const TILE_SX: SxProps<Theme> = {
 	p: 1.25,
 	mb: TILES_GAP,
 	breakInside: "avoid",
-	backgroundColor: (theme) => theme.palette.raised ?? theme.palette.background.paper
+	backgroundColor: RAISED_BG
 };
 
 /** A tile's title row. */

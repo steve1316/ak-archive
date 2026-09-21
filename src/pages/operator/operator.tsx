@@ -8,6 +8,7 @@ import { LazySection, LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
 
 import { loadOperator, loadProfile } from "../../lib/data.js";
 import { formsOf, readFormKey, writeFormKey } from "../../lib/forms.js";
+import { operatorPath, resolveOperatorParam } from "../../lib/routes.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Controls, Operator as OperatorRecord, Profile } from "../../types/operator.js";
 import AbilitiesCard from "./AbilitiesCard.js";
@@ -22,14 +23,22 @@ import StatsPanel from "./StatsPanel.js";
 /** Controls held before any operator has loaded. Never rendered, since the grid does not appear until the operator is set. */
 const INITIAL_CONTROLS: Controls = { phase: 0, level: 1, trust: true, potential: 1 };
 
+/** The page's top padding, in the theme's spacing units. Shared with `FOLD_SX` below, which subtracts it out to size the fold to the viewport. */
+const PAGE_TOP_PADDING = 1.75;
+
 /** The page body: above the fixed backdrop, with the locked design's 14px top and 20px side padding. */
-const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { xs: 2, md: 2.5 }, pt: 1.75, pb: 3 };
+const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { xs: 2, md: 2.5 }, pt: PAGE_TOP_PADDING, pb: 3 };
 
 /**
  * Everything above the fold. From `md` up it is at least one screen tall, and the first row takes whatever the second leaves, so slack goes to
  * the Animations stage rather than hollowing out a card. `1fr` is `minmax(auto, 1fr)`, so a row can grow but never shrink below its content.
  */
-const FOLD_SX: SxProps<Theme> = { display: "grid", gap: 1, gridTemplateRows: { md: "1fr auto" }, minHeight: { md: `calc(100dvh - ${NAVBAR_HEIGHT}px - 14px)` } };
+const FOLD_SX: SxProps<Theme> = (theme) => ({
+	display: "grid",
+	gap: 1,
+	gridTemplateRows: { md: "1fr auto" },
+	minHeight: { md: `calc(100dvh - ${NAVBAR_HEIGHT}px - ${theme.spacing(PAGE_TOP_PADDING)})` }
+});
 
 /** Row 1: art card, identity and record, Animations. Stacked on a narrow screen. */
 const ROW1_SX: SxProps<Theme> = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } };
@@ -71,7 +80,7 @@ function affiliationOf(operator: OperatorRecord): string | null {
  * @returns The page.
  */
 export default function Operator() {
-	const { id } = useParams();
+	const id = resolveOperatorParam(useParams().id);
 	const [searchParams, setSearchParams] = useSearchParams();
 
 	const [operator, setOperator] = useState<OperatorRecord | null>(null);
@@ -193,7 +202,7 @@ export default function Operator() {
 		writeFormKey(artParams, formKey, forms);
 	}
 	const artQuery = artParams.toString();
-	const artLink = `/operator/${id ?? ""}/art${artQuery ? `?${artQuery}` : ""}`;
+	const artLink = `${operatorPath(id ?? "", "/art")}${artQuery ? `?${artQuery}` : ""}`;
 
 	return (
 		<Box component="main">
@@ -204,7 +213,7 @@ export default function Operator() {
 					<LoadError what="this operator" onRetry={handleRetry} titleComponent="h1" />
 				) : operator ? (
 					<>
-						{/* `data-region` is what the layout gate in Task 9 measures - the fold's bottom edge against the viewport. */}
+						{/* `data-region` marks the fold so its bottom edge can be measured against the viewport when checking the above-the-fold layout. */}
 						<Box sx={FOLD_SX} data-region="fold">
 							<Box sx={ROW1_SX}>
 								<ArtCard name={operator.name} portrait={form?.portrait ?? null} illustration={form?.illustration ?? null} artLink={artLink} />

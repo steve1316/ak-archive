@@ -17,8 +17,8 @@ interface LorePanelProps {
 
 /**
  * The operator page's lore panel: handbook sections such as Profile and Archive File. The record - Basic Info and Physical Exam - no longer
- * lives here: the page loads the profile at mount and renders that half in `RecordBlock` above the fold instead. Base skills moved to the
- * Abilities card in Task 8.
+ * lives here: the page loads the profile at mount and renders that half in `RecordBlock` above the fold instead. Base skills live in the
+ * Abilities card instead of here too.
  *
  * Two operators - Amiya's Guard and Medic alternate forms - live in the patch table rather than the main character table and carry an empty
  * profile on both sides, no lore and no base skills. Rather than a bare "Handbook" heading with nothing under it, or the whole card vanishing

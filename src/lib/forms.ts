@@ -28,8 +28,8 @@ type VariantManifest = {
 };
 
 /**
- * Variant keys per kind. Read here rather than exported from `assets.ts`, which the Spine pipeline is extending in parallel - A6b's last task
- * folds this back in. Both globs resolve to the same module, so the manifest is still bundled once.
+ * Variant keys per kind. Read here rather than exported from `assets.ts`, since that file is off-limits while the Spine pipeline extends it in
+ * parallel - this folds back into `assets.ts` once that work lands. Both globs resolve to the same module, so the manifest is still bundled once.
  */
 const VARIANTS = (Object.values(import.meta.glob<VariantManifest>("../data/assets-manifest.json", { import: "default", eager: true }))[0] ?? {}).variants ?? {};
 
@@ -84,7 +84,7 @@ function matchKey(keys: string[] | undefined, key: string): string | null {
 
 /**
  * URL of a portrait variant. `portraitUrl` takes no variant yet, and `assets.ts` is off-limits while the Spine pipeline edits it, so the one
- * builder lives here until A6b's last task gives `portraitUrl` a variant parameter.
+ * builder lives here until `portraitUrl` itself gains a variant parameter.
  *
  * @param id The operator id.
  * @param key The variant key in the portrait directory's own spelling.

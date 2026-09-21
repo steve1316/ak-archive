@@ -8,6 +8,8 @@ import type { NavItem, SearchOption } from "archive-kit";
 
 import { classIconUrl } from "./lib/assets.js";
 import { searchIndex } from "./lib/data.js";
+import { operatorPath } from "./lib/routes.js";
+import CanonicalOperatorRoute from "./components/CanonicalOperatorRoute.js";
 import NotFound404 from "./not_found_404.js";
 import Home from "./pages/home/home.js";
 import Operator from "./pages/operator/operator.js";
@@ -32,7 +34,7 @@ export default function App() {
 	const { pathname } = useLocation();
 
 	// Built once from the search index, which is 31 KB and already in the bundle. The navbar renders on every route, so this must never touch a shard.
-	const searchOptions = useMemo<SearchOption[]>(() => searchIndex.map((entry) => ({ path: `/operator/${entry.id}`, name: entry.name, keys: [normaliseName(entry.name)] })), []);
+	const searchOptions = useMemo<SearchOption[]>(() => searchIndex.map((entry) => ({ path: operatorPath(entry.id), name: entry.name, keys: [normaliseName(entry.name)] })), []);
 
 	return (
 		<ThemeProvider theme={theme}>
@@ -50,12 +52,21 @@ export default function App() {
 						<Route
 							path="/operator/:id/art"
 							element={
-								<Suspense>
-									<OperatorArt />
-								</Suspense>
+								<CanonicalOperatorRoute suffix="/art">
+									<Suspense>
+										<OperatorArt />
+									</Suspense>
+								</CanonicalOperatorRoute>
 							}
 						/>
-						<Route path="/operator/:id" element={<Operator />} />
+						<Route
+							path="/operator/:id"
+							element={
+								<CanonicalOperatorRoute>
+									<Operator />
+								</CanonicalOperatorRoute>
+							}
+						/>
 						<Route path="/404" element={<NotFound404 />} />
 						{/* Anything unmatched shows the 404 in place, keeping the mistyped address visible. */}
 						<Route path="*" element={<NotFound404 />} />

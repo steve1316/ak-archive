@@ -6,6 +6,7 @@ import { HighlightedName } from "archive-kit";
 
 import OperatorArtCard from "../../components/OperatorArtCard.js";
 import RarityStars from "../../components/RarityStars.js";
+import { operatorPath } from "../../lib/routes.js";
 import type { Operator } from "../../types/operator.js";
 
 /** Props for OperatorCard. */
@@ -31,7 +32,7 @@ interface OperatorCardProps {
  */
 export default memo(function OperatorCard({ operator, match }: OperatorCardProps) {
 	return (
-		<OperatorArtCard id={operator.id} name={operator.name} rarity={operator.rarity} to={`/operator/${operator.id}`} lazy>
+		<OperatorArtCard id={operator.id} name={operator.name} rarity={operator.rarity} to={operatorPath(operator.id)} lazy>
 			<Box sx={{ p: 1 }}>
 				<Typography variant="subtitle2" noWrap>
 					<HighlightedName name={operator.name} match={match} />
