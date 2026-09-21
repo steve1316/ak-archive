@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Box, Container, Typography } from "@mui/material";
+import { Box, Button, Container, Typography } from "@mui/material";
 
-import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, findNameMatch } from "archive-kit";
+import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, ScrollToTop, findNameMatch } from "archive-kit";
 import type { ActiveFilter, SortOption } from "archive-kit";
 
 import { loadAllOperators } from "../../lib/data.js";
@@ -22,6 +22,9 @@ const SORT_OPTIONS: ReadonlyArray<SortOption<SortKey>> = [
 
 /** How many cards fit a row at each breakpoint: five across on a wide screen. */
 const CARD_SIZE = { xs: 6, sm: 4, md: 3, lg: 2.4 };
+
+/** Cards drawn before the "Load more" button, as gfl's index draws them. The index draws every card's art, so this is most of the page's work. */
+const PAGE_SIZE = 30;
 
 /** Compares text so digits order by value, putting "12F" before "THRM-EX", and case is ignored. Built once rather than per comparison. */
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -192,9 +195,19 @@ export default function OperatorIndex() {
 
 	const sorted = useMemo(() => sortOperators(filtered, sortKey, sortDescending), [filtered, sortKey, sortDescending]);
 
-	// The page draws every match rather than paging, so the shown range is always the whole of it. Saying "1-11 of 11" still tells the reader
-	// what the list was narrowed from, where "11 of 11" reads as though nothing was filtered.
-	const rangeLabel = sorted.length === 0 ? "0" : `1-${sorted.length}`;
+	const [shown, setShown] = useState(PAGE_SIZE);
+	// Back to the first page whenever the list itself changes - a new filter, query or sort. Set during render, React's documented pattern for
+	// resetting state on a changed input, so no frame ever draws the new list at the old length.
+	const [shownFor, setShownFor] = useState(sorted);
+	if (shownFor !== sorted) {
+		setShownFor(sorted);
+		setShown(PAGE_SIZE);
+	}
+	const visible = useMemo(() => sorted.slice(0, shown), [sorted, shown]);
+	const handleLoadMore = useCallback(() => setShown((current) => current + PAGE_SIZE), []);
+
+	// "1-30 of 412" says both how far the reader has loaded and what the list was narrowed from.
+	const rangeLabel = sorted.length === 0 ? "0" : `1-${visible.length}`;
 
 	// Settles the stored selection to match what is derived above. Nothing on screen waits for this, since `activeSubclasses` already has the
 	// answer during render. It exists so a dropped archetype is gone for good: without it the value would sit in state unseen and come back
@@ -320,6 +333,7 @@ export default function OperatorIndex() {
 
 	return (
 		<Container component="main" maxWidth="lg" sx={{ py: 3 }}>
+			<ScrollToTop />
 			{error ? (
 				<LoadError what="the operator list" onRetry={handleRetry} />
 			) : operators === null ? (
@@ -348,12 +362,21 @@ export default function OperatorIndex() {
 								No operators match these filters. Try clearing one, or searching for a different name.
 							</Typography>
 						) : (
-							<CardGrid
-								items={sorted}
-								getKey={(operator) => operator.id}
-								renderItem={(operator) => <OperatorCard operator={operator} match={nameMatches.get(operator.id) ?? null} />}
-								size={CARD_SIZE}
-							/>
+							<>
+								<CardGrid
+									items={visible}
+									getKey={(operator) => operator.id}
+									renderItem={(operator) => <OperatorCard operator={operator} match={nameMatches.get(operator.id) ?? null} />}
+									size={CARD_SIZE}
+								/>
+								{visible.length < sorted.length ? (
+									<Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+										<Button variant="outlined" onClick={handleLoadMore}>
+											{`Load ${Math.min(PAGE_SIZE, sorted.length - visible.length)} more`}
+										</Button>
+									</Box>
+								) : null}
+							</>
 						)}
 					</Box>
 				</>
