@@ -3,8 +3,9 @@ Fetch the raw material for the asset pipeline: operator art from one GitHub mirr
 
 The two fetches are unrelated and share nothing but this command line and the sparse-clone machinery. `--only art` pulls `charpor` (portraits),
 `charpack` (illustrations), and `spine` (chibi rigs) out of `fexli/ArknightsResource` with a sparse, blobless clone, so only the three wanted
-directories are checked out of a repo that is 17.8 GB whole - this pulls about 9.2 GB. `--only icons` pulls `skills`, `potential_hub`, `elite_hub` and
-`profession_large_hub` out of `ArknightsAssets/ArknightsAssets2` the same way. Its `en` branch is refreshed hourly by the repo's own GitHub Actions
+directories are checked out of a repo that is 17.8 GB whole - this pulls about 9.2 GB. `--only icons` pulls `skills`, `potential_hub`, `elite_hub`,
+`profession_large_hub` and `charportraits` out of `ArknightsAssets/ArknightsAssets2` the same way. `charportraits` stands in for the operators
+whose portrait `charpor` stopped carrying after October 2025. Its `en` branch is refreshed hourly by the repo's own GitHub Actions
 job, so it stays current on its own and the 8 class icons no longer depend on the dead `Aceship/Arknight-Images` mirror. Neither stage produces
 anything the site reads - later pipeline stages re-encode this staged tree to WebP and publish it.
 See `PROJECT.md` for the mirror decisions behind both sources.
@@ -41,7 +42,7 @@ ICONS_REPO = "ArknightsAssets/ArknightsAssets2"
 ICONS_BRANCH = "en"
 ICONS_DIR = os.path.join(STAGING_DIR, "icons-upstream")
 ICONS_ARTS = "assets/dyn/arts"
-ICON_DIRS = tuple(f"{ICONS_ARTS}/{name}" for name in ("skills", "potential_hub", "elite_hub", "profession_large_hub"))
+ICON_DIRS = tuple(f"{ICONS_ARTS}/{name}" for name in ("skills", "potential_hub", "elite_hub", "profession_large_hub", "charportraits"))
 ICONS_LOCK_PATH = os.path.join(TOOLS_DIR, "icons.lock.json")
 
 # Upstream's `profession_large_hub/icon_profession_<stem>_large.png` stem, mapped to the class name the site already publishes under `classes/`.

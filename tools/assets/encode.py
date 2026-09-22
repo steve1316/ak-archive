@@ -49,6 +49,10 @@ KINDS = {"charpor": "portraits", "charpack": "illustrations"}
 # Where Task 3's icon clone keeps its art, relative to `--staging`.
 ICONS_ARTS_DIR = os.path.join("icons-upstream", "assets", "dyn", "arts")
 
+# Portraits from the icon clone, used for an operator `charpor` has no portrait for at all. `charpor` stopped adding portraits after October
+# 2025, and these are the same 180x360 busts with slightly different compression.
+PORTRAIT_FALLBACK_DIR = os.path.join(ICONS_ARTS_DIR, "charportraits")
+
 # Fixed icon sets: (upstream folder, upstream file prefix, how many, published folder). File `i` publishes as `<folder>/<i>.webp`.
 NUMBERED_ICONS = {"potentials": ("potential_hub", "potential_", 6), "elites": ("elite_hub", "elite_", 3)}
 
@@ -126,7 +130,7 @@ def needs_encode(input_path, output_path):
 # a job needs the class-only glyph conversion.
 
 
-def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
+def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids, fallback_dir=None):
     """
     Work out every job for one upstream art directory, and count what the naming rules skipped.
 
@@ -138,6 +142,8 @@ def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
         upstream_name: The upstream directory name, such as `charpor`.
         published_name: The published directory name, such as `portraits`.
         operator_ids: Every known operator id.
+        fallback_dir: Another directory, relative to `staging_dir`, read only for operators with no file at all in `upstream_name`. None
+            for no fallback.
 
     Returns:
         A `(jobs, skipped)` pair. `jobs` is a list of `(input_path, output_path, label, kind)` quadruples, `kind` always
@@ -156,33 +162,50 @@ def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids):
     keys_by_operator = {}
     files_by_operator = {}
 
-    for name in sorted(os.listdir(source_dir)):
-        if not name.endswith(".png"):
-            continue
-        stem = name[: -len(".png")]
-        parsed = parse_asset(stem, operator_ids)
-        if parsed is None:
-            skipped["unrecognised"] += 1
-            continue
-        operator_id, key = parsed
-        if is_test_variant(key):
-            skipped["test"] += 1
-            continue
-        keys_by_operator.setdefault(operator_id, []).append(key)
-        files_by_operator.setdefault(operator_id, []).append((name, key))
+    def collect(directory, only_new):
+        """
+        Group a directory's recognised files by operator into `keys_by_operator` and `files_by_operator`.
+
+        Args:
+            directory: The directory to read.
+            only_new: Skip operators an earlier call already collected, so a fallback never mixes with the primary source.
+        """
+        found = {}
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith(".png"):
+                continue
+            parsed = parse_asset(name[: -len(".png")], operator_ids)
+            if parsed is None:
+                skipped["unrecognised"] += 1
+                continue
+            operator_id, key = parsed
+            if only_new and operator_id in files_by_operator:
+                continue
+            if is_test_variant(key):
+                skipped["test"] += 1
+                continue
+            found.setdefault(operator_id, []).append((os.path.join(directory, name), name, key))
+        for operator_id, files in found.items():
+            keys_by_operator[operator_id] = [key for _path, _name, key in files]
+            files_by_operator[operator_id] = files
+
+    collect(source_dir, False)
+    fallback_source = os.path.join(staging_dir, fallback_dir) if fallback_dir else None
+    if fallback_source and os.path.isdir(fallback_source):
+        collect(fallback_source, True)
 
     # The redundant check runs here, once every key for an operator is known, rather than beside the test-variant
     # check above - it needs the operator's whole key set to tell a "b" crop from the base it duplicates.
     for operator_id, files in files_by_operator.items():
         keys = keys_by_operator[operator_id]
         canonical = canonical_key(keys)
-        for name, key in files:
+        for path, name, key in files:
             if is_redundant_crop(key, keys):
                 skipped["redundant"] += 1
                 continue
             out_name = output_name(operator_id, key, canonical)
-            label = f"{upstream_name}/{name} -> {published_name}/{out_name}"
-            jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, out_name), label, published_name))
+            label = f"{os.path.basename(os.path.dirname(path))}/{name} -> {published_name}/{out_name}"
+            jobs.append((path, os.path.join(dest_dir, out_name), label, published_name))
     return jobs, skipped
 
 
@@ -414,7 +437,8 @@ def main():
     for upstream_name, published_name in KINDS.items():
         if published_name not in stages:
             continue
-        kind_jobs, kind_skipped = plan_variant_kind(args.staging, upstream_name, published_name, operator_ids)
+        fallback = PORTRAIT_FALLBACK_DIR if published_name == "portraits" else None
+        kind_jobs, kind_skipped = plan_variant_kind(args.staging, upstream_name, published_name, operator_ids, fallback)
         jobs.extend(kind_jobs)
         skipped["unrecognised"] += kind_skipped["unrecognised"]
         skipped["test"] += kind_skipped["test"]
