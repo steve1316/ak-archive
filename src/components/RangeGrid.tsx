@@ -50,7 +50,7 @@ interface RangeGridProps {
 
 /**
  * One attack range drawn as tiles, the operator's own tile solid and every tile it reaches outlined, facing right as the game draws it. A trait
- * area, such as the Spreadshooter's 160% row, is shaded amber where it overlaps the range. An unknown range id draws nothing.
+ * area, such as the Spreadshooter's 160% row, is shaded amber when it marks out part of the range. An unknown range id draws nothing.
  *
  * @param props Component props.
  * @returns The grid with its legend, or null for an unknown range.
@@ -63,7 +63,11 @@ export default function RangeGrid({ rangeId, traitRangeId = null, label = "Attac
 		}
 		const key = (row: number, col: number) => `${row},${col}`;
 		const attack = new Set(tiles.map(([row = 0, col = 0]) => key(row, col)));
-		const trait = new Set((traitRangeId ? (RANGES[traitRangeId] ?? []) : []).map(([row = 0, col = 0]) => key(row, col)));
+		// Only shade a trait area that marks out part of the range, such as the Spreadshooter row. A Dollkeeper's substitute range reaches past the
+		// attack range or matches it exactly, and shading its overlap would misstate it.
+		const traitTiles = (traitRangeId ? (RANGES[traitRangeId] ?? []) : []).map(([row = 0, col = 0]) => key(row, col)).filter((id) => id !== key(0, 0));
+		const inside = traitTiles.every((id) => attack.has(id)) && traitTiles.length < [...attack].filter((id) => id !== key(0, 0)).length;
+		const trait = new Set(inside ? traitTiles : []);
 		const rows = [0, ...tiles.map(([row = 0]) => row)];
 		const cols = [0, ...tiles.map(([, col = 0]) => col)];
 		const [top, bottom, left, right] = [Math.max(...rows), Math.min(...rows), Math.min(...cols), Math.max(...cols)];
