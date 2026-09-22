@@ -23,6 +23,7 @@ const TOOLS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TOOLS_DIR, "..", "..");
 const DATA_DIR = path.join(REPO_ROOT, "src", "data");
 const MANIFEST_PATH = path.join(DATA_DIR, "assets-manifest.json");
+const ENEMY_SPINE_INDEX_PATH = path.join(DATA_DIR, "enemy-spine-index.json");
 const ENV_PATH = path.join(REPO_ROOT, ".env");
 
 /** How many HEAD requests run at once. A few hundred requests against a CDN is fine in parallel, but unbounded fan-out is not polite. */
@@ -131,9 +132,10 @@ function loadManifest() {
  * @param {string} baseUrl The asset host.
  * @param {{portraits?: Record<string, boolean>, illustrations?: Record<string, boolean>, enemies?: Record<string, boolean>}} manifest The parsed asset manifest.
  * @param {Array<{id: string, profession: string}>} operators Every operator's id and display class name.
+ * @param {Record<string, {skel: string, atlas: string}>} enemySpine The enemy rig index, or an empty object when none is committed.
  * @returns {Array<{label: string, url: string}>} The checks to run.
  */
-function buildChecks(baseUrl, manifest, operators) {
+function buildChecks(baseUrl, manifest, operators, enemySpine) {
 	const checks = [];
 	for (const { id } of operators) {
 		if (manifest.portraits?.[id] === true) {
@@ -153,6 +155,11 @@ function buildChecks(baseUrl, manifest, operators) {
 		if (present === true) {
 			checks.push({ label: `enemy icon ${id}`, url: assetUrl(baseUrl, `enemies/${id}.webp`) });
 		}
+	}
+
+	for (const [id, rig] of Object.entries(enemySpine)) {
+		checks.push({ label: `enemy rig ${id} skel`, url: assetUrl(baseUrl, `spine-enemies/${id}/${rig.skel}.skel`) });
+		checks.push({ label: `enemy rig ${id} atlas`, url: assetUrl(baseUrl, `spine-enemies/${id}/${rig.atlas}.atlas`) });
 	}
 	return checks;
 }
@@ -218,7 +225,8 @@ async function main() {
 
 	const baseUrl = readAssetBaseUrl();
 	const operators = loadOperators();
-	const checks = buildChecks(baseUrl, manifest, operators);
+	const enemySpine = fs.existsSync(ENEMY_SPINE_INDEX_PATH) ? JSON.parse(fs.readFileSync(ENEMY_SPINE_INDEX_PATH, "utf8")) : {};
+	const checks = buildChecks(baseUrl, manifest, operators, enemySpine);
 
 	console.log(`auditing ${checks.length} published asset URLs against ${baseUrl}`);
 	await runChecks(checks);

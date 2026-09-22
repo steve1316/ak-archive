@@ -64,6 +64,12 @@ const MIN_SPINE_DORM_RIGS = 918;
  */
 const MIN_SPINE_PLAYABLE_OPERATORS = 360;
 
+/** Enemy rigs at the pinned Ark-Models sha: the count the first full index produced. */
+const MIN_ENEMY_SPINE_RIGS = 1537;
+
+/** Enemy rigs the current runtime draws in full. Just under what the first full index measured. */
+const MIN_ENEMY_SPINE_PLAYABLE = 1468;
+
 /**
  * The runtime's supported stage, and the highest stage it plans for, both read out of `src/spine/features.ts` so this gate never drifts
  * from what the runtime actually draws. A regex read rather than an import, since this script is plain Node and that file is TypeScript.
@@ -725,6 +731,42 @@ if (hasSpineIndex) {
 	}
 }
 
+// The enemy rig index is committed, so a missing one fails. Every rig must belong to a known enemy variant and carry a skeleton, an atlas,
+// at least one animation and a planned stage.
+const enemySpineIndexPath = path.join(OUT_DIR, "enemy-spine-index.json");
+let enemySpineCount = 0;
+let enemySpinePlayable = 0;
+if (!fs.existsSync(enemySpineIndexPath)) {
+	fail(`${enemySpineIndexPath} is missing`);
+} else {
+	const known = new Set(enemyVariantIds);
+	for (const [enemyId, rig] of Object.entries(JSON.parse(fs.readFileSync(enemySpineIndexPath, "utf8")))) {
+		enemySpineCount += 1;
+		if (!known.has(enemyId)) {
+			fail(`enemy spine index names ${enemyId}, which is not a known enemy`);
+		}
+		for (const field of ["skel", "atlas"]) {
+			if (!rig[field] || rig[field].includes("/") || rig[field].includes("\\")) {
+				fail(`${enemyId} has a bad ${field} basename: ${JSON.stringify(rig[field])}`);
+			}
+		}
+		if (!Array.isArray(rig.anims) || rig.anims.length === 0) {
+			fail(`${enemyId} rig has no animations`);
+		}
+		if (!Number.isInteger(rig.stage) || rig.stage < 1 || rig.stage > SPINE_HIGHEST_STAGE) {
+			fail(`${enemyId} rig has a bad stage: ${JSON.stringify(rig.stage)}`);
+		} else if (rig.stage <= SPINE_PLAYABLE_STAGE) {
+			enemySpinePlayable += 1;
+		}
+	}
+	if (enemySpineCount < MIN_ENEMY_SPINE_RIGS) {
+		fail(`enemy spine index has ${enemySpineCount} rigs, below the floor of ${MIN_ENEMY_SPINE_RIGS}`);
+	}
+	if (enemySpinePlayable < MIN_ENEMY_SPINE_PLAYABLE) {
+		fail(`enemy spine index has ${enemySpinePlayable} playable rigs, below the floor of ${MIN_ENEMY_SPINE_PLAYABLE}`);
+	}
+}
+
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -754,6 +796,7 @@ if (hasSpineIndex) {
 		`spine       ${spineOperatorCount} operators, ${spineFormCount} forms, ${spineRigCount} rigs (${spineKindCounts.battle} battle, ${spineKindCounts.back} back, ${spineKindCounts.dorm} dorm), ${spinePlayableCount} with a playable base battle rig`
 	);
 }
+console.log(`enemy spine ${enemySpineCount} rigs, ${enemySpinePlayable} playable`);
 
 if (!process.argv.includes("--skip-build")) {
 	console.log("\nrunning pnpm build...");
