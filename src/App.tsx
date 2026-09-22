@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { Route, Routes, useLocation } from "react-router-dom";
@@ -7,8 +7,8 @@ import { ArchiveNavbar, ErrorBoundary, ScrollToTopOnNavigate, normaliseName } fr
 import type { NavItem, SearchOption } from "archive-kit";
 
 import { glyphIconUrl } from "./lib/icons.js";
-import { searchIndex } from "./lib/data.js";
-import { operatorPath } from "./lib/routes.js";
+import { loadEnemySearchIndex, searchIndex } from "./lib/data.js";
+import { enemyPath, operatorPath } from "./lib/routes.js";
 import CanonicalOperatorRoute from "./components/CanonicalOperatorRoute.js";
 import NotFound404 from "./not_found_404.js";
 import Home from "./pages/home/home.js";
@@ -18,6 +18,10 @@ import { theme } from "./theme.js";
 
 /** The art viewer loads on first visit. Few readers open it, and it would otherwise add its zoom and pan code to every route. */
 const OperatorArt = lazy(() => import("./pages/operator_art/operator_art.js"));
+
+/** The enemy index and pages load on first visit, so the operator routes do not carry their code. */
+const EnemyIndex = lazy(() => import("./pages/enemy_index/enemy_index.js"));
+const EnemyPage = lazy(() => import("./pages/enemy/enemy.js"));
 
 /** The dev-only Spine rig lab. Guarded here too, not just at the route, so a production build's tree-shaking drops the import entirely. */
 const SpineLab = import.meta.env.DEV ? lazy(() => import("./pages/spine_lab/spine_lab.js")) : null;
@@ -29,11 +33,21 @@ const HOME_GLYPH = "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z";
 const GROUPS_GLYPH =
 	"M12 12.75c1.63 0 3.07.39 4.24.9 1.08.48 1.76 1.56 1.76 2.73V18H6v-1.61c0-1.18.68-2.26 1.76-2.73 1.17-.52 2.61-.91 4.24-.91M4 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m1.13 1.1c-.37-.06-.74-.1-1.13-.1-.99 0-1.93.21-2.78.58C.48 14.9 0 15.62 0 16.43V18h4.5v-1.61c0-.83.23-1.61.63-2.29M20 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m4 3.43c0-.81-.48-1.53-1.22-1.85-.85-.37-1.79-.58-2.78-.58-.39 0-.76.04-1.13.1.4.68.63 1.46.63 2.29V18H24zM12 6c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3";
 
+/** Path data of MUI's `Dangerous` icon, for the Enemy Index entry. */
+const ENEMY_GLYPH = "M15.73 3H8.27L3 8.27v7.46L8.27 21h7.46L21 15.73V8.27zM17 15.74 15.74 17 12 13.26 8.26 17 7 15.74 10.74 12 7 8.26 8.26 7 12 10.74 15.74 7 17 8.26 13.26 12z";
+
 /** The drawer's destinations, each drawn as a plain glyph in the theme's text colour. */
 const NAV_ITEMS: readonly NavItem[] = [
 	{ title: "Home", link: "/", icon: glyphIconUrl(HOME_GLYPH, theme.palette.text.primary) },
-	{ title: "Operator Index", link: "/operators", icon: glyphIconUrl(GROUPS_GLYPH, theme.palette.text.primary) }
+	{ title: "Operator Index", link: "/operators", icon: glyphIconUrl(GROUPS_GLYPH, theme.palette.text.primary) },
+	{ title: "Enemy Index", link: "/enemies", icon: glyphIconUrl(ENEMY_GLYPH, theme.palette.text.primary) }
 ];
+
+/**
+ * Operator search options, built from the search index, which is 31 KB and already in the bundle. The navbar renders on every route, so this
+ * must never touch a shard.
+ */
+const OPERATOR_OPTIONS: SearchOption[] = searchIndex.map((entry) => ({ path: operatorPath(entry.id), name: entry.name, keys: [normaliseName(entry.name)] }));
 
 /**
  * The application shell: the theme, the navbar and one route per page.
@@ -43,13 +57,22 @@ const NAV_ITEMS: readonly NavItem[] = [
 export default function App() {
 	const { pathname } = useLocation();
 
-	// Built once from the search index, which is 31 KB and already in the bundle. The navbar renders on every route, so this must never touch a shard.
-	const searchOptions = useMemo<SearchOption[]>(() => searchIndex.map((entry) => ({ path: operatorPath(entry.id), name: entry.name, keys: [normaliseName(entry.name)] })), []);
+	// Enemies join the search once their index arrives. It is 101 KB, three times the operator index, so it is fetched after the first paint
+	// rather than bundled. A failed fetch leaves operator search working, which is why it is not surfaced as an error.
+	const [enemyOptions, setEnemyOptions] = useState<SearchOption[]>([]);
+	useEffect(() => {
+		loadEnemySearchIndex().then(
+			(entries) => setEnemyOptions(entries.map((entry) => ({ path: enemyPath(entry.group ?? entry.id, entry.id), name: entry.name, keys: [normaliseName(entry.name)], tag: "Enemy" }))),
+			() => undefined
+		);
+	}, []);
+
+	const searchOptions = useMemo<SearchOption[]>(() => [...OPERATOR_OPTIONS, ...enemyOptions], [enemyOptions]);
 
 	return (
 		<ThemeProvider theme={theme}>
 			<CssBaseline />
-			<ArchiveNavbar title="Arknights Archive" navItems={NAV_ITEMS} searchOptions={searchOptions} homeLink="/" searchLabel="Search operators" />
+			<ArchiveNavbar title="Arknights Archive" navItems={NAV_ITEMS} searchOptions={searchOptions} homeLink="/" searchLabel="Search operators and enemies" />
 			<ScrollToTopOnNavigate>
 				{/*
 				 * Keyed on the path so a caught throw is forgotten on the next navigation. Without the key the boundary stays in its error
@@ -87,6 +110,22 @@ export default function App() {
 								}
 							/>
 						) : null}
+						<Route
+							path="/enemies"
+							element={
+								<Suspense>
+									<EnemyIndex />
+								</Suspense>
+							}
+						/>
+						<Route
+							path="/enemy/:id"
+							element={
+								<Suspense>
+									<EnemyPage />
+								</Suspense>
+							}
+						/>
 						<Route path="/404" element={<NotFound404 />} />
 						{/* Anything unmatched shows the 404 in place, keeping the mistyped address visible. */}
 						<Route path="*" element={<NotFound404 />} />
