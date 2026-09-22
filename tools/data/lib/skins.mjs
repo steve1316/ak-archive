@@ -13,6 +13,8 @@
  * `char_002_amiya` in `charId`, and only `tmplId` says they belong to `char_1001_amiya2` and `char_1037_amiya3`.
  */
 
+import { dayOfUnix } from "./dates.mjs";
+
 /**
  * Chip labels for default outfits, which carry no skin name upstream. Keyed by normalised variant key. `1plus` is Amiya's Elite 1 art - she is
  * the only operator whose art changes at Elite 1 - and upstream's `sortId` puts it between Base and Elite 2.
@@ -40,7 +42,8 @@ export function normaliseFormKey(key) {
  * upstream's `sortId`, which puts the default outfits first.
  *
  * @param {Record<string, any>} charSkins The skin table's `charSkins` map.
- * @returns {Map<string, {key: string, name: string}[]>} Forms keyed by operator id, each list in display order.
+ * @returns {Map<string, {key: string, name: string, releaseDate: string | null}[]>} Forms keyed by operator id, each list in display order. An
+ * outfit's `releaseDate` is its Global day from `displaySkin.getTime`. Default art has none, since it arrives with the operator.
  */
 export function buildForms(charSkins) {
 	const grouped = new Map();
@@ -58,7 +61,8 @@ export function buildForms(charSkins) {
 			continue;
 		}
 		const list = grouped.get(owner) ?? [];
-		list.push({ key, name, sortId: skin.displaySkin?.sortId ?? 0 });
+		const releaseDate = skin.displaySkin?.skinName && skin.displaySkin.getTime > 0 ? dayOfUnix(skin.displaySkin.getTime) : null;
+		list.push({ key, name, releaseDate, sortId: skin.displaySkin?.sortId ?? 0 });
 		grouped.set(owner, list);
 	}
 
@@ -67,7 +71,7 @@ export function buildForms(charSkins) {
 		list.sort((a, b) => a.sortId - b.sortId);
 		forms.set(
 			owner,
-			list.map(({ key, name }) => ({ key, name }))
+			list.map(({ key, name, releaseDate }) => ({ key, name, releaseDate }))
 		);
 	}
 	return forms;

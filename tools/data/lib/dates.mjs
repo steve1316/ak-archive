@@ -49,7 +49,7 @@ function dayOfWikiTime(text) {
  * @param {number} seconds The timestamp.
  * @returns {string} The `YYYY-MM-DD` day.
  */
-function dayOfUnix(seconds) {
+export function dayOfUnix(seconds) {
 	return new Date(seconds * 1000).toISOString().slice(0, 10);
 }
 

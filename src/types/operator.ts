@@ -91,6 +91,8 @@ export interface OperatorFormEntry {
 	key: string;
 	/** What the form's chip reads: `Base`, `Elite 1`, `Elite 2`, or the skin's name. */
 	name: string;
+	/** An outfit's Global release day as `YYYY-MM-DD`. Null for Base and Elite art, which arrive with the operator. */
+	releaseDate: string | null;
 }
 
 /** One run of a skill description: plain text, or a value upstream marks as raised or lowered. */

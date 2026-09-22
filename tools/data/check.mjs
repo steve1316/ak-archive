@@ -140,6 +140,12 @@ const ENEMY_DATE_FIXTURES = [
 	{ id: "enemy_10071_ftprg", date: "2025-08-28" }
 ];
 
+/** Hand-checked outfit dates. Midnight Delivery reached Global on 2023-02-22. Base art has no date of its own - it is the operator's release. */
+const FORM_DATE_FIXTURES = [
+	{ id: "char_103_angel", key: "sale_8", date: "2023-02-22" },
+	{ id: "char_103_angel", key: "1", date: null }
+];
+
 /** Hand-checked debut lines: a launch enemy, a main story boss that arrived later, and an event enemy whose event has since rerun. */
 const ENEMY_DEBUT_FIXTURES = [
 	{ id: "enemy_1007_slime", debut: "Game launch" },
@@ -910,6 +916,21 @@ for (const [id, detail] of Object.entries(enemyDetails)) {
 		fail(`${id} has no debut field`);
 	} else if ((detail.debut === null) !== (detail.releaseDate === null)) {
 		fail(`${id} has a debut without a release date or the other way round`);
+	}
+}
+for (const operator of operators) {
+	for (const form of operator.forms) {
+		if (form.releaseDate === undefined) {
+			fail(`${operator.id} form ${form.key} has no releaseDate field`);
+		} else if (form.releaseDate !== null && !DATE_PATTERN.test(form.releaseDate)) {
+			fail(`${operator.id} form ${form.key} has a malformed releaseDate ${form.releaseDate}`);
+		}
+	}
+}
+for (const fixture of FORM_DATE_FIXTURES) {
+	const actual = byId.get(fixture.id)?.forms.find((form) => form.key === fixture.key)?.releaseDate;
+	if (actual !== fixture.date) {
+		fail(`${fixture.id} form ${fixture.key} releaseDate is ${actual}, expected ${fixture.date}`);
 	}
 }
 for (const fixture of ENEMY_DEBUT_FIXTURES) {
