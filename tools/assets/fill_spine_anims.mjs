@@ -19,16 +19,13 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { createServer } from "vite";
+import { parseStaging, REPO_ROOT, shownPath, startVite } from "./spine_tools.mjs";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
 
-const TOOLS_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(TOOLS_DIR, "..", "..");
-const DEFAULT_STAGING = path.join(TOOLS_DIR, ".staging");
+/** The Spine index this script fills. */
 const INDEX_PATH = path.join(REPO_ROOT, "src", "data", "spine-index.json");
 
 /** Printed when the command line is wrong. */
@@ -37,25 +34,6 @@ const USAGE = "Usage: node tools/assets/fill_spine_anims.mjs [--staging PATH]";
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
-
-/**
- * Read the staging directory from the command line.
- *
- * @param {string[]} args The arguments after the script name.
- * @returns {string} The staging root, absolute. The staged rigs sit under its `assets/spine`, where `stage_spine.py` writes them.
- */
-function parseStaging(args) {
-	const index = args.indexOf("--staging");
-	if (index === -1) {
-		return DEFAULT_STAGING;
-	}
-	const value = args[index + 1];
-	if (!value || value.startsWith("--")) {
-		console.error(USAGE);
-		process.exit(1);
-	}
-	return path.resolve(value);
-}
 
 /**
  * Escapes one string the way Python's `json.dump` does with its default `ensure_ascii=True`: the quote, backslash and common control
@@ -127,11 +105,11 @@ function serializeLikeJson(value) {
  * Reads the index, fills every rig's `anims` from its staged skeleton, and writes the index back.
  */
 async function main() {
-	const staging = parseStaging(process.argv.slice(2));
+	const staging = parseStaging(process.argv.slice(2), USAGE);
 	const spineDir = path.join(staging, "assets", "spine");
 	const index = JSON.parse(fs.readFileSync(INDEX_PATH, "utf-8"));
 
-	const server = await createServer({ root: REPO_ROOT, server: { middlewareMode: true }, appType: "custom", logLevel: "error" });
+	const server = await startVite();
 	let rigCount = 0;
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
@@ -139,7 +117,7 @@ async function main() {
 			for (const [formKey, kinds] of Object.entries(forms)) {
 				for (const [kind, rig] of Object.entries(kinds)) {
 					const skelPath = path.join(spineDir, operatorId, formKey, kind, `${rig.skel}.skel`);
-					const shown = path.relative(REPO_ROOT, skelPath);
+					const shown = shownPath(skelPath);
 					let data;
 					try {
 						data = readSkeleton(new Uint8Array(fs.readFileSync(skelPath)));

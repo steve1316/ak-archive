@@ -77,15 +77,11 @@ export function readAtlas(text: string): Atlas {
 }
 
 /**
- * Reads one page section: the page name line, its header properties, and every region until a blank line or the end of the file, per the
- * doc's own separator rule.
+ * Reads one page section: the page name line, its header properties, and every region until a blank line or the end of the file.
  *
- * Page header lines and region name lines are both unindented, so indentation of the line itself cannot tell them apart, and neither can
- * its key: a region can be named after something that reads like a page key (e.g. a region literally named `size: 10, 10`). What tells
- * them apart is the *next* line: a region's own name is always followed by an indented property line, while a page header key never is
- * (its own next line is either another unindented header key or the first region's unindented name). So an unindented line whose next
- * line is indented is a region's name; every other unindented line up to that point must be a known page property (`size`, `format`,
- * `filter`, `repeat`, `pma`) or it throws. See `FORMAT-3.8.md` item 1.
+ * Page header lines and region name lines are both unindented. A region name is always followed by an indented property line, and a page
+ * header line never is. So the header ends at the first line whose next line is indented, and every header line before it must be a known
+ * page property or it throws. See `FORMAT-3.8.md`.
  *
  * @param lines The atlas file split into lines.
  * @param start Index of the page name line.
@@ -143,7 +139,7 @@ function readPage(lines: string[], start: number): { page: AtlasPage; next: numb
 		i++;
 	}
 
-	// A blank line, per the doc, ends this page's regions; the doc also ends them at a new page's header, but the staged corpus never
+	// A blank line, per the doc, ends this page's regions. The doc also ends them at a new page's header, but the staged corpus never
 	// separates pages without a blank line, so a page's regions here just run to the next blank line or the end of the file.
 	const regions: AtlasRegion[] = [];
 	while (i < lines.length && lines[i]!.trim() !== "") {
@@ -233,8 +229,7 @@ function readRegion(lines: string[], start: number): { region: AtlasRegion; next
 }
 
 /**
- * Checks whether a line is indented (starts with a space or a tab). A region's own property lines always are; a page header key line
- * and a region's own name line never are.
+ * Checks whether a line starts with a space or a tab. Region property lines are indented, and page header and region name lines are not.
  *
  * @param line The line to check, or undefined when there is no next line.
  * @returns True when the line exists and starts with leading whitespace.
@@ -312,7 +307,7 @@ function parseInts(value: string, count: number, lineNumber: number): number[] {
 
 /**
  * Parses a region's `rotate` value: `true` is 90 degrees, `false` is 0, or the value is itself a degree number. Only 0, 90, 180 and 270
- * are accepted, since a region can only be packed axis-aligned; any other degree value throws rather than being taken at face value.
+ * are accepted, since a region can only be packed axis-aligned. Any other degree value throws.
  *
  * @param value The raw field value.
  * @param lineNumber 1-based line number, used in the error message.

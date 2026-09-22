@@ -7,10 +7,12 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
 
 ## 2026-09-21
 
-- https://esotericsoftware.com/spine-binary-format
-- https://esotericsoftware.com/spine-json-format
-- https://esotericsoftware.com/spine-atlas-format
-
-Used for: data types, byte layout. The atlas format page specifically for `src/spine/atlas.ts` (Task 5): the page/region property names,
-their default values when a field is omitted, and the doc's stated blank-line page separator, which the staged corpus does not use (see
-`FORMAT-3.8.md`).
+- https://esotericsoftware.com/spine-binary-format - the binary data types (boolean, short, int, the two varint encodings, float,
+  string, color), the field order and field names of every section (for example a mesh's hull count and a linked mesh's deform flag),
+  and the `readVarint`, `readString` and `readRefString` snippets that `reader.ts` implements.
+- https://esotericsoftware.com/spine-json-format - the names of enum values and fields, such as the transform modes (`onlyTranslation`,
+  `noRotationOrReflection`), the attachment types (`linkedmesh`, `boundingbox`) and the keyframe fields.
+- https://esotericsoftware.com/spine-atlas-format - the page and region property names that `atlas.ts` reads, their default values when a
+  field is omitted, and the blank-line page separator, which the staged corpus does not use (see `FORMAT-3.8.md`).
+- The staged Arknights rig files under `tools/assets/.staging/assets/spine` - the corpus oracle. Wherever a page and the bytes disagree, the
+  bytes win, and `FORMAT-3.8.md` records each case with the rig and offset that proves it.

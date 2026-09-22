@@ -4,31 +4,29 @@
  * and checks what it read.
  *
  * A reader can decode one rig and still misread another, so this runs the whole staged tree. A `.skel` file fails when the reader throws,
- * when bytes are left over, when a timeline points at a bone, slot, constraint, skin, attachment or event that does not exist, or when a
- * region, mesh or linked mesh attachment's texture region is not in the atlas beside it. Key times must never go down, except in
- * attachment, color and deform timelines, where upstream rigs join up to 3 sorted runs of keys end to end (see `FORMAT-3.8.md`). A 4th run
- * still fails. An `.atlas` file fails when the reader throws, when a region's packed box (from its `x`/`y`/`width`/`height`, swapped when
- * `rotate` is 90 or 270) does not fit inside its page's real PNG size, or when a page's declared image size does not match the PNG - the
- * staged corpus never declares one, so that check is a backstop and the region box check is the one that runs on real data.
+ * when bytes are left over, when a timeline points at a bone, slot, constraint, skin, attachment or event that does not exist, when a
+ * linked mesh's parent is not a mesh, or when a region, mesh or linked mesh attachment's texture region is not in the atlas beside it. Key
+ * times must never go down, except in attachment, color and deform timelines, where upstream rigs join up to 3 sorted runs of keys end to
+ * end (see `FORMAT-3.8.md`). A 4th run still fails. An `.atlas` file fails when the reader throws, when a region's packed box (from its
+ * `x`/`y`/`width`/`height`, swapped when `rotate` is 90 or 270) does not fit inside its page's real PNG size, or when a page's declared
+ * image size does not match the PNG. The staged corpus never declares one, so that check is a backstop and the region box check is the
+ * one that runs on real data.
  *
  * Usage:
- *     node tools/assets/check_spine_rigs.mjs [--staging PATH]
+ *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey]
  *
- * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`.
+ * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--survey` also prints
+ * how many rigs use each feature and how many each planned stage would draw in full.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer } from "vite";
+import { parseStaging, shownPath, startVite } from "./spine_tools.mjs";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
-
-const TOOLS_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(TOOLS_DIR, "..", "..");
-const DEFAULT_STAGING = path.join(TOOLS_DIR, ".staging");
 
 /** Timeline types whose key times may go back down, because upstream rigs repeat keys in them. Every other type must be non-decreasing. */
 const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
@@ -48,80 +46,9 @@ const REGION_LIKE_TYPES = new Set(["region", "mesh", "linkedmesh"]);
 /** The 8-byte signature every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
-/** Every feature `src/spine/features.ts` can report, in the same order as its `Feature` union. A JS survey script cannot enumerate a TS
- * union type at runtime, so this list is kept in sync with it by hand. */
-const ALL_FEATURES = [
-	"region",
-	"mesh",
-	"weightedMesh",
-	"linkedMesh",
-	"clipping",
-	"path",
-	"point",
-	"boundingBox",
-	"ik",
-	"transformConstraint",
-	"pathConstraint",
-	"deform",
-	"drawOrder",
-	"twoColor",
-	"blendAdditive",
-	"blendMultiply",
-	"blendScreen",
-	"transformModeNonNormal",
-	"events"
-];
-
-/** Features every stage's runtime can already handle, even at stage 1: they draw nothing, so any stage's placeholder logic treats a rig
- * that uses only these (plus its stage's own set) as fully supported. */
-const ALWAYS_SUPPORTED_FEATURES = ["events", "point", "boundingBox"];
-
-/** Features each stage adds on top of the previous stage's set, per the plan in `2026-09-21-a6d-spine-runtime-design.md`. */
-const STAGE_ADDS = {
-	1: ["region", "transformModeNonNormal"],
-	2: ["drawOrder", "twoColor", "blendAdditive", "blendMultiply", "blendScreen"],
-	3: ["mesh", "weightedMesh", "linkedMesh", "deform"],
-	4: ["clipping", "path", "ik", "transformConstraint", "pathConstraint"]
-};
-
-/** Every stage number the survey reports coverage for, in order. */
-const STAGES = [1, 2, 3, 4];
-
-/** Each stage's full feature set, cumulative from stage 1 through that stage, for the `--survey` coverage counts. */
-const STAGE_FEATURE_SETS = new Map(
-	STAGES.map((stage) => {
-		const set = new Set(ALWAYS_SUPPORTED_FEATURES);
-		for (let s = 1; s <= stage; s++) {
-			for (const feature of STAGE_ADDS[s]) {
-				set.add(feature);
-			}
-		}
-		return [stage, set];
-	})
-);
-
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
-
-/**
- * Read the staging directory from the command line.
- *
- * @param {string[]} args The arguments after the script name.
- * @returns {string} The staging root, absolute. The staged rigs sit under its `assets/spine`, where `stage_spine.py` writes them.
- */
-function parseStaging(args) {
-	const index = args.indexOf("--staging");
-	if (index === -1) {
-		return DEFAULT_STAGING;
-	}
-	const value = args[index + 1];
-	if (!value || value.startsWith("--")) {
-		console.error(USAGE);
-		process.exit(1);
-	}
-	return path.resolve(value);
-}
 
 /**
  * List every file under a directory with the given extension, sorted so runs are comparable.
@@ -384,14 +311,42 @@ function countKeyRuns(times) {
 }
 
 /**
- * Check every animation in a parsed skeleton: names, key times and references.
+ * Check that every linked mesh's parent resolves to a mesh attachment in the same slot. The parent is looked up in the skin the linked mesh
+ * names, or in the default skin when it names none.
+ *
+ * @param {object} data The parsed skeleton.
+ * @returns {string[]} A message for each linked mesh whose parent is missing or is not a mesh.
+ */
+export function checkLinkedMeshes(data) {
+	const problems = [];
+	for (const skin of data.skins) {
+		for (const [slotIndex, attachments] of skin.attachments) {
+			for (const [placeholder, attachment] of attachments) {
+				if (attachment.type !== "linkedmesh") {
+					continue;
+				}
+				const parentSkinName = attachment.parentSkin ?? "default";
+				const parentSkin = attachment.parentSkin === null ? data.skins[0] : data.skins.find((s) => s.name === attachment.parentSkin);
+				const parent = parentSkin?.attachments.get(slotIndex)?.get(attachment.parentName);
+				if (parent?.type !== "mesh") {
+					const found = parent ? `a ${parent.type}` : "not found";
+					problems.push(`skin "${skin.name}" slot ${slotIndex} linked mesh "${placeholder}": parent "${attachment.parentName}" in skin "${parentSkinName}" is ${found}`);
+				}
+			}
+		}
+	}
+	return problems;
+}
+
+/**
+ * Check a parsed skeleton: its linked mesh parents, and every animation's names, key times and references.
  *
  * @param {object} data The parsed skeleton.
  * @param {Record<string, number>} typeCounts Timeline counts by type, added to in place.
  * @returns {{ problems: string[], repeatingKeys: number }} Every problem found, and how many timelines had key times that went down.
  */
 export function checkSkeleton(data, typeCounts) {
-	const problems = [];
+	const problems = checkLinkedMeshes(data);
 	let repeatingKeys = 0;
 	const slotAttachments = new Map();
 	for (const skin of data.skins) {
@@ -460,11 +415,10 @@ function parseRigPath(file, spineDir) {
  * Checks whether every feature in a set is covered by a stage's cumulative feature set.
  *
  * @param {Set<string>} features The features a rig uses.
- * @param {number} stage The stage number to check against, 1 to 4.
+ * @param {ReadonlySet<string>} supported The stage's full feature set, from `STAGE_FEATURES` in `features.ts`.
  * @returns {boolean} True if the stage's runtime would draw the rig in full.
  */
-function isFullySupported(features, stage) {
-	const supported = STAGE_FEATURE_SETS.get(stage);
+function isFullySupported(features, supported) {
 	for (const feature of features) {
 		if (!supported.has(feature)) {
 			return false;
@@ -476,13 +430,18 @@ function isFullySupported(features, stage) {
 /**
  * Creates an empty survey accumulator for `--survey`.
  *
- * @returns {object} The accumulator: per-feature usage counts by kind, per-stage rig counts, a rig total, and each operator's base battle
- *   rig features, keyed by operator id.
+ * @param {{ FEATURES: readonly string[], STAGE_FEATURES: ReadonlyMap<number, ReadonlySet<string>> }} featuresModule The loaded
+ *   `features.ts`, which owns the feature list and the planned stage sets.
+ * @returns {object} The accumulator: the feature list and stage sets, per-feature usage counts by kind, per-stage rig counts, a rig total,
+ *   and each operator's base battle rig features, keyed by operator id.
  */
-function createSurvey() {
+function createSurvey(featuresModule) {
+	const { FEATURES, STAGE_FEATURES } = featuresModule;
 	return {
-		featureKindCounts: new Map(ALL_FEATURES.map((feature) => [feature, { battle: 0, back: 0, dorm: 0 }])),
-		rigStageCounts: new Map(STAGES.map((stage) => [stage, 0])),
+		features: FEATURES,
+		stageFeatures: STAGE_FEATURES,
+		featureKindCounts: new Map(FEATURES.map((feature) => [feature, { battle: 0, back: 0, dorm: 0 }])),
+		rigStageCounts: new Map([...STAGE_FEATURES.keys()].map((stage) => [stage, 0])),
 		rigsSurveyed: 0,
 		operatorBaseBattleFeatures: new Map()
 	};
@@ -501,8 +460,8 @@ function recordRig(survey, rigPath, features) {
 	for (const feature of features) {
 		survey.featureKindCounts.get(feature)[rigPath.kind]++;
 	}
-	for (const stage of STAGES) {
-		if (isFullySupported(features, stage)) {
+	for (const [stage, supported] of survey.stageFeatures) {
+		if (isFullySupported(features, supported)) {
 			survey.rigStageCounts.set(stage, survey.rigStageCounts.get(stage) + 1);
 		}
 	}
@@ -520,7 +479,7 @@ function recordRig(survey, rigPath, features) {
 function printSurvey(survey) {
 	console.log("");
 	console.log("Feature survey (rigs using each feature, by kind):");
-	for (const feature of ALL_FEATURES) {
+	for (const feature of survey.features) {
 		const counts = survey.featureKindCounts.get(feature);
 		const total = counts.battle + counts.back + counts.dorm;
 		console.log(`  ${feature}: ${total} (battle ${counts.battle}, back ${counts.back}, dorm ${counts.dorm})`);
@@ -529,8 +488,8 @@ function printSurvey(survey) {
 	const operatorFeatures = [...survey.operatorBaseBattleFeatures.values()];
 	console.log("");
 	console.log(`Stage coverage (${survey.rigsSurveyed} rigs surveyed, ${operatorFeatures.length} operators with a base battle rig):`);
-	for (const stage of STAGES) {
-		const operatorCount = operatorFeatures.filter((features) => isFullySupported(features, stage)).length;
+	for (const [stage, supported] of survey.stageFeatures) {
+		const operatorCount = operatorFeatures.filter((features) => isFullySupported(features, supported)).length;
 		console.log(`  Stage ${stage}: ${operatorCount}/${operatorFeatures.length} operators, ${survey.rigStageCounts.get(stage)}/${survey.rigsSurveyed} rigs`);
 	}
 }
@@ -554,16 +513,17 @@ function pairingKey(file) {
  * Parse and check every staged rig and atlas, print each failure and a summary, and exit 1 if anything failed.
  */
 async function main() {
-	const spineDir = path.join(parseStaging(process.argv.slice(2)), "assets", "spine");
+	const spineDir = path.join(parseStaging(process.argv.slice(2), USAGE), "assets", "spine");
 	const skelFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".skel") : [];
 	const atlasFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".atlas") : [];
 	if (skelFiles.length === 0 && atlasFiles.length === 0) {
 		console.error(`No .skel or .atlas files under ${spineDir}`);
 		process.exit(1);
 	}
-	const survey = process.argv.includes("--survey") ? createSurvey() : null;
+	const wantSurvey = process.argv.includes("--survey");
 
-	const server = await createServer({ root: REPO_ROOT, server: { middlewareMode: true }, appType: "custom", logLevel: "error" });
+	const server = await startVite();
+	let survey = null;
 	let failed = 0;
 	let repeatingKeys = 0;
 	let repeatingFiles = 0;
@@ -576,17 +536,18 @@ async function main() {
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
-		const featuresOf = survey ? (await server.ssrLoadModule("/src/spine/features.ts")).featuresOf : null;
+		const featuresModule = wantSurvey ? await server.ssrLoadModule("/src/spine/features.ts") : null;
+		survey = featuresModule ? createSurvey(featuresModule) : null;
 
 		for (const file of atlasFiles) {
-			const shown = file.startsWith(REPO_ROOT + path.sep) ? path.relative(REPO_ROOT, file) : file;
+			const shown = shownPath(file);
 			const dir = path.dirname(file);
 			let atlas;
 			try {
 				atlas = readAtlas(fs.readFileSync(file, "utf-8"));
 			} catch (error) {
 				atlasFailed++;
-				console.log(`${shown} @${error.line ?? "?"}: ${error.message}`);
+				console.log(`${shown}: ${error.message}`);
 				continue;
 			}
 			atlasByKey.set(pairingKey(file), atlas);
@@ -631,7 +592,7 @@ async function main() {
 		}
 
 		for (const file of skelFiles) {
-			const shown = file.startsWith(REPO_ROOT + path.sep) ? path.relative(REPO_ROOT, file) : file;
+			const shown = shownPath(file);
 			let data;
 			try {
 				data = readSkeleton(new Uint8Array(fs.readFileSync(file)));
@@ -648,7 +609,7 @@ async function main() {
 			if (survey) {
 				const rigPath = parseRigPath(file, spineDir);
 				if (rigPath) {
-					recordRig(survey, rigPath, featuresOf(data));
+					recordRig(survey, rigPath, featuresModule.featuresOf(data));
 				}
 			}
 			const atlas = atlasByKey.get(pairingKey(file));

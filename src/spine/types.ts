@@ -8,9 +8,19 @@
  * differences found in the staged corpus.
  */
 
-import type { Color } from "./reader.js";
+/** An RGBA color, each channel normalized from a byte to 0-1. */
+export interface Color {
+	/** Red channel, 0-1. */
+	r: number;
+	/** Green channel, 0-1. */
+	g: number;
+	/** Blue channel, 0-1. */
+	b: number;
+	/** Alpha channel, 0-1. */
+	a: number;
+}
 
-/** How a bone inherits its parent's transform. Byte order in the format is `normal`, `onlyTranslation`, `noRotationOrReflection`, `noScale`, `noScaleOrReflection`. */
+/** How a bone inherits its parent's transform, in the format's byte order: `normal`, `onlyTranslation`, `noRotationOrReflection`, and so on. */
 export type TransformMode = "normal" | "onlyTranslation" | "noRotationOrReflection" | "noScale" | "noScaleOrReflection";
 
 /** How a slot's attachment is blended when drawn. Byte order in the format is `normal`, `additive`, `multiply`, `screen`. */
@@ -244,7 +254,7 @@ export interface MeshAttachment {
 	/** The mesh's vertices. */
 	vertices: MeshVertices;
 	/** Number of vertices, counted from the start of `vertices`, that make up the polygon hull. Hull vertices are always listed first. */
-	hullLength: number;
+	hullCount: number;
 	/** Vertex indices for the mesh's edges, or null when nonessential data was not exported. */
 	edges: Uint16Array | null;
 	/** Width of the image used by the mesh, or null when nonessential data was not exported. */
@@ -253,7 +263,7 @@ export interface MeshAttachment {
 	height: number | null;
 }
 
-/** A mesh attachment that reuses another mesh's vertices, deforming along with it. The parent reference is left unresolved for a later task. */
+/** A mesh attachment that reuses another mesh's vertices, deforming along with it. The parent is kept by name, and the consumer resolves it. */
 export interface LinkedMeshAttachment {
 	/** Discriminant for the `Attachment` union. */
 	type: "linkedmesh";
@@ -268,7 +278,7 @@ export interface LinkedMeshAttachment {
 	/** Name of the source mesh attachment, which is always in the same slot as this one. */
 	parentName: string;
 	/** True if deform timelines for the source mesh should also apply to this mesh. */
-	inheritDeform: boolean;
+	deform: boolean;
 	/** Width of the image used by the mesh, or null when nonessential data was not exported. */
 	width: number | null;
 	/** Height of the image used by the mesh, or null when nonessential data was not exported. */

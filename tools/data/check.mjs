@@ -47,10 +47,11 @@ const MIN_PORTRAITS = 391;
 const MIN_ILLUSTRATIONS = 412;
 
 /**
- * Floors for the Spine index, set to what Task 7's index actually produced: 412 operators, 924 forms, 2743 rigs. Exact rather than slack for the
+ * Floors for the Spine index, set to what the first full index produced: 412 operators, 924 forms, 2743 rigs. Exact rather than slack for the
  * same reason the asset floors are - the failure this catches is the index quietly losing rigs, not the roster shrinking.
  */
 const MIN_SPINE_OPERATORS = 412;
+const MIN_SPINE_FORMS = 924;
 const MIN_SPINE_RIGS = 2743;
 const MIN_SPINE_BATTLE_RIGS = 918;
 const MIN_SPINE_BACK_RIGS = 907;
@@ -536,11 +537,14 @@ if (hasManifest) {
 	}
 }
 
-// The Spine index, once Task 7's animation pass has produced one. Guarded because this gate runs before that index exists too. Checks that
-// every indexed operator is real, every form's kinds are one of the three the viewer plays, and every rig has a skeleton, an atlas and at
-// least one animation - a rig missing any of those would render a blank card instead of a broken import.
+// The Spine index is committed, so a missing one fails. Checks that every indexed operator is real, every form's kinds are one of the three
+// the viewer plays, and every rig has a skeleton, an atlas and at least one animation - a rig missing any of those would render a blank card
+// instead of a broken import.
 const spineIndexPath = path.join(OUT_DIR, "spine-index.json");
 const hasSpineIndex = fs.existsSync(spineIndexPath);
+if (!hasSpineIndex) {
+	fail(`${spineIndexPath} is missing`);
+}
 let spineOperatorCount = 0;
 let spineFormCount = 0;
 let spineRigCount = 0;
@@ -575,6 +579,9 @@ if (hasSpineIndex) {
 	}
 	if (spineOperatorCount < MIN_SPINE_OPERATORS) {
 		fail(`spine index has ${spineOperatorCount} operators, below the floor of ${MIN_SPINE_OPERATORS}`);
+	}
+	if (spineFormCount < MIN_SPINE_FORMS) {
+		fail(`spine index has ${spineFormCount} forms, below the floor of ${MIN_SPINE_FORMS}`);
 	}
 	if (spineRigCount < MIN_SPINE_RIGS) {
 		fail(`spine index has ${spineRigCount} rigs, below the floor of ${MIN_SPINE_RIGS}`);

@@ -11,29 +11,49 @@
 
 import type { SkeletonData } from "./types.js";
 
-/** One capability a Spine 3.8 rig can use. `region`, `mesh` etc name attachment kinds; `ik`, `transformConstraint`, `pathConstraint` name
- * constraint kinds; `deform`, `drawOrder`, `twoColor`, `blend*` name timeline or slot effects; `transformModeNonNormal` names any bone
- * transform mode other than the default; `events` names custom event firing. */
-export type Feature =
-	| "region"
-	| "mesh"
-	| "weightedMesh"
-	| "linkedMesh"
-	| "clipping"
-	| "path"
-	| "point"
-	| "boundingBox"
-	| "ik"
-	| "transformConstraint"
-	| "pathConstraint"
-	| "deform"
-	| "drawOrder"
-	| "twoColor"
-	| "blendAdditive"
-	| "blendMultiply"
-	| "blendScreen"
-	| "transformModeNonNormal"
-	| "events";
+/**
+ * Every capability a Spine 3.8 rig can use, in survey order. `region`, `mesh` and the like name attachment kinds. `ik`,
+ * `transformConstraint` and `pathConstraint` name constraint kinds. `deform`, `drawOrder`, `twoColor` and the `blend*` names are timeline
+ * or slot effects. `transformModeNonNormal` is any bone transform mode other than the default, and `events` is custom event firing.
+ */
+export const FEATURES = [
+	"region",
+	"mesh",
+	"weightedMesh",
+	"linkedMesh",
+	"clipping",
+	"path",
+	"point",
+	"boundingBox",
+	"ik",
+	"transformConstraint",
+	"pathConstraint",
+	"deform",
+	"drawOrder",
+	"twoColor",
+	"blendAdditive",
+	"blendMultiply",
+	"blendScreen",
+	"transformModeNonNormal",
+	"events"
+] as const;
+
+/** One capability a Spine 3.8 rig can use, from `FEATURES`. */
+export type Feature = (typeof FEATURES)[number];
+
+/** Features any stage can handle, since they draw nothing. */
+const ALWAYS_SUPPORTED: readonly Feature[] = ["events", "point", "boundingBox"];
+
+/** Features each planned stage adds on top of the stage before it. */
+const STAGE_ADDS: readonly (readonly Feature[])[] = [
+	["region", "transformModeNonNormal"],
+	["drawOrder", "twoColor", "blendAdditive", "blendMultiply", "blendScreen"],
+	["mesh", "weightedMesh", "linkedMesh", "deform"],
+	["clipping", "path", "ik", "transformConstraint", "pathConstraint"]
+];
+
+/** Each planned stage's full feature set, keyed by stage number from 1: `ALWAYS_SUPPORTED` plus everything stages 1 through it add. */
+export const STAGE_FEATURES: ReadonlyMap<number, ReadonlySet<Feature>> = new Map(STAGE_ADDS.map((_, index) => [index + 1, new Set([...ALWAYS_SUPPORTED, ...STAGE_ADDS.slice(0, index + 1).flat()])]));
 
 /** The features this stage's runtime can draw. Empty at stage 0, since nothing renders yet. Later stages add to it. */
 export const SUPPORTED: ReadonlySet<Feature> = new Set();

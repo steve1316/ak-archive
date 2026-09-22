@@ -10,7 +10,6 @@
  */
 
 import { ByteReader, SpineFormatError } from "./reader.js";
-import type { Color } from "./reader.js";
 import type {
 	Animation,
 	Attachment,
@@ -19,6 +18,7 @@ import type {
 	BoneData,
 	BoundingBoxAttachment,
 	ClippingAttachment,
+	Color,
 	Curve,
 	DrawOrderChange,
 	EventData,
@@ -73,8 +73,8 @@ const BONE_TIMELINE_TYPES = ["rotate", "translate", "scale", "shear"] as const;
 const PATH_TIMELINE_TYPES = ["pathPosition", "pathSpacing", "pathMix"] as const;
 
 /**
- * Reads a whole Spine 3.8 skeleton binary. Throws `SpineFormatError` if any byte is left over after the last animation, since that means
- * some field was misread.
+ * Reads a whole Spine 3.8 skeleton binary. Throws `SpineFormatError` when the version is not 3.8, or when any byte is left over after the
+ * last animation, since that means some field was misread.
  *
  * @param bytes The whole `.skel` file.
  * @returns The skeleton data.
@@ -83,7 +83,11 @@ export function readSkeleton(bytes: Uint8Array): SkeletonData {
 	const reader = new ByteReader(bytes);
 
 	reader.string(); // hash, not kept
+	const versionStart = reader.offset;
 	const version = reader.string() ?? "";
+	if (!version.startsWith("3.8.")) {
+		throw new SpineFormatError(`Unsupported Spine version "${version}": only 3.8 is read`, versionStart);
+	}
 	const x = reader.float();
 	const y = reader.float();
 	const width = reader.float();
@@ -128,10 +132,11 @@ export function readSkeleton(bytes: Uint8Array): SkeletonData {
  * @returns The matching value.
  */
 function readConstant<T>(reader: ByteReader, values: readonly T[], label: string): T {
+	const start = reader.offset;
 	const index = reader.byte();
 	const value = values[index];
 	if (value === undefined) {
-		throw new SpineFormatError(`Unknown ${label} constant ${index}`, reader.offset);
+		throw new SpineFormatError(`Unknown ${label} constant ${index}`, start);
 	}
 	return value;
 }
@@ -414,7 +419,7 @@ function readMeshAttachment(reader: ByteReader, name: string, nonessential: bool
 		triangles[i] = reader.short();
 	}
 	const vertices = readVertices(reader, uvCount);
-	const hullLength = reader.varint(true);
+	const hullCount = reader.varint(true);
 	let edges: Uint16Array | null = null;
 	let width: number | null = null;
 	let height: number | null = null;
@@ -427,11 +432,11 @@ function readMeshAttachment(reader: ByteReader, name: string, nonessential: bool
 		width = reader.float();
 		height = reader.float();
 	}
-	return { type: "mesh", name, path, color, uvs, triangles, vertices, hullLength, edges, width, height };
+	return { type: "mesh", name, path, color, uvs, triangles, vertices, hullCount, edges, width, height };
 }
 
 /**
- * Reads an `ATTACHMENT_LINKED_MESH` attachment's fields. The parent mesh is left unresolved for a later stage 0 task.
+ * Reads an `ATTACHMENT_LINKED_MESH` attachment's fields. The parent mesh is kept by name, and the consumer resolves it.
  *
  * @param reader The reader positioned at the mesh path.
  * @param name The attachment's resolved name.
@@ -443,10 +448,10 @@ function readLinkedMeshAttachment(reader: ByteReader, name: string, nonessential
 	const color = reader.color();
 	const parentSkin = reader.stringRef();
 	const parentName = reader.stringRef() ?? "";
-	const inheritDeform = reader.boolean();
+	const deform = reader.boolean();
 	const width = nonessential ? reader.float() : null;
 	const height = nonessential ? reader.float() : null;
-	return { type: "linkedmesh", name, path, color, parentSkin, parentName, inheritDeform, width, height };
+	return { type: "linkedmesh", name, path, color, parentSkin, parentName, deform, width, height };
 }
 
 /**
@@ -560,7 +565,7 @@ function readSkinFormat(reader: ByteReader, name: string, nonessential: boolean)
 
 /**
  * Reads the skeleton's skins: the default skin, then every named skin. A named skin's own bone, IK, transform and path constraint index
- * lists are read to stay in sync with the byte stream but not kept, since nothing in this stage 0 task needs them.
+ * lists are read to stay in sync with the byte stream but not kept, since nothing uses them yet.
  *
  * @param reader The reader positioned at the default skin's slot count.
  * @param nonessential Whether nonessential data was exported.
@@ -615,9 +620,10 @@ function readEvents(reader: ByteReader): EventData[] {
 		const intValue = reader.varint(false);
 		const floatValue = reader.float();
 		const stringValue = reader.string();
+		const audioStart = reader.offset;
 		const audioPath = reader.string();
 		if (audioPath !== null) {
-			throw new SpineFormatError(`Event "${name}" has an audio path: reading volume/balance after a non-null audio path is unsupported`, reader.offset);
+			throw new SpineFormatError(`Event "${name}" has an audio path: reading volume/balance after a non-null audio path is unsupported`, audioStart);
 		}
 		events.push({ name, intValue, floatValue, stringValue, audioPath });
 	}
@@ -636,9 +642,10 @@ function readEvents(reader: ByteReader): EventData[] {
  * @returns The flag's value.
  */
 function readFlag(reader: ByteReader, label: string): boolean {
+	const start = reader.offset;
 	const value = reader.byte();
 	if (value > 1) {
-		throw new SpineFormatError(`${label} byte is ${value}, not 0 or 1`, reader.offset - 1);
+		throw new SpineFormatError(`${label} byte is ${value}, not 0 or 1`, start);
 	}
 	return value === 1;
 }

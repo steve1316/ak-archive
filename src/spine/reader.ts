@@ -9,10 +9,12 @@
  * and color. See `SOURCES.md` for exactly what was read and `FORMAT-3.8.md` for where the staged 3.8 files disagree with that page.
  */
 
+import type { Color } from "./types.js";
+
 /** Decodes the UTF-8 bytes a Spine string carries. Shared across every `string()` call so it is only created once. */
 const textDecoder = new TextDecoder("utf-8");
 
-/** Thrown when a read would run past the end of the buffer. Carries the offset the failing read started at. */
+/** Thrown for any format error in a `.skel` file, such as a read past the end or a value out of range. Carries the offset of the bad value. */
 export class SpineFormatError extends Error {
 	/** Byte offset into the buffer where the failing read began. */
 	readonly offset: number;
@@ -26,18 +28,6 @@ export class SpineFormatError extends Error {
 		this.name = "SpineFormatError";
 		this.offset = offset;
 	}
-}
-
-/** An RGBA color, each channel normalized from a byte to 0-1. */
-export interface Color {
-	/** Red channel, 0-1. */
-	r: number;
-	/** Green channel, 0-1. */
-	g: number;
-	/** Blue channel, 0-1. */
-	b: number;
-	/** Alpha channel, 0-1. */
-	a: number;
 }
 
 /**
@@ -196,13 +186,14 @@ export class ByteReader {
 	 * @returns The referenced string, or null.
 	 */
 	stringRef(): string | null {
+		const start = this.pos;
 		const index = this.varint(true);
 		if (index === 0) {
 			return null;
 		}
 		const value = this.strings[index - 1];
 		if (value === undefined) {
-			throw new SpineFormatError(`String ref index ${index} is out of range: ${this.strings.length} shared string(s) loaded`, this.pos);
+			throw new SpineFormatError(`String ref index ${index} is out of range: ${this.strings.length} shared string(s) loaded`, start);
 		}
 		return value;
 	}
