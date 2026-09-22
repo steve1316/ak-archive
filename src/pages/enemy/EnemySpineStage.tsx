@@ -27,6 +27,7 @@ export default function EnemySpineStage({ enemyId, iconUrl, onStatus }: EnemySpi
 	const urls = useMemo(() => (rig ? enemyRigUrls(enemySpineRoot(), enemyId, rig) : null), [rig, enemyId]);
 	const renderPlaceholder = useCallback((message: string) => <StagePlaceholder iconUrl={iconUrl} message={message} />, [iconUrl]);
 
+	// Guarded per variant, not per group: each variant is its own rig, so a switch clears the error a failed one left on the boundary.
 	return (
 		<GenericSpineStage
 			guardKey={enemyId}
