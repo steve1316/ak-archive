@@ -14,10 +14,9 @@ Usage:
 
 import argparse
 import os
-import shutil
 
 from build_manifest import load_enemy_ids
-from stage_spine import PROGRESS_EVERY, RIG_EXTENSIONS, needs_copy, print_skip_summary
+from stage_spine import RIG_EXTENSIONS, copy_files, needs_copy, print_skip_summary
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -107,12 +106,7 @@ def main():
         print("--dry-run: nothing was written")
         return 0
 
-    for index, (source, destination) in enumerate(pending, start=1):
-        os.makedirs(os.path.dirname(destination), exist_ok=True)
-        shutil.copy2(source, destination)
-        if index % PROGRESS_EVERY == 0:
-            print(f"copied {index} of {len(pending)}")
-    print(f"copied {len(pending)} files")
+    print(f"copied {copy_files(pending)} files")
     return 0
 
 

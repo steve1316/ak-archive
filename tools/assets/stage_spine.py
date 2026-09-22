@@ -56,6 +56,24 @@ def needs_copy(source, destination):
     return os.path.getmtime(destination) < os.path.getmtime(source)
 
 
+def copy_files(pending):
+    """
+    Copy each planned file, creating its folder first and reporting progress every `PROGRESS_EVERY` files.
+
+    Args:
+        pending: The `(source, destination)` pairs to copy.
+
+    Returns:
+        How many files were copied.
+    """
+    for index, (source, destination) in enumerate(pending, start=1):
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        shutil.copy2(source, destination)
+        if index % PROGRESS_EVERY == 0:
+            print(f"copied {index} of {len(pending)}")
+    return len(pending)
+
+
 def classify_rejected_rig(parts):
     """
     Work out why a rig-shaped folder that `parse_rig` rejected was rejected, for the skip summary.
@@ -176,12 +194,7 @@ def main():
         print("--dry-run: nothing was written")
         return 0
 
-    for index, (source, destination) in enumerate(pending, start=1):
-        os.makedirs(os.path.dirname(destination), exist_ok=True)
-        shutil.copy2(source, destination)
-        if index % PROGRESS_EVERY == 0:
-            print(f"copied {index} of {len(pending)}")
-    print(f"copied {len(pending)} files")
+    print(f"copied {copy_files(pending)} files")
     return 0
 
 
