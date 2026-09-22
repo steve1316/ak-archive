@@ -3,8 +3,8 @@
 // Rig lab
 
 /**
- * Dev-only lab for the Spine 3.8 runtime under `src/spine/`. Picks a staged rig by operator, form and kind, parses its skeleton and atlas
- * through the runtime, and draws a bone overlay so the setup-pose maths can be checked on screen before any renderer exists.
+ * Dev-only lab for the Spine 3.8 runtime under `src/spine/`. Picks a staged rig by operator, form and kind, loads it into a `SpinePlayer`
+ * that draws the setup pose with WebGL2, and can lay a bone overlay over the drawing at the same fit.
  *
  * Routed only when `import.meta.env.DEV`, so it never ships in a production build. Rig files come from the `vite.config.ts` middleware
  * that serves `tools/assets/.staging/assets/spine/` under `SPINE_DEV_ROOT`, not from the production asset host.
@@ -13,16 +13,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 
-import { Alert, Autocomplete, Chip, Container, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Autocomplete, Box, Chip, Container, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack, Switch, TextField, Typography } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material";
 import { useSearchParams } from "react-router-dom";
 
 import { spineRigUrls, SPINE_DEV_ROOT } from "../../lib/spine.js";
-import { readAtlas } from "../../spine/atlas.js";
-import { readSkeleton } from "../../spine/binary.js";
 import { featuresOf, SUPPORTED } from "../../spine/features.js";
-import { localToWorld, Skeleton } from "../../spine/skeleton.js";
-import type { Atlas, SkeletonData } from "../../spine/types.js";
+import type { SpinePlayer } from "../../spine/player.js";
+import type { View } from "../../spine/renderer.js";
+import { localToWorld } from "../../spine/skeleton.js";
+import type { Skeleton } from "../../spine/skeleton.js";
+import type { Atlas } from "../../spine/types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -37,13 +38,10 @@ const KIND_PARAM = "kind";
 /** Query string key for the chosen skin. */
 const SKIN_PARAM = "skin";
 
-/** Bone overlay canvas size in CSS pixels. */
+/** Drawing area width in CSS pixels. */
 const CANVAS_WIDTH = 800;
-/** Bone overlay canvas size in CSS pixels. */
+/** Drawing area height in CSS pixels. */
 const CANVAS_HEIGHT = 600;
-
-/** Empty space kept around the fitted skeleton inside the canvas, in pixels. */
-const CANVAS_PADDING = 24;
 
 /**
  * URL of the generated Spine rig index, resolved through Vite's asset-URL glob rather than a plain JSON import. The file is 500 KB and
@@ -71,10 +69,13 @@ interface SpineRigEntry {
 /** The generated Spine rig index: operator id, then form key, then art kind, to that rig's files. */
 type SpineIndex = Record<string, Record<string, Record<string, SpineRigEntry>>>;
 
-/** A rig's parsed skeleton and atlas, before a skin is chosen. */
-interface ParsedRig {
-	/** The parsed skeleton data. */
-	data: SkeletonData;
+/** The player module, loaded with a dynamic `import()` so the renderer stays out of the lab's first chunk. */
+type PlayerModule = typeof import("../../spine/player.js");
+
+/** The rig the player has loaded: its live skeleton and atlas. */
+interface LoadedRig {
+	/** The player's live skeleton. */
+	skeleton: Skeleton;
 	/** The parsed atlas. */
 	atlas: Atlas;
 }
@@ -95,66 +96,58 @@ function pickOption(paramValue: string | null, options: readonly string[]): stri
 }
 
 /**
- * Picks the Skin select's default. Several staged rigs keep their setup attachments only in a named skin, so when a rig has more than one
- * skin the first non-default one is chosen. A rig with only the default skin keeps it, and an empty list (nothing parsed yet) gives "".
+ * Draws every bone as a line from its world origin along its world X axis for its length, on a transparent canvas laid over the player's
+ * drawing. It uses the player's fitted view so the bones line up with the art, or fits the bones themselves when the player drew nothing.
  *
- * @param skinNames Every skin name the rig's parsed skeleton carries, default skin first.
- * @returns The skin name to select when the query string names none.
- */
-function defaultSkinOf(skinNames: readonly string[]): string {
-	return skinNames.length > 1 ? skinNames[1]! : (skinNames[0] ?? "");
-}
-
-/**
- * Draws every bone as a line from its world origin along its world X axis for its length, fitted to the skeleton's extent with Y flipped
- * so up reads as up on screen. This checks the runtime's bone world transforms before any renderer exists.
- *
- * @param canvas The canvas to draw into.
+ * @param canvas The overlay canvas.
  * @param skeleton The posed skeleton, with `updateWorldTransform` already run.
+ * @param view The world rectangle the player fitted to the canvas, or null when it drew nothing.
+ * @param fit The player module's `fitView`, used when `view` is null.
  */
-function drawBoneOverlay(canvas: HTMLCanvasElement, skeleton: Skeleton): void {
+function drawBoneOverlay(canvas: HTMLCanvasElement, skeleton: Skeleton, view: View | null, fit: PlayerModule["fitView"]): void {
 	const ctx = canvas.getContext("2d");
 	if (!ctx) {
 		return;
 	}
-	ctx.fillStyle = "#1b1b1b";
-	ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+	const ratio = window.devicePixelRatio || 1;
+	const width = canvas.clientWidth;
+	const height = canvas.clientHeight;
+	canvas.width = Math.max(1, Math.round(width * ratio));
+	canvas.height = Math.max(1, Math.round(height * ratio));
+	ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+	ctx.clearRect(0, 0, width, height);
 
 	const segments = skeleton.bones.map((bone) => {
 		const [endX, endY] = localToWorld(bone, bone.data.length, 0);
 		return { x1: bone.worldX, y1: bone.worldY, x2: endX, y2: endY };
 	});
-
-	let minX = Infinity;
-	let minY = Infinity;
-	let maxX = -Infinity;
-	let maxY = -Infinity;
-	for (const segment of segments) {
-		minX = Math.min(minX, segment.x1, segment.x2);
-		minY = Math.min(minY, segment.y1, segment.y2);
-		maxX = Math.max(maxX, segment.x1, segment.x2);
-		maxY = Math.max(maxY, segment.y1, segment.y2);
+	let shown = view;
+	if (!shown) {
+		const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+		for (const segment of segments) {
+			box.minX = Math.min(box.minX, segment.x1, segment.x2);
+			box.minY = Math.min(box.minY, segment.y1, segment.y2);
+			box.maxX = Math.max(box.maxX, segment.x1, segment.x2);
+			box.maxY = Math.max(box.maxY, segment.y1, segment.y2);
+		}
+		if (!Number.isFinite(box.minX)) {
+			return;
+		}
+		shown = fit(box, width, height);
 	}
-	if (!Number.isFinite(minX)) {
-		return;
-	}
 
-	const spanX = Math.max(maxX - minX, 1);
-	const spanY = Math.max(maxY - minY, 1);
-	const availableWidth = CANVAS_WIDTH - CANVAS_PADDING * 2;
-	const availableHeight = CANVAS_HEIGHT - CANVAS_PADDING * 2;
-	const scale = Math.min(availableWidth / spanX, availableHeight / spanY);
-	const offsetX = CANVAS_PADDING + (availableWidth - spanX * scale) / 2;
-	const offsetY = CANVAS_PADDING + (availableHeight - spanY * scale) / 2;
-
+	// World to CSS pixels, with Y flipped so up reads as up on screen.
+	const scaleX = width / (shown.maxX - shown.minX);
+	const scaleY = height / (shown.maxY - shown.minY);
+	const { minX, maxY } = shown;
 	ctx.strokeStyle = "#4fc3f7";
 	ctx.fillStyle = "#f06292";
 	ctx.lineWidth = 1.5;
 	for (const segment of segments) {
-		const x1 = offsetX + (segment.x1 - minX) * scale;
-		const y1 = CANVAS_HEIGHT - (offsetY + (segment.y1 - minY) * scale);
-		const x2 = offsetX + (segment.x2 - minX) * scale;
-		const y2 = CANVAS_HEIGHT - (offsetY + (segment.y2 - minY) * scale);
+		const x1 = (segment.x1 - minX) * scaleX;
+		const y1 = (maxY - segment.y1) * scaleY;
+		const x2 = (segment.x2 - minX) * scaleX;
+		const y2 = (maxY - segment.y2) * scaleY;
 		ctx.beginPath();
 		ctx.moveTo(x1, y1);
 		ctx.lineTo(x2, y2);
@@ -182,27 +175,21 @@ export default function SpineLab() {
 	const [indexError, setIndexError] = useState<string | null>(null);
 
 	useEffect(() => {
-		let active = true;
-		fetch(SPINE_INDEX_URL)
+		const controller = new AbortController();
+		fetch(SPINE_INDEX_URL, { signal: controller.signal })
 			.then((response) => {
 				if (!response.ok) {
 					throw new Error(`Fetching the rig index gave ${response.status}`);
 				}
 				return response.json() as Promise<SpineIndex>;
 			})
-			.then((json) => {
-				if (active) {
-					setSpineIndex(json);
-				}
-			})
+			.then((json) => setSpineIndex(json))
 			.catch((error: unknown) => {
-				if (active) {
+				if (!controller.signal.aborted) {
 					setIndexError(error instanceof Error ? error.message : String(error));
 				}
 			});
-		return () => {
-			active = false;
-		};
+		return () => controller.abort();
 	}, []);
 
 	const operatorIds = useMemo(() => (spineIndex ? Object.keys(spineIndex).sort(COLLATOR.compare) : []), [spineIndex]);
@@ -216,76 +203,105 @@ export default function SpineLab() {
 	const selectedKind = pickOption(searchParams.get(KIND_PARAM), kindKeys);
 	const rigEntry = kindMap?.[selectedKind];
 
-	// The parsed rig for the current operator, form and kind. Cleared and re-fetched whenever any of those three change.
-	const [parsedRig, setParsedRig] = useState<ParsedRig | null>(null);
-	const [rigError, setRigError] = useState<string | null>(null);
+	// The player module, fetched once with a dynamic import, and the player built on the WebGL canvas once it arrives.
+	const [playerModule, setPlayerModule] = useState<PlayerModule | null>(null);
+	const [player, setPlayer] = useState<SpinePlayer | null>(null);
+	const [playerError, setPlayerError] = useState<string | null>(null);
+	const glCanvasRef = useRef<HTMLCanvasElement | null>(null);
+	const overlayRef = useRef<HTMLCanvasElement | null>(null);
 
 	useEffect(() => {
-		if (!rigEntry) {
-			setParsedRig(null);
-			setRigError(null);
-			return;
-		}
 		let active = true;
-		setParsedRig(null);
-		setRigError(null);
-		const urls = spineRigUrls(SPINE_DEV_ROOT, selectedOp, selectedForm, selectedKind, rigEntry);
-		(async () => {
-			const [skelResponse, atlasResponse] = await Promise.all([fetch(urls.skel), fetch(urls.atlas)]);
-			if (!skelResponse.ok) {
-				throw new Error(`Fetching ${urls.skel} gave ${skelResponse.status}`);
-			}
-			if (!atlasResponse.ok) {
-				throw new Error(`Fetching ${urls.atlas} gave ${atlasResponse.status}`);
-			}
-			const [skelBytes, atlasText] = await Promise.all([skelResponse.arrayBuffer(), atlasResponse.text()]);
-			const data = readSkeleton(new Uint8Array(skelBytes));
-			const atlas = readAtlas(atlasText);
-			if (active) {
-				setParsedRig({ data, atlas });
-			}
-		})().catch((error: unknown) => {
-			if (active) {
-				setRigError(error instanceof Error ? error.message : String(error));
-			}
-		});
+		import("../../spine/player.js")
+			.then((module) => {
+				if (active) {
+					setPlayerModule(module);
+				}
+			})
+			.catch((error: unknown) => {
+				if (active) {
+					setPlayerError(error instanceof Error ? error.message : String(error));
+				}
+			});
 		return () => {
 			active = false;
 		};
-	}, [rigEntry, selectedOp, selectedForm, selectedKind]);
+	}, []);
 
-	const skinNames = useMemo(() => (parsedRig ? parsedRig.data.skins.map((skin) => skin.name) : []), [parsedRig]);
-	const skinParam = searchParams.get(SKIN_PARAM);
-	const selectedSkin = skinParam !== null && skinNames.includes(skinParam) ? skinParam : defaultSkinOf(skinNames);
-
-	const skeleton = useMemo(() => {
-		if (!parsedRig) {
-			return null;
-		}
-		const built = new Skeleton(parsedRig.data);
-		if (skinNames.includes(selectedSkin)) {
-			built.setSkin(selectedSkin);
-			built.setToSetupPose();
-		}
-		built.updateWorldTransform();
-		return built;
-	}, [parsedRig, skinNames, selectedSkin]);
-
-	const features = useMemo(() => (parsedRig ? [...featuresOf(parsedRig.data)].sort() : []), [parsedRig]);
-	const regionCount = useMemo(() => (parsedRig ? parsedRig.atlas.pages.reduce((sum, page) => sum + page.regions.length, 0) : 0), [parsedRig]);
-
-	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	useEffect(() => {
-		const canvas = canvasRef.current;
-		if (!canvas) {
+		const canvas = glCanvasRef.current;
+		if (!playerModule || !canvas) {
 			return;
 		}
-		if (!skeleton) {
-			canvas.getContext("2d")?.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+		let created: SpinePlayer;
+		try {
+			created = new playerModule.SpinePlayer(canvas);
+		} catch (error) {
+			setPlayerError(error instanceof Error ? error.message : String(error));
 			return;
 		}
-		drawBoneOverlay(canvas, skeleton);
-	}, [skeleton]);
+		setPlayer(created);
+		return () => {
+			created.dispose();
+			setPlayer(null);
+		};
+	}, [playerModule]);
+
+	// The rig the player has loaded for the current operator, form and kind. A change aborts the previous load's fetches.
+	const [loadedRig, setLoadedRig] = useState<LoadedRig | null>(null);
+	const [rigError, setRigError] = useState<string | null>(null);
+
+	useEffect(() => {
+		setLoadedRig(null);
+		setRigError(null);
+		if (!player || !rigEntry) {
+			return;
+		}
+		const controller = new AbortController();
+		const urls = spineRigUrls(SPINE_DEV_ROOT, selectedOp, selectedForm, selectedKind, rigEntry);
+		player
+			.load(urls, controller.signal)
+			.then(() => {
+				const { skeleton, atlas } = player;
+				if (skeleton && atlas) {
+					setLoadedRig({ skeleton, atlas });
+				}
+			})
+			.catch((error: unknown) => {
+				if (!controller.signal.aborted) {
+					setRigError(error instanceof Error ? error.message : String(error));
+				}
+			});
+		// `load` drops the old rig at once, so this clears the canvas while the new one loads.
+		player.render();
+		return () => controller.abort();
+	}, [player, rigEntry, selectedOp, selectedForm, selectedKind]);
+
+	const skinNames = useMemo(() => (loadedRig ? loadedRig.skeleton.data.skins.map((skin) => skin.name) : []), [loadedRig]);
+	const skinParam = searchParams.get(SKIN_PARAM);
+	const selectedSkin = skinParam !== null && skinNames.includes(skinParam) ? skinParam : ((loadedRig && playerModule?.defaultSkinName(loadedRig.skeleton.data)) ?? "");
+
+	const features = useMemo(() => (loadedRig ? [...featuresOf(loadedRig.skeleton.data)].sort() : []), [loadedRig]);
+	const regionCount = useMemo(() => (loadedRig ? loadedRig.atlas.pages.reduce((sum, page) => sum + page.regions.length, 0) : 0), [loadedRig]);
+
+	const [showBones, setShowBones] = useState(false);
+
+	useEffect(() => {
+		const overlay = overlayRef.current;
+		if (!player || !loadedRig || !playerModule) {
+			overlay?.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
+			return;
+		}
+		player.setSkin(selectedSkin || null);
+		player.render();
+		if (overlay) {
+			if (showBones) {
+				drawBoneOverlay(overlay, loadedRig.skeleton, player.view, playerModule.fitView);
+			} else {
+				overlay.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
+			}
+		}
+	}, [player, playerModule, loadedRig, selectedSkin, showBones]);
 
 	/**
 	 * Selects a new operator, clearing the form, kind and skin so they fall back to that operator's own defaults.
@@ -374,13 +390,21 @@ export default function SpineLab() {
 		[setSearchParams]
 	);
 
+	/**
+	 * Turns the bone overlay on or off.
+	 *
+	 * @param _event Unused: the Switch change event.
+	 * @param checked Whether the overlay should show.
+	 */
+	const handleShowBonesChange = useCallback((_event: SyntheticEvent, checked: boolean) => setShowBones(checked), []);
+
 	return (
 		<Container maxWidth="xl" sx={{ py: 3 }}>
 			<Typography variant="h4" gutterBottom>
 				Spine rig lab
 			</Typography>
 			<Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-				Dev-only viewer for staged Spine rigs. Checks the runtime's setup pose and bone world transforms before the renderer exists.
+				Dev-only viewer for staged Spine rigs. Draws the setup pose with the runtime's WebGL2 renderer, with an optional bone overlay.
 			</Typography>
 
 			<Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 3, flexWrap: "wrap" }} useFlexGap>
@@ -422,6 +446,7 @@ export default function SpineLab() {
 						))}
 					</Select>
 				</FormControl>
+				<FormControlLabel control={<Switch checked={showBones} onChange={handleShowBonesChange} />} label="Show bones" />
 			</Stack>
 
 			{indexError ? (
@@ -434,17 +459,30 @@ export default function SpineLab() {
 					{rigError}
 				</Alert>
 			) : null}
+			{playerError ? (
+				<Alert severity="error" sx={{ mb: 2 }}>
+					{playerError}
+				</Alert>
+			) : null}
 
-			{parsedRig ? (
-				<Stack direction={{ xs: "column", md: "row" }} spacing={3}>
-					<canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={{ border: "1px solid #444", background: "#1b1b1b", maxWidth: "100%" }} />
+			<Stack direction={{ xs: "column", md: "row" }} spacing={3} sx={{ display: rigEntry ? "flex" : "none" }}>
+				<Box sx={{ position: "relative", width: CANVAS_WIDTH, height: CANVAS_HEIGHT, maxWidth: "100%", flexShrink: 0, border: "1px solid #444", background: "#1b1b1b" }}>
+					<canvas ref={glCanvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
+					<canvas ref={overlayRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />
+					{!loadedRig && !rigError ? (
+						<Typography variant="body2" sx={{ position: "absolute", top: 8, left: 8 }}>
+							Loading rig...
+						</Typography>
+					) : null}
+				</Box>
+				{loadedRig ? (
 					<Stack spacing={0.5} sx={{ minWidth: 280 }}>
 						<Typography variant="subtitle1">Skeleton</Typography>
-						<Typography variant="body2">Version: {parsedRig.data.version}</Typography>
-						<Typography variant="body2">Bones: {parsedRig.data.bones.length}</Typography>
-						<Typography variant="body2">Slots: {parsedRig.data.slots.length}</Typography>
+						<Typography variant="body2">Version: {loadedRig.skeleton.data.version}</Typography>
+						<Typography variant="body2">Bones: {loadedRig.skeleton.data.bones.length}</Typography>
+						<Typography variant="body2">Slots: {loadedRig.skeleton.data.slots.length}</Typography>
 						<Typography variant="body2">
-							Atlas pages: {parsedRig.atlas.pages.length}, regions: {regionCount}
+							Atlas pages: {loadedRig.atlas.pages.length}, regions: {regionCount}
 						</Typography>
 
 						<Typography variant="subtitle1" sx={{ mt: 2 }}>
@@ -459,12 +497,10 @@ export default function SpineLab() {
 						<Typography variant="subtitle1" sx={{ mt: 2 }}>
 							Animations
 						</Typography>
-						<Typography variant="body2">{parsedRig.data.animations.map((animation) => animation.name).join(", ")}</Typography>
+						<Typography variant="body2">{loadedRig.skeleton.data.animations.map((animation) => animation.name).join(", ")}</Typography>
 					</Stack>
-				</Stack>
-			) : !rigError && rigEntry ? (
-				<Typography variant="body2">Loading rig...</Typography>
-			) : null}
+				) : null}
+			</Stack>
 		</Container>
 	);
 }

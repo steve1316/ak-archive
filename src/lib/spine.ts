@@ -7,22 +7,12 @@
  * `tools/assets/.staging/assets/spine/` under `__spine/`, rather than through the asset host the production site uses.
  */
 
+import type { RigUrls } from "../spine/player.js";
+
+export type { RigUrls } from "../spine/player.js";
+
 /** The dev-only root the staging middleware serves rigs from, honouring whatever base the site is configured with. */
 export const SPINE_DEV_ROOT = `${import.meta.env.BASE_URL}__spine/`;
-
-// //////////////////////////////////////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////////////////////////////////////
-// Types
-
-/** URLs for one staged rig's files. A page image's URL is `pageBase` plus that atlas page's own file name. */
-export interface RigUrls {
-	/** URL of the rig's `.skel` file. */
-	skel: string;
-	/** URL of the rig's `.atlas` file. */
-	atlas: string;
-	/** Base URL the rig's atlas page images sit under. */
-	pageBase: string;
-}
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////

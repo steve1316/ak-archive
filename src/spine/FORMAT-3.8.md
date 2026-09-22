@@ -216,9 +216,38 @@ lie inside its page's real PNG size, read from the PNG's IHDR bytes. All 248,881
 a page any region's box reaches, and that is 100.00%, so at least one page is packed edge to edge and the check is a real constraint.
 `checkRegionBounds` in `check_spine_rigs.mjs` implements it.
 
-**4. Premultiplied alpha is undeclared.** No atlas sets `pma`, so every page reads `pma = false`, while the spec's renderer assumes
-premultiplied alpha. Whether the PNGs really are premultiplied is a Stage 1 decision, to be settled by looking at the color of
-semi-transparent edge pixels.
+**4. Premultiplied alpha is undeclared, and the PNGs are straight alpha.** No atlas sets `pma`, so every page reads `pma = false`. The
+pixels agree. In a premultiplied image no color channel can exceed alpha, so for every pixel with `0 < alpha < 255` the test counted how
+often `max(r, g, b) <= alpha` holds, over 20 staged PNGs picked across operators and all three kinds. A premultiplied page would pass at
+100%, less rounding. No page reached the 99.5% bar: the range was 70.4% (`char_1019_siege2/epoque_50/battle`) to 99.43%
+(`char_1001_amiya2/base/back`), with a median of about 92%. Even the closest pages break it by real margins, not rounding: in
+`char_485_pallas/base/battle` (99.29%) the 97 failing pixels exceed their alpha by a median of 7 and up to 80.
+
+| PNG | Semi-transparent pixels | `max(r, g, b) <= alpha` |
+|---|---:|---:|
+| `char_180_amgoat/base/back` | 5,472 | 99.34% |
+| `char_499_kaitou/epoque_37/battle` | 16,144 | 72.93% |
+| `char_197_poca/rilakkuma_1/dorm` | 178,306 | 72.51% |
+| `char_4182_oblvns/base/back` | 42,035 | 86.32% |
+| `char_485_pallas/base/battle` | 13,576 | 99.29% |
+| `char_117_myrrh/base/dorm` | 59,754 | 85.86% |
+| `char_1040_blaze2/winter_5/back` | 24,167 | 93.15% |
+| `char_1019_siege2/epoque_50/battle` | 38,667 | 70.40% |
+| `char_308_swire/nian_2/dorm` | 82,723 | 91.67% |
+| `char_1001_amiya2/base/back` | 7,066 | 99.43% |
+| `char_464_cement/base/battle` | 16,054 | 97.79% |
+| `char_252_bibeak/winter_2/dorm` | 82,407 | 84.42% |
+| `char_201_moeshd/kfc_1/battle` | 9,670 | 97.58% |
+| `char_4186_tmoris/base/dorm` | 50,883 | 76.57% |
+| `char_4019_ncdeer/ncdeer_1/back` | 7,663 | 96.61% |
+| `char_148_nearl/summer_2/battle` | 9,846 | 96.09% |
+| `char_4194_rmixer/boc_12/dorm` | 240,718 | 74.21% |
+| `char_473_mberry/epoque_14/back` | 6,724 | 98.66% |
+| `char_476_blkngt/nian_8/battle` | 10,635 | 98.40% |
+| `char_4026_vulpis/base/dorm` | 218,976 | 85.60% |
+
+So `player.ts` decodes every page with `createImageBitmap(..., { premultiplyAlpha: "premultiply" })` and the renderer works in
+premultiplied color from there (see `MATH.md`, "Drawing").
 
 **5. A region's bounds are 4 split fields (`xy`, `size`, `orig`, `offset`), not the doc's 2 combined fields (`bounds`, `offsets`).** The
 doc describes one `bounds: x, y, w, h` field and one `offsets: offsetLeft, offsetBottom, origW, origH` field. Every region in the corpus

@@ -175,3 +175,17 @@ flipped v or a wrong strip offset moves the hull off the box. A wrong rotate dir
 ### Color
 
 A list's tint is the slot's setup color times the attachment's color, channel by channel.
+
+## Drawing
+
+`renderer.ts` draws the lists with WebGL2, in draw order, back to front.
+
+- **Premultiplied color.** The staged PNGs are straight alpha (see `FORMAT-3.8.md`, atlas point 4), so each page is premultiplied when it
+  is decoded. A list's tint is premultiplied too, as `(r*a, g*a, b*a, a)`. The fragment color is the texel times the tint, which stays
+  premultiplied, and it blends with `ONE, ONE_MINUS_SRC_ALPHA`: `out = src + dst * (1 - src.a)`. Skipping the premultiply would leave
+  bright fringes on soft edges, and premultiplying twice would leave dark ones.
+- **Blend modes.** Every list uses that normal blend for now, whatever its slot's `blendMode`. Additive, multiply and screen come later.
+- **Sampling.** Page textures use LINEAR filtering and CLAMP_TO_EDGE with no mipmaps. The first PNG row is uploaded as v = 0, so the page
+  UVs above are used as they are.
+- **Projection.** A view rectangle in world units maps onto the whole viewport with y up. The player fits the pose's `bounds` into the
+  canvas with 5% of the canvas empty on each side, the aspect kept and the box centred.
