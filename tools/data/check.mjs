@@ -92,6 +92,25 @@ const FIXTURES = [
 	{ id: "char_010_chen", name: "Ch'en", maxHp: 2880, atk: 660, def: 402, magicResistance: 0, cost: 23, blockCnt: 2 }
 ];
 
+/** Enemy counts at the pinned sha: 1560 visible handbook entries in 971 groups. Floors, since upstream only grows. */
+const MIN_ENEMY_VARIANTS = 1560;
+const MIN_ENEMY_GROUPS = 971;
+
+/** The enemy details files, one per level. `tools/data/import.mjs` names them from the head's level. */
+const ENEMY_DETAIL_FILES = ["enemy-details-normal", "enemy-details-elite", "enemy-details-leader"];
+
+/**
+ * Enemy stats read straight from upstream, one level each. Patriot guards level 0. The Originium Slug's level 1 sets only its HP and ATK, so
+ * its DEF and attack interval must still be level 0's - that is what catches a later level read on its own rather than laid over level 0.
+ */
+const ENEMY_FIXTURES = [
+	{ id: "enemy_1506_patrt", level: 0, maxHp: 45000, atk: 1600, def: 500, magicResistance: 45, attackTime: 4 },
+	{ id: "enemy_1007_slime", level: 1, maxHp: 2050, atk: 300, def: 0, magicResistance: 0, attackTime: 1.7 }
+];
+
+/** The handbook's grade scale, best first. */
+const ENEMY_GRADES = ["SS", "S+", "S", "A+", "A", "B+", "B", "C", "D", "E"];
+
 /** The game's inline markup. Any of it in shipped text means `stripMarkup` missed a field. */
 const MARKUP = /<[^>]+>|\{-?[a-zA-Z@][^}]*\}/;
 
@@ -626,6 +645,72 @@ if (hasSpineIndex) {
 	}
 }
 
+// Enemies. Every group's variants must have details, every variant exactly one group, and the search index must cover every variant.
+const enemies = read("enemies");
+const enemyDetails = Object.assign({}, ...ENEMY_DETAIL_FILES.map((name) => read(name)));
+const enemyVariantIds = enemies.flatMap((enemy) => enemy.variants.map((variant) => variant.id));
+if (enemies.length < MIN_ENEMY_GROUPS) {
+	fail(`${enemies.length} enemy groups, below the floor of ${MIN_ENEMY_GROUPS}`);
+}
+if (enemyVariantIds.length < MIN_ENEMY_VARIANTS) {
+	fail(`${enemyVariantIds.length} enemy variants, below the floor of ${MIN_ENEMY_VARIANTS}`);
+}
+if (new Set(enemyVariantIds).size !== enemyVariantIds.length) {
+	fail("an enemy variant sits in more than one group");
+}
+for (const enemy of enemies) {
+	if (enemy.variants[0]?.id !== enemy.id) {
+		fail(`${enemy.id} does not list itself as its first variant`);
+	}
+}
+for (const id of enemyVariantIds) {
+	const detail = enemyDetails[id];
+	if (!detail) {
+		fail(`${id} is in enemies.json but has no details entry`);
+		continue;
+	}
+	if (detail.levels.length === 0) {
+		fail(`${id} has no stat levels`);
+	}
+	for (const level of detail.levels) {
+		for (const [field, grade] of Object.entries(level.grades)) {
+			if (!ENEMY_GRADES.includes(grade)) {
+				fail(`${id} grades ${field} as ${JSON.stringify(grade)}, off the handbook scale`);
+			}
+		}
+	}
+}
+if (Object.keys(enemyDetails).length !== enemyVariantIds.length) {
+	fail(`enemy details hold ${Object.keys(enemyDetails).length} variants for ${enemyVariantIds.length} in enemies.json`);
+}
+for (const [data, name] of [
+	[enemies, "enemies"],
+	[enemyDetails, "enemy-details"]
+]) {
+	eachString(data, name, (text, where) => {
+		const hit = MARKUP.exec(text);
+		if (hit) {
+			fail(`markup leaked into ${where}: ${JSON.stringify(hit[0])}`);
+		}
+	});
+}
+const enemySearchIndex = read("enemy-search-index");
+if (enemySearchIndex.length !== enemyVariantIds.length) {
+	fail(`enemy search index has ${enemySearchIndex.length} entries for ${enemyVariantIds.length} variants`);
+}
+for (const fixture of ENEMY_FIXTURES) {
+	const stats = enemyDetails[fixture.id]?.levels[fixture.level]?.stats;
+	if (!stats) {
+		fail(`enemy fixture ${fixture.id} level ${fixture.level} is missing from the data`);
+		continue;
+	}
+	for (const [field, want] of Object.entries(fixture)) {
+		if (field !== "id" && field !== "level" && stats[field] !== want) {
+			fail(`${fixture.id} level ${fixture.level} ${field} is ${stats[field]}, expected ${want}`);
+		}
+	}
+}
+
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -637,6 +722,7 @@ if (failures.length > 0) {
 console.log(`operators   ${operators.length} across ${SHARDS.length} shards`);
 console.log(`search index ${searchIndex.length} entries`);
 console.log(`fixtures    ${FIXTURES.length} verified`);
+console.log(`enemies     ${enemies.length} groups, ${enemyVariantIds.length} variants, ${ENEMY_FIXTURES.length} fixtures verified`);
 console.log(`talents    ${withTalents} operators carry at least one`);
 console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log(`forms       ${withForms} operators carry at least one`);
