@@ -29,6 +29,8 @@ type AssetManifest = {
 	illustrations?: Record<string, boolean>;
 	/** Variant keys per operator, for the phase that imports `skin_table.json`. Unused by the site today. */
 	skins?: Record<string, string[]>;
+	/** Enemy variant ids with a handbook icon. */
+	enemies?: Record<string, boolean>;
 };
 
 /**
@@ -103,4 +105,26 @@ export function hasPortrait(id: string): boolean {
  */
 export function hasIllustration(id: string): boolean {
 	return MANIFEST.illustrations?.[id] === true;
+}
+
+/**
+ * URL of an enemy's handbook icon, a 158x158 square.
+ *
+ * `tools/assets/audit_assets.mjs` rebuilds this path shape too - see the note on `portraitUrl` above.
+ *
+ * @param id The enemy variant id.
+ * @returns The absolute URL.
+ */
+export function enemyIconUrl(id: string): string {
+	return assets.url(`enemies/${id}.webp`);
+}
+
+/**
+ * Whether an enemy's icon is hosted.
+ *
+ * @param id The enemy variant id.
+ * @returns True only when the manifest records one.
+ */
+export function hasEnemyIcon(id: string): boolean {
+	return MANIFEST.enemies?.[id] === true;
 }

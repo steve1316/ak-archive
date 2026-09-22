@@ -19,6 +19,13 @@ const RARITY_COLOURS: DomainColours = {
 	6: "#ff7f27"
 };
 
+/** Stripe colours for the index's enemy cards, by the level the importer writes. Grey, gold, then the red the game marks a Leader with. */
+export const ENEMY_LEVEL_COLOURS: Readonly<Record<string, string>> = {
+	Normal: "#8b90a0",
+	Elite: "#ffd800",
+	Leader: "#e5484d"
+};
+
 /** The site's theme. Arknights reads near-black with a high-contrast blue, where GFL is warm grey and amber. */
 export const theme = createArchiveTheme({
 	palette: {

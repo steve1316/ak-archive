@@ -15,6 +15,7 @@ import type { Shard } from "archive-kit";
 
 import searchIndexJson from "../data/search-index.json";
 import upstreamJson from "../data/upstream.json";
+import type { Enemy, EnemyDetails, EnemySearchEntry } from "../types/enemy.js";
 import type { Operator, OperatorDetails, Profile, SearchEntry, UpstreamInfo } from "../types/operator.js";
 
 /**
@@ -24,9 +25,12 @@ import type { Operator, OperatorDetails, Profile, SearchEntry, UpstreamInfo } fr
  * `eager` is on so only the URL strings are bundled, which is a few bytes each, not the files themselves.
  */
 const DATA_URLS = Object.fromEntries(
-	Object.entries(import.meta.glob<string>(["../data/operators-*.json", "../data/profiles-*.json", "../data/details-*.json"], { query: "?url", import: "default", eager: true })).map(
-		([path, url]) => [path.replace(/^.*\/|\.json$/g, ""), url]
-	)
+	Object.entries(
+		import.meta.glob<string>(
+			["../data/operators-*.json", "../data/profiles-*.json", "../data/details-*.json", "../data/enemies.json", "../data/enemy-details-*.json", "../data/enemy-search-index.json"],
+			{ query: "?url", import: "default", eager: true }
+		)
+	).map(([path, url]) => [path.replace(/^.*\/|\.json$/g, ""), url])
 );
 
 /**
@@ -147,4 +151,42 @@ export async function loadOperatorDetails(id: string): Promise<OperatorDetails |
 export async function loadAllOperators(): Promise<Operator[]> {
 	const shards = await Promise.all(SHARDS.map((shard) => loadShard(shard.file)));
 	return shards.flat();
+}
+
+/**
+ * Load every enemy group, for the index. One 307 KB file, 38 KB gzipped, which the enemy page also reads to find a variant's group.
+ *
+ * @returns Every enemy group, in handbook order.
+ */
+export function loadAllEnemies(): Promise<Enemy[]> {
+	return store.loadFile<Enemy[]>("enemies");
+}
+
+/**
+ * Load the group holding one enemy variant, with every variant's details.
+ *
+ * The details are split into one file per level, named from the group head's level, so this finds the group first and then fetches only that
+ * group's file.
+ *
+ * @param id Any variant's upstream id, head or not.
+ * @returns The group and its variants' details by id, or undefined when no group holds that id.
+ */
+export async function loadEnemyGroup(id: string): Promise<{ enemy: Enemy; details: Record<string, EnemyDetails> } | undefined> {
+	const enemies = await loadAllEnemies();
+	const enemy = enemies.find((entry) => entry.variants.some((variant) => variant.id === id));
+	if (!enemy) {
+		return undefined;
+	}
+	const details = await store.loadFile<Record<string, EnemyDetails>>(`enemy-details-${enemy.level.toLowerCase()}`);
+	return { enemy, details };
+}
+
+/**
+ * Load the navbar's enemy search entries. Kept out of the bundle, since at 101 KB it is three times the operator index, and fetched after the
+ * first paint instead.
+ *
+ * @returns One entry per enemy variant.
+ */
+export function loadEnemySearchIndex(): Promise<EnemySearchEntry[]> {
+	return store.loadFile<EnemySearchEntry[]>("enemy-search-index");
 }

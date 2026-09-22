@@ -41,3 +41,41 @@ export function resolveOperatorParam(param: string | undefined): string | undefi
 	}
 	return ID_BY_NUMBER.get(String(Number(param)));
 }
+
+/** The prefix every upstream enemy id carries and its URL drops. */
+const ENEMY_PREFIX = "enemy_";
+
+/** The query key that picks a variant on an enemy's page. */
+export const VARIANT_PARAM = "variant";
+
+/**
+ * An enemy id without its `enemy_` prefix, which is how it appears in a URL. Enemy numbers repeat across variants, so unlike an operator
+ * the whole id is kept.
+ *
+ * @param id The upstream enemy id, such as `enemy_1007_slime_2`.
+ * @returns The id without its prefix, such as `1007_slime_2`.
+ */
+export function enemySlug(id: string): string {
+	return id.startsWith(ENEMY_PREFIX) ? id.slice(ENEMY_PREFIX.length) : id;
+}
+
+/**
+ * The route for an enemy group's page.
+ *
+ * @param id The group head's upstream id.
+ * @param variant A variant to open selected, or undefined for the head.
+ * @returns The route, without the site's base path.
+ */
+export function enemyPath(id: string, variant?: string): string {
+	return `/enemy/${enemySlug(id)}${variant && variant !== id ? `?${VARIANT_PARAM}=${enemySlug(variant)}` : ""}`;
+}
+
+/**
+ * Turn an enemy slug from the URL back into an upstream id.
+ *
+ * @param slug The slug, or undefined when there is none.
+ * @returns The upstream id, or undefined when there is no slug.
+ */
+export function resolveEnemySlug(slug: string | null | undefined): string | undefined {
+	return slug ? `${ENEMY_PREFIX}${slug}` : undefined;
+}

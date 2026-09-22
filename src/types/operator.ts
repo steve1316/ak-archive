@@ -247,4 +247,6 @@ export interface UpstreamInfo {
 	sha: string;
 	/** How many operators the import produced. */
 	operators: number;
+	/** How many enemy variants the import produced. */
+	enemies: number;
 }
