@@ -26,6 +26,9 @@ export const ENEMY_LEVEL_COLOURS: Readonly<Record<string, string>> = {
 	Leader: "#e5484d"
 };
 
+/** The amber that shades a trait's secondary area on a range grid, such as the Spreadshooter 160% row. */
+export const TRAIT_AREA_COLOUR = "#e0a33a";
+
 /** The site's theme. Arknights reads near-black with a high-contrast blue, where GFL is warm grey and amber. */
 export const theme = createArchiveTheme({
 	palette: {

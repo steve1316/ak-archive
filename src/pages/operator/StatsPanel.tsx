@@ -6,6 +6,7 @@ import type { SxProps, Theme } from "@mui/material";
 
 import { LevelSlider } from "archive-kit";
 
+import RangeGrid from "../../components/RangeGrid.js";
 import { statsAt } from "../../lib/stats.js";
 import type { Controls, Operator, StatValues, TrustBonus } from "../../types/operator.js";
 import { SECTION_HEADING_SX, SECTION_SX, STAT_ROW_SX } from "../../lib/layout.js";
@@ -32,6 +33,9 @@ const TRUST_BADGE_SX: SxProps<Theme> = { ml: 0.75, color: "primary.main" };
 
 /** The controls block below the stat list. */
 const CONTROLS_SX: SxProps<Theme> = { flex: "none", mt: 0.75, display: "flex", flexDirection: "column", gap: 1.25 };
+
+/** The range grid block between the stat list and the controls. */
+const RANGE_SX: SxProps<Theme> = { flex: "none", mt: 1.25, pt: 1.25, borderTop: 1, borderColor: "divider" };
 
 /** The trust and potential row: a single trust toggle beside the potential group. */
 const TRUST_POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1 };
@@ -60,6 +64,7 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 	const { phase, level, trust, potential } = controls;
 
 	const maxLevel = operator.stats.phases[phase]?.maxLevel ?? 1;
+	const rangeId = operator.stats.phases[phase]?.rangeId;
 	const stats = useMemo(() => statsAt(operator, phase, level, { trust, potential }), [operator, phase, level, trust, potential]);
 
 	const handlePhaseChange = (_event: MouseEvent<HTMLElement>, value: number | null) => {
@@ -115,6 +120,12 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 					<Typography variant="body2">{`${stats.baseAttackTime}s / ${stats.respawnTime}s`}</Typography>
 				</Box>
 			</Box>
+
+			{rangeId ? (
+				<Box sx={RANGE_SX}>
+					<RangeGrid rangeId={rangeId} traitRangeId={operator.traitRangeId} />
+				</Box>
+			) : null}
 
 			<Box sx={CONTROLS_SX}>
 				<ToggleButtonGroup value={phase} exclusive size="small" onChange={handlePhaseChange} aria-label="Elite phase">
