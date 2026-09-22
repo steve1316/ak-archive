@@ -198,6 +198,8 @@ flipped v or a wrong strip offset moves the hull off the box. A wrong rotate dir
 
 ### Mesh vertices
 
+These are the setup positions. A deform timeline offsets them first (see "Deform timelines").
+
 - **Plain vertices** are in the slot bone's space: `localToWorld(slot.bone, vx, vy)`.
 - **Weighted vertices** add up each influence: `sum(weight * localToWorld(bones[index], bindX, bindY))`. The weights page says each vertex
   carries a weight per bound bone and that the weights sum to 100% (https://esotericsoftware.com/spine-weights, "Adjusting weights"). The
@@ -387,9 +389,41 @@ bone value. Bend direction, compress and stretch are on/off values, so they hold
 can be keyed. The page does not say how they blend, so this is this runtime's choice. `setToSetupPose` puts every constraint's values back
 to its data.
 
+### Deform timelines
+
+A deform key stores `count` floats starting at `start` (see `FORMAT-3.8.md`, point 4). The meshes page's "Deformation" section says only
+vertex positions are keyed and that interpolation between deform keys moves the vertices in a straight line
+(https://esotericsoftware.com/spine-meshes).
+
+- **The values are offsets, not positions.** For an unweighted target, values `2i, 2i+1` are added to vertex `i`'s setup `x, y`, in the
+  slot bone's space. For a weighted target, values `2k, 2k+1` are added to influence `k`'s bind position, in that influence's bone space,
+  before the weighted sum. Values outside a key's `[start, start + count)` are 0. Evidence: every key's `start + count` fits 2 per vertex,
+  or 2 per influence when weighted. Keys with count 0 are common, and read as positions they would collapse a mesh to a point.
+- **Which attachment a timeline drives.** It applies only when `deformSource` of the slot's current attachment is the very object
+  `skins[skinIndex]` holds for that slot and name. `deformSource` follows a linked mesh to its parent while the linked mesh's `deform`
+  flag is set. The JSON format page describes the flag as inheriting the parent's deform timelines, and the meshes page's "Linked meshes"
+  section calls it "Inherit timelines". 267 of the 324 linked meshes set it, and 57 whose parents are deformed do not. Comparing by
+  identity also settles skins: a same-named attachment in another skin is a different object.
+- **Timing** follows the other timelines: the sorted runs rule, no effect before the first key, the last key holds, and the curve eases
+  between keys. At eased fraction `p` each value is `a + (b - a) * p` over the target's full length, with zeros outside each key's range.
+  The result goes into `slot.deform`, and `slot.deformLength` becomes the full length.
+- **Resetting.** `setToSetupPose` sets every `deformLength` to 0. So do `setAttachment`, `setSkin` and the attachment timeline, whenever
+  the slot's attachment actually changes. Attachment timelines come before deform timelines in the file, so a swap and then a deform in the
+  same frame works.
+- **Sizing.** Each slot's `deform` array is made once, when the `Skeleton` is built, at the largest target length any deform timeline
+  names for that slot.
+- `computeWorldVertices` is the one place vertices meet bones, with the offsets added only when `deformLength` matches the vertices. The
+  mesh triangles use it.
+
+`check_spine_rigs.mjs --animation` applies each deform key on its own to its target at the key's own time and requires exactly that key's
+offsets. Across the corpus, 2,175,893 keys compare. Of 1,639,020 deform timelines (counted once per animation), 1,166,836 find their
+attachment in the slot at some one of the 8 samples and 472,184 never do. Dropping the zero fill fails 2,225 rigs. Allocation is
+unchanged: `applyAnimation` plus `skeletonTriangles` measure 15.9 bytes per frame on Mudrock base battle `Attack` (27 slots deformed at
+once) and Executor base battle `Attack_A` (81), the same as before deform, which is the harness floor.
+
 ### Not applied yet
 
-Transform, path, deform and event timelines are skipped for now.
+Transform, path and event timelines are skipped for now.
 
 ## IK constraints
 

@@ -70,3 +70,9 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
   and the corpus measurements behind the bend direction and the space the solve works in. The page gives no formulas, and none were copied.
 - The staged Arknights rig files again, as the oracle for the IK bend direction and solve space: each chain whose setup pose already
   reaches its target was solved on its own and compared with its setup rotations.
+- https://esotericsoftware.com/spine-meshes - fetched with curl into the plan workspace for deform timelines. The "Deformation" section:
+  deform keys store only vertex positions, and interpolation between them moves vertices in a straight line. The "Linked meshes" section:
+  with "Inherit timelines" checked, the source mesh's deform keys also drive the linked mesh, and without it the linked mesh keys its own.
+  `MATH.md` ("Deform timelines") records the rules taken from these and the corpus evidence for reading the values as offsets.
+- `FORMAT-3.8.md` point 4 and the staged rig bytes, for the deform key layout and for every key's `start + count` fitting the target's
+  vertex count.

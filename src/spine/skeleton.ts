@@ -9,7 +9,7 @@
 
 import { createIkConstraint, setIkToSetupPose, solveIk } from "./constraints.js";
 import type { IkConstraint } from "./constraints.js";
-import type { Attachment, BoneData, Color, Skin, SkeletonData, SlotData } from "./types.js";
+import type { Attachment, BoneData, Color, LinkedMeshAttachment, MeshVertices, Skin, SkeletonData, SlotData } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -23,6 +23,9 @@ const MIN_AXIS_LENGTH = 1e-6;
 
 /** The name the binary reader gives the default skin. */
 export const DEFAULT_SKIN_NAME = "default";
+
+/** Most linked mesh hops followed before giving up, so a parent loop cannot spin forever. */
+export const MAX_LINK_DEPTH = 8;
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -93,6 +96,10 @@ export interface Slot {
 	color: Color;
 	/** The current dark tint for two-color tinting, or null when the slot has none. `setToSetupPose` resets it from the data's dark color. */
 	darkColor: Color | null;
+	/** How many of `deform` offset the current attachment's vertices, or 0 for none. `setToSetupPose` and any attachment change reset it. */
+	deformLength: number;
+	/** The slot's deform offsets, sized at construction to the largest deform timeline target on this slot. Only the first `deformLength` count. */
+	deform: Float32Array;
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -109,6 +116,64 @@ export interface Slot {
  */
 export function localToWorld(bone: Bone, x: number, y: number): [number, number] {
 	return [bone.a * x + bone.b * y + bone.worldX, bone.c * x + bone.d * y + bone.worldY];
+}
+
+/**
+ * Finds a linked mesh's parent: the attachment of that name in the same slot, in the skin the linked mesh names or in the default skin
+ * when it names none. A plain loop, so it allocates nothing.
+ *
+ * @param data The skeleton data whose skins hold the parent.
+ * @param slotIndex Index of the slot holding the linked mesh.
+ * @param linked The linked mesh.
+ * @returns The parent, or null when that skin or attachment is missing.
+ */
+export function linkedParent(data: SkeletonData, slotIndex: number, linked: LinkedMeshAttachment): Attachment | null {
+	const skinName = linked.parentSkin ?? DEFAULT_SKIN_NAME;
+	const skins = data.skins;
+	for (let i = 0; i < skins.length; i++) {
+		const skin = skins[i]!;
+		if (skin.name === skinName) {
+			return skin.attachments.get(slotIndex)?.get(linked.parentName) ?? null;
+		}
+	}
+	return null;
+}
+
+/**
+ * Finds the vertices a deform of an attachment offsets: its own, or for a linked mesh the vertices of the mesh it links to.
+ *
+ * @param data The skeleton data whose skins hold a linked mesh's parent.
+ * @param slotIndex Index of the slot holding the attachment.
+ * @param attachment The attachment.
+ * @returns The vertices, or null for an attachment without any (a region or a point) or a linked mesh whose parent is missing.
+ */
+export function deformableVertices(data: SkeletonData, slotIndex: number, attachment: Attachment): MeshVertices | null {
+	let current: Attachment | null = attachment;
+	for (let depth = 0; depth <= MAX_LINK_DEPTH && current !== null; depth++) {
+		switch (current.type) {
+			case "mesh":
+			case "boundingbox":
+			case "path":
+			case "clipping":
+				return current.vertices;
+			case "linkedmesh":
+				current = linkedParent(data, slotIndex, current);
+				break;
+			default:
+				return null;
+		}
+	}
+	return null;
+}
+
+/**
+ * Counts the values a deform of these vertices holds: 2 per vertex, or 2 per bone influence when weighted.
+ *
+ * @param vertices The vertices.
+ * @returns The number of offsets.
+ */
+export function deformLengthOf(vertices: MeshVertices): number {
+	return vertices.weighted ? ((vertices.values.length / 3) | 0) * 2 : vertices.values.length;
 }
 
 /**
@@ -134,6 +199,19 @@ function copyColor(target: Color, source: Color): void {
 	target.g = source.g;
 	target.b = source.b;
 	target.a = source.a;
+}
+
+/**
+ * Shows an attachment in a slot. A different attachment than before clears the slot's deform, since the offsets belonged to the old one.
+ *
+ * @param slot The slot.
+ * @param attachment The attachment to show, or null for none.
+ */
+function showAttachment(slot: Slot, attachment: Attachment | null): void {
+	if (slot.attachment !== attachment) {
+		slot.attachment = attachment;
+		slot.deformLength = 0;
+	}
 }
 
 /**
@@ -392,7 +470,16 @@ export class Skeleton {
 			if (!bone) {
 				throw new Error(`Slot ${slotData.name} names bone ${slotData.boneIndex}, which does not exist`);
 			}
-			return { data: slotData, bone, index, attachment: null, color: { ...slotData.color }, darkColor: slotData.darkColor ? { ...slotData.darkColor } : null };
+			return {
+				data: slotData,
+				bone,
+				index,
+				attachment: null,
+				color: { ...slotData.color },
+				darkColor: slotData.darkColor ? { ...slotData.darkColor } : null,
+				deformLength: 0,
+				deform: new Float32Array(this.largestDeform(data, index))
+			};
 		});
 		this.drawOrder = [];
 		this.ikConstraints = data.ik.map((ikData) => createIkConstraint(ikData, this));
@@ -420,13 +507,13 @@ export class Skeleton {
 				const setupName = slot.data.attachmentName;
 				const fromSkin = setupName === null ? undefined : skin?.attachments.get(index)?.get(setupName);
 				if (fromSkin) {
-					slot.attachment = fromSkin;
+					showAttachment(slot, fromSkin);
 				}
 				return;
 			}
 			for (const [key, attachment] of oldSkin.attachments.get(index) ?? []) {
 				if (attachment === slot.attachment) {
-					slot.attachment = this.getAttachment(index, key);
+					showAttachment(slot, this.getAttachment(index, key));
 					return;
 				}
 			}
@@ -449,7 +536,7 @@ export class Skeleton {
 	}
 
 	/**
-	 * Shows an attachment in a slot, looked up by name as `getAttachment` does.
+	 * Shows an attachment in a slot, looked up by name as `getAttachment` does. The slot's deform is cleared when the attachment changes.
 	 *
 	 * @param slotIndex Index of the slot.
 	 * @param name The attachment's name, or null to clear the slot. A name neither skin has also clears it.
@@ -459,12 +546,12 @@ export class Skeleton {
 		if (!slot) {
 			throw new Error(`Slot ${slotIndex} does not exist`);
 		}
-		slot.attachment = name === null ? null : this.getAttachment(slotIndex, name);
+		showAttachment(slot, name === null ? null : this.getAttachment(slotIndex, name));
 	}
 
 	/**
-	 * Resets every bone's local transform, every constraint's keyable values, the draw order, and every slot's attachment and colors. The
-	 * bones' applied values are left alone. `updateWorldTransform` refreshes them from the locals before it reads them.
+	 * Resets every bone's local transform, every constraint's keyable values, the draw order, and every slot's attachment, colors and deform.
+	 * The bones' applied values are left alone. `updateWorldTransform` refreshes them from the locals before it reads them.
 	 */
 	setToSetupPose(): void {
 		const bones = this.bones;
@@ -482,6 +569,7 @@ export class Skeleton {
 			this.drawOrder[index] = slot;
 			const name = slot.data.attachmentName;
 			slot.attachment = name === null ? null : this.getAttachment(index, name);
+			slot.deformLength = 0;
 			copyColor(slot.color, slot.data.color);
 			const darkColor = slot.data.darkColor;
 			if (darkColor === null) {
@@ -515,6 +603,30 @@ export class Skeleton {
 				updateBone(recompute[j]!, this);
 			}
 		}
+	}
+
+	/**
+	 * Finds the most offsets any deform timeline can write into a slot, across every animation, so the slot's deform array is made once.
+	 *
+	 * @param data The skeleton data.
+	 * @param slotIndex Index of the slot.
+	 * @returns The largest target's deform length, or 0 when no deform timeline names the slot.
+	 */
+	private largestDeform(data: SkeletonData, slotIndex: number): number {
+		let largest = 0;
+		for (const animation of data.animations) {
+			for (const timeline of animation.timelines) {
+				if (timeline.type !== "deform" || timeline.slotIndex !== slotIndex) {
+					continue;
+				}
+				const target = data.skins[timeline.skinIndex]?.attachments.get(slotIndex)?.get(timeline.attachmentName);
+				const vertices = target ? deformableVertices(data, slotIndex, target) : null;
+				if (vertices) {
+					largest = Math.max(largest, deformLengthOf(vertices));
+				}
+			}
+		}
+		return largest;
 	}
 
 	/**

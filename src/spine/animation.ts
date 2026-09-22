@@ -7,8 +7,10 @@
  * ("Animation") explains the curve, key search and timeline rules and the JSON format page text behind them.
  */
 
+import { deformSource } from "./geometry.js";
+import { deformLengthOf, deformableVertices } from "./skeleton.js";
 import type { Skeleton, Slot } from "./skeleton.js";
-import type { Animation, Color, Curve, DrawOrderChange } from "./types.js";
+import type { Animation, Color, Curve, DeformTimeline, DrawOrderChange } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -296,6 +298,63 @@ function applyDrawOrder(skeleton: Skeleton, changes: readonly DrawOrderChange[])
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
+// Deform
+
+/**
+ * Applies a deform timeline to its slot when the slot shows the timeline's attachment, or a linked mesh that takes its deforms. The key's
+ * offsets, blended toward the next key's by the eased fraction, are written into `slot.deform`. Offsets outside a key's stored range are 0.
+ *
+ * @param skeleton The skeleton.
+ * @param timeline The deform timeline.
+ * @param time The time within the animation, in seconds.
+ */
+function applyDeform(skeleton: Skeleton, timeline: DeformTimeline, time: number): void {
+	const slotIndex = timeline.slotIndex;
+	const slot = skeleton.slots[slotIndex];
+	const shown = slot?.attachment;
+	if (!slot || !shown) {
+		return;
+	}
+	const data = skeleton.data;
+	const target = data.skins[timeline.skinIndex]?.attachments.get(slotIndex)?.get(timeline.attachmentName);
+	if (!target || deformSource(skeleton, slotIndex, shown) !== target) {
+		return;
+	}
+	const vertices = deformableVertices(data, slotIndex, target);
+	if (!vertices) {
+		return;
+	}
+	const length = deformLengthOf(vertices);
+	const deform = slot.deform;
+	if (deform.length < length) {
+		return;
+	}
+	const index = keyFraction(timeline.times, timeline.curves, time);
+	if (index < 0) {
+		return;
+	}
+	// Write the key's own offsets, then move each toward the next key's.
+	const from = timeline.values[index]!;
+	const fromStart = timeline.starts[index]!;
+	deform.fill(0, 0, length);
+	for (let j = 0; j < from.length && fromStart + j < length; j++) {
+		deform[fromStart + j] = from[j]!;
+	}
+	const fraction = found[FRACTION]!;
+	if (fraction !== 0) {
+		const to = timeline.values[index + 1]!;
+		const toStart = timeline.starts[index + 1]!;
+		const toEnd = toStart + to.length;
+		for (let j = 0; j < length; j++) {
+			const next = j >= toStart && j < toEnd ? to[j - toStart]! : 0;
+			deform[j] = deform[j]! + (next - deform[j]!) * fraction;
+		}
+	}
+	slot.deformLength = length;
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
 // Applying
 
 /**
@@ -325,10 +384,10 @@ export function loopTime(animation: Animation, time: number, loop: boolean): num
  * Poses a skeleton at a time in an animation, applying its timelines in file order. Each bone timeline writes its bone's local transform
  * from the setup values: rotate, translate and shear add to them, scale multiplies them. Slot timelines set a slot's attachment or replace
  * its colors, and a draw order timeline rewrites the draw order in place. An IK timeline sets its constraint's mix, softness, bend
- * direction, compress and stretch. A timeline whose first key is after `time` leaves its bone, slot, constraint or draw order alone.
- * Transform, path, deform and event timelines are skipped. Once each timeline and skeleton has been seen, it allocates
- * nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work arrays are kept per skeleton.
- * Colors are written into the slot's own color objects. Call `updateWorldTransform` after.
+ * direction, compress and stretch. A deform timeline writes its slot's vertex offsets. A timeline whose first key is after `time` leaves
+ * its bone, slot, constraint or draw order alone. Transform, path and event timelines are skipped. Once each timeline and skeleton has
+ * been seen, it allocates nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work
+ * arrays are kept per skeleton. Colors and deform offsets are written into the slot's own objects. Call `updateWorldTransform` after.
  *
  * @param skeleton The skeleton, just reset by `setToSetupPose`.
  * @param animation The animation to sample.
@@ -447,8 +506,11 @@ export function applyAnimation(skeleton: Skeleton, animation: Animation, time: n
 				constraint.stretch = timeline.stretch[index]!;
 				break;
 			}
+			case "deform":
+				applyDeform(skeleton, timeline, time);
+				break;
 			default:
-				// Transform, path, deform and event timelines are skipped.
+				// Transform, path and event timelines are skipped.
 				break;
 		}
 	}

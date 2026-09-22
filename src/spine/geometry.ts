@@ -8,9 +8,9 @@
  * The output lists are pooled per skeleton, so a list is only valid until the next call on the same skeleton.
  */
 
-import { DEFAULT_SKIN_NAME, DEG_TO_RAD } from "./skeleton.js";
+import { DEG_TO_RAD, MAX_LINK_DEPTH, linkedParent } from "./skeleton.js";
 import type { Bone, Skeleton, Slot } from "./skeleton.js";
-import type { Atlas, AtlasRegion, BlendMode, Color, LinkedMeshAttachment, MeshAttachment, RegionAttachment } from "./types.js";
+import type { Atlas, AtlasRegion, Attachment, BlendMode, Color, LinkedMeshAttachment, MeshAttachment, MeshVertices, RegionAttachment } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -21,9 +21,6 @@ const QUAD_INDICES = new Uint16Array([0, 1, 2, 2, 3, 0]);
 
 /** An empty array a new pooled list starts with, before its first build fills it. */
 const NO_VALUES = new Float32Array(0);
-
-/** Most linked mesh hops followed before giving up, so a parent loop cannot spin forever. */
-const MAX_LINK_DEPTH = 8;
 
 /** What `slotTriangles` works out once per drawable attachment, keyed by the attachment object. */
 const attachmentCache = new WeakMap<DrawableAttachment, AttachmentEntry>();
@@ -143,22 +140,38 @@ export function findRegion(atlas: Atlas, name: string): FoundRegion | null {
  * @returns The mesh that owns the geometry, or null when a linked parent is missing or is not a mesh.
  */
 export function resolveMesh(skeleton: Skeleton, slotIndex: number, attachment: MeshAttachment | LinkedMeshAttachment): MeshAttachment | null {
-	let current: MeshAttachment | LinkedMeshAttachment = attachment;
-	for (let depth = 0; depth <= MAX_LINK_DEPTH; depth++) {
+	let current: Attachment | null = attachment;
+	for (let depth = 0; depth <= MAX_LINK_DEPTH && current !== null; depth++) {
 		if (current.type === "mesh") {
 			return current;
 		}
-		const skinName: string = current.parentSkin ?? DEFAULT_SKIN_NAME;
-		const parent = skeleton.data.skins
-			.find((skin) => skin.name === skinName)
-			?.attachments.get(slotIndex)
-			?.get(current.parentName);
-		if (!parent || (parent.type !== "mesh" && parent.type !== "linkedmesh")) {
+		if (current.type !== "linkedmesh") {
 			return null;
+		}
+		current = linkedParent(skeleton.data, slotIndex, current);
+	}
+	return null;
+}
+
+/**
+ * Finds the attachment a deform timeline must name to move an attachment's vertices. A linked mesh whose `deform` flag is set takes its
+ * parent's deform timelines, so it is followed to its parent, and on while each link has the flag. Anything else answers for itself.
+ *
+ * @param skeleton The skeleton whose skins hold a linked mesh's parent.
+ * @param slotIndex Index of the slot holding the attachment.
+ * @param attachment The attachment the slot shows.
+ * @returns The attachment a deform timeline must name, compared by identity.
+ */
+export function deformSource(skeleton: Skeleton, slotIndex: number, attachment: Attachment): Attachment {
+	let current = attachment;
+	for (let depth = 0; depth < MAX_LINK_DEPTH && current.type === "linkedmesh" && current.deform; depth++) {
+		const parent = linkedParent(skeleton.data, slotIndex, current);
+		if (!parent || (parent.type !== "mesh" && parent.type !== "linkedmesh")) {
+			break;
 		}
 		current = parent;
 	}
-	return null;
+	return current;
 }
 
 /**
@@ -273,46 +286,58 @@ function meshPositionsLength(mesh: MeshAttachment): number {
 }
 
 /**
- * Writes a mesh's world vertex positions. Plain vertices are in the slot bone's space. A weighted vertex is the weighted sum of each
- * influencing bone's world placement of its bind position, and the slot's own bone plays no part.
+ * Writes an attachment's world vertex positions with the slot's deform offsets applied. Plain vertices are in the slot bone's space, and
+ * offset `2i, 2i+1` moves vertex `i`. A weighted vertex is the weighted sum of each influencing bone's world placement of its bind
+ * position. Offset `2k, 2k+1` moves influence `k`'s bind position, and the slot's own bone plays no part. The offsets count only when the
+ * slot's `deformLength` matches these vertices.
  *
- * @param positions The array to write, `meshPositionsLength` long, flattened as x0, y0, x1, y1, ...
  * @param skeleton The posed skeleton.
- * @param slot The slot showing the mesh.
- * @param mesh The mesh that owns the geometry.
+ * @param slot The slot showing the attachment.
+ * @param vertices The vertices: the attachment's own, or a linked mesh's parent's.
+ * @param out The array to write, at least 2 per vertex, flattened as x0, y0, x1, y1, ...
  */
-function writeMeshPositions(positions: Float32Array, skeleton: Skeleton, slot: Slot, mesh: MeshAttachment): void {
-	const vertices = mesh.vertices;
+export function computeWorldVertices(skeleton: Skeleton, slot: Slot, vertices: MeshVertices, out: Float32Array): void {
+	const deform = slot.deform;
+	const values = vertices.values;
 	if (!vertices.weighted) {
 		const bone = slot.bone;
-		const values = vertices.values;
+		const deformed = slot.deformLength === values.length;
 		for (let i = 0; i < values.length; i += 2) {
-			const x = values[i]!;
-			const y = values[i + 1]!;
-			positions[i] = bone.a * x + bone.b * y + bone.worldX;
-			positions[i + 1] = bone.c * x + bone.d * y + bone.worldY;
+			let x = values[i]!;
+			let y = values[i + 1]!;
+			if (deformed) {
+				x += deform[i]!;
+				y += deform[i + 1]!;
+			}
+			out[i] = bone.a * x + bone.b * y + bone.worldX;
+			out[i + 1] = bone.c * x + bone.d * y + bone.worldY;
 		}
 		return;
 	}
 	const bones = skeleton.bones;
 	const influences = vertices.bones;
-	const values = vertices.values;
+	const deformed = slot.deformLength === (values.length / 3) * 2;
 	let b = 0;
 	let v = 0;
-	for (let i = 0; i < positions.length; i += 2) {
+	let d = 0;
+	for (let i = 0; b < influences.length; i += 2) {
 		const count = influences[b++]!;
 		let x = 0;
 		let y = 0;
-		for (let k = 0; k < count; k++, v += 3) {
+		for (let k = 0; k < count; k++, v += 3, d += 2) {
 			const bone = bones[influences[b++]!]!;
-			const bindX = values[v]!;
-			const bindY = values[v + 1]!;
+			let bindX = values[v]!;
+			let bindY = values[v + 1]!;
+			if (deformed) {
+				bindX += deform[d]!;
+				bindY += deform[d + 1]!;
+			}
 			const weight = values[v + 2]!;
 			x += (bone.a * bindX + bone.b * bindY + bone.worldX) * weight;
 			y += (bone.c * bindX + bone.d * bindY + bone.worldY) * weight;
 		}
-		positions[i] = x;
-		positions[i + 1] = y;
+		out[i] = x;
+		out[i + 1] = y;
 	}
 }
 
@@ -460,7 +485,7 @@ function buildSlotTriangles(pool: TrianglePool, skeleton: Skeleton, slot: Slot, 
 		list.indices = QUAD_INDICES;
 	} else if (mesh) {
 		list.positions = positionsFor(slotPool, meshPositionsLength(mesh));
-		writeMeshPositions(list.positions, skeleton, slot, mesh);
+		computeWorldVertices(skeleton, slot, mesh.vertices, list.positions);
 		list.indices = mesh.triangles;
 	} else {
 		return null;

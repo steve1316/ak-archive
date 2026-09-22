@@ -2,8 +2,8 @@
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
  * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, `src/spine/animation.ts` curves, key search,
- * bone, slot and draw order timelines, IK constraints and IK timelines, and the `src/spine/renderer.ts` two-color tint and blend factors
- * against hand-worked values.
+ * bone, slot and draw order timelines, IK constraints and IK timelines, deform timelines, and the `src/spine/renderer.ts` two-color tint
+ * and blend factors against hand-worked values.
  * `MATH.md` explains each formula the cases pin down.
  *
  * Usage:
@@ -1058,6 +1058,152 @@ function checkIk(skeletonModule, animationModule) {
 }
 
 /**
+ * Builds a one-slot rig for the deform cases, plays one animation at a time and gives the slot's world vertex positions.
+ *
+ * @param {object} modules The loaded `skeleton.ts`, `geometry.ts` and `animation.ts` modules, as `skeleton`, `geometry` and `animation`.
+ * @param {object} rig The rig: `bones` overrides, `skins` as `[name, [attachmentName, attachment][]][]` for slot 0, the slot's setup
+ *   attachment `shown`, and the animation's `timelines`.
+ * @param {number} time The time to sample.
+ * @returns {{ skeleton: object, positions: number[] | null }} The posed skeleton and the slot's positions, or null when it draws nothing.
+ */
+function posedDeform(modules, rig, time) {
+	const skins = rig.skins.map(([name, attachments]) => ({ name, attachments: new Map([[0, new Map(attachments)]]) }));
+	const data = skeletonData(rig.bones ?? [{}], [slotData("slot", rig.shown)], skins);
+	const animation = { name: "deform", duration: Math.max(...rig.timelines.flatMap((timeline) => timeline.times)), timelines: rig.timelines };
+	data.animations = [animation];
+	const skeleton = new modules.skeleton.Skeleton(data);
+	skeleton.setToSetupPose();
+	modules.animation.applyAnimation(skeleton, animation, time);
+	skeleton.updateWorldTransform();
+	const list = modules.geometry.slotTriangles(skeleton, skeleton.slots[0], GEOMETRY_ATLAS, [GEOMETRY_PAGE]);
+	return { skeleton, positions: list ? [...list.positions] : null };
+}
+
+/**
+ * Runs the deform cases: offsets on a plain triangle and a weighted vertex, curves and the first key, linked meshes with and without their
+ * deform flag, a timeline naming another attachment or another skin's, the resets, and an attachment swap in the same frame.
+ *
+ * @param {object} modules The loaded `skeleton.ts`, `geometry.ts` and `animation.ts` modules, as `skeleton`, `geometry` and `animation`.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkDeform(modules) {
+	const mesh = (name) => ({ ...MESH_L, name, path: "I" });
+	// Vertex 1 of the triangle moves 5 along X at the first key and back at the second, whose key stores nothing.
+	const deform = (attachmentName, times = [0, 1], skinIndex = 0) => ({
+		type: "deform",
+		skinIndex,
+		slotIndex: 0,
+		attachmentName,
+		times,
+		starts: [2, 0],
+		values: [[5, 0], []],
+		curves: ["linear"]
+	});
+	const plain = (time, timeline = deform("L")) => posedDeform(modules, { skins: [["default", [["L", mesh("L")]]]], shown: "L", timelines: [timeline] }, time).positions;
+	const linked = (flag) => ({ type: "linkedmesh", name: "M", path: "I", color: { r: 1, g: 1, b: 1, a: 1 }, parentSkin: null, parentName: "L", deform: flag, width: null, height: null });
+	const linkedRig = (flag) => ({
+		skins: [
+			[
+				"default",
+				[
+					["M", linked(flag)],
+					["L", mesh("L")]
+				]
+			]
+		],
+		shown: "M",
+		timelines: [deform("L")]
+	});
+	const twoMeshes = (shown, timelines) => ({
+		skins: [
+			[
+				"default",
+				[
+					["X", mesh("X")],
+					["Y", mesh("Y")]
+				]
+			]
+		],
+		shown,
+		timelines
+	});
+	const weighted = {
+		...MESH_L,
+		uvs: new Float32Array([0, 0]),
+		triangles: new Uint16Array([]),
+		vertices: { weighted: true, bones: new Int32Array([2, 0, 1]), values: new Float32Array([0, 0, 0.5, 0, 0, 0.5]) },
+		hullCount: 1
+	};
+	const weightedRig = (values) => ({
+		bones: [{}, { x: 10 }],
+		skins: [["default", [["W", weighted]]]],
+		shown: "W",
+		timelines: [{ type: "deform", skinIndex: 0, slotIndex: 0, attachmentName: "W", times: [0], starts: [0], values: [values], curves: [] }]
+	});
+	const deformed = [0, 0, 15, 0, 0, 10];
+	const undeformed = [0, 0, 10, 0, 0, 10];
+	const cases = [
+		["plain triangle at the first key", () => [deformed, plain(0)]],
+		["plain triangle halfway", () => [[0, 0, 12.5, 0, 0, 10], plain(0.5)]],
+		["plain triangle at the last key, which stores nothing", () => [undeformed, plain(1)]],
+		["plain triangle before the first key", () => [undeformed, plain(0.25, deform("L", [0.5, 1]))]],
+		["weighted vertex undeformed", () => [[5, 0], posedDeform(modules, weightedRig([0, 0, 0, 0]), 0).positions]],
+		["weighted vertex offsets each bind position", () => [[6, 2], posedDeform(modules, weightedRig([2, 0, 0, 4]), 0).positions]],
+		["linked mesh with deform set follows its parent's timeline", () => [deformed, posedDeform(modules, linkedRig(true), 0).positions]],
+		["linked mesh without deform ignores its parent's timeline", () => [undeformed, posedDeform(modules, linkedRig(false), 0).positions]],
+		["a timeline naming another attachment leaves the shown one alone", () => [undeformed, posedDeform(modules, twoMeshes("Y", [deform("X")]), 0).positions]],
+		[
+			"a timeline naming another skin's attachment of the same name is not applied",
+			() => {
+				const rig = {
+					skins: [
+						["default", [["L", mesh("L")]]],
+						["other", [["L", mesh("L")]]]
+					],
+					shown: "L",
+					timelines: [deform("L", [0, 1], 1)]
+				};
+				return [undeformed, posedDeform(modules, rig, 0).positions];
+			}
+		],
+		["deformLength is the target's full length", () => [6, posedDeform(modules, twoMeshes("X", [deform("X")]), 0).skeleton.slots[0].deformLength]],
+		[
+			"setToSetupPose clears deformLength",
+			() => {
+				const { skeleton } = posedDeform(modules, twoMeshes("X", [deform("X")]), 0);
+				skeleton.setToSetupPose();
+				return [0, skeleton.slots[0].deformLength];
+			}
+		],
+		[
+			"setAttachment to another attachment clears deformLength",
+			() => {
+				const { skeleton } = posedDeform(modules, twoMeshes("X", [deform("X")]), 0);
+				skeleton.setAttachment(0, "Y");
+				return [0, skeleton.slots[0].deformLength];
+			}
+		],
+		[
+			"setAttachment to the same attachment keeps deformLength",
+			() => {
+				const { skeleton } = posedDeform(modules, twoMeshes("X", [deform("X")]), 0);
+				skeleton.setAttachment(0, "X");
+				return [6, skeleton.slots[0].deformLength];
+			}
+		],
+		["a slot's deform is sized to its largest target", () => [6, posedDeform(modules, twoMeshes("X", [deform("X")]), 0).skeleton.slots[0].deform.length]],
+		[
+			"an attachment key and a deform key in the same frame both apply",
+			() => {
+				const swap = { type: "attachment", slotIndex: 0, times: [0], names: ["X"] };
+				return [deformed, posedDeform(modules, twoMeshes("Y", [swap, deform("X")]), 0).positions];
+			}
+		]
+	];
+	return runCases("deform", cases);
+}
+
+/**
  * Runs the drawing cases: the two-color tint of one premultiplied texel, and the blend factors each blend mode draws with.
  *
  * @param {object} rendererModule The loaded `renderer.ts` module.
@@ -1106,6 +1252,13 @@ try {
 		failures.push(...checkAnimation(skeletonModule, animationModule), ...checkSlotTimelines(skeletonModule, animationModule), ...checkIk(skeletonModule, animationModule));
 	} catch (error) {
 		failures.push(`animation: could not run: ${error.message}`);
+	}
+	try {
+		const geometryModule = await server.ssrLoadModule("/src/spine/geometry.ts");
+		const animationModule = await server.ssrLoadModule("/src/spine/animation.ts");
+		failures.push(...checkDeform({ skeleton: skeletonModule, geometry: geometryModule, animation: animationModule }));
+	} catch (error) {
+		failures.push(`deform: could not run: ${error.message}`);
 	}
 	try {
 		const rendererModule = await server.ssrLoadModule("/src/spine/renderer.ts");

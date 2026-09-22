@@ -28,8 +28,10 @@
  * `--animation` plays every animation of every rig with `src/spine/animation.ts`. Each is sampled at `ANIMATION_SAMPLES` evenly spaced
  * times from 0 to its duration: reset to the setup pose, apply, update and build triangles. Every position, UV and color must be finite,
  * every color channel must be in [0, 1], and the draw order must be a permutation of the slots. Every color and two-color key must also
- * show its own color at its time, and every linear color segment a straight blend a quarter of the way along. It prints the frame time
- * (median and p99 for apply, update and triangles) and how many two-color timelines drive a slot with no dark color.
+ * show its own color at its time, and every linear color segment a straight blend a quarter of the way along. Every deform offset must be
+ * finite, and each deform key, applied on its own to its target at its own time, must give exactly that key's offsets. It prints the frame
+ * time (median and p99 for apply, update and triangles), how many two-color timelines drive a slot with no dark color, and how many deform
+ * timelines found their attachment in the slot at some sample and how many never did.
  *
  * `--ik` checks every rig with an IK constraint. In the setup pose, with setup mix 1: a one-bone chain whose target is within
  * `IK_SETUP_GAP` of its line must solve back to its setup rotation, and a two-bone chain within `IK_LOOSE_GAP` must sit nearer the solution
@@ -98,6 +100,9 @@ const ANIMATION_SAMPLES = 8;
 
 /** Largest difference `--animation` allows between a sampled color channel and the key or blend it should equal. */
 const COLOR_TOLERANCE = 1e-5;
+
+/** Largest difference `--animation` allows between a deform offset and the key value it should equal. */
+const DEFORM_TOLERANCE = 1e-6;
 
 /** How many failures `--animation` prints per rig before it only counts them. */
 const ANIMATION_PROBLEMS_SHOWN = 3;
@@ -789,16 +794,90 @@ function checkColorKeys(skeleton, animation, animationModule, stats) {
 }
 
 /**
+ * Checks the deform timelines of one animation against their keys. Each timeline is applied on its own with its target shown in the slot.
+ * At every key time the slot must hold that key's offsets over the target's full length, with 0 outside the key's stored range. Keys are
+ * compared only in timelines with one sorted run, and only when no other key shares their time. A target that is a linked mesh passing
+ * its deforms on to its parent, or has no vertices, is skipped.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} skeleton The live skeleton. Its pose is left changed.
+ * @param {object} animation The animation.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @param {object} stats The accumulator. `deformKeys` counts what was compared.
+ * @returns {string | null} A message for the first mismatch, or null when every compared key matches.
+ */
+function checkDeformKeys(data, skeleton, animation, animationModule, stats) {
+	for (const timeline of animation.timelines) {
+		if (timeline.type !== "deform") {
+			continue;
+		}
+		const { times, starts, values } = timeline;
+		if (times.some((time, index) => index > 0 && time < times[index - 1])) {
+			continue;
+		}
+		const target = data.skins[timeline.skinIndex]?.attachments.get(timeline.slotIndex)?.get(timeline.attachmentName);
+		const owner = target ? resolveDeformTarget(data, timeline.skinIndex, timeline.slotIndex, timeline.attachmentName) : null;
+		if (!target || typeof owner !== "object" || !owner.vertices || (target.type === "linkedmesh" && target.deform)) {
+			continue;
+		}
+		const length = deformLength(owner);
+		const slot = skeleton.slots[timeline.slotIndex];
+		const alone = { name: animation.name, duration: animation.duration, timelines: [timeline] };
+		for (let index = 0; index < times.length; index++) {
+			const time = times[index];
+			if (times[index - 1] === time || times[index + 1] === time) {
+				continue;
+			}
+			stats.deformKeys++;
+			skeleton.setToSetupPose();
+			slot.attachment = target;
+			slot.deformLength = 0;
+			animationModule.applyAnimation(skeleton, alone, time);
+			if (slot.deformLength !== length) {
+				return `slot "${slot.data.name}" deform "${timeline.attachmentName}" key ${index} at ${time}: deformLength ${slot.deformLength}, not ${length}`;
+			}
+			const key = values[index];
+			for (let j = 0; j < length; j++) {
+				const expected = j >= starts[index] && j < starts[index] + key.length ? key[j - starts[index]] : 0;
+				if (Math.abs(slot.deform[j] - expected) > DEFORM_TOLERANCE) {
+					return `slot "${slot.data.name}" deform "${timeline.attachmentName}" key ${index} at ${time}: offset ${j} is ${slot.deform[j]}, not ${expected}`;
+				}
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * Checks every slot's live deform offsets are finite.
+ *
+ * @param {object} skeleton The live skeleton, posed.
+ * @returns {string | null} A message for the first slot with a non-finite offset, or null when all are finite.
+ */
+function checkDeformFinite(skeleton) {
+	for (const slot of skeleton.slots) {
+		for (let j = 0; j < slot.deformLength; j++) {
+			if (!Number.isFinite(slot.deform[j])) {
+				return `slot "${slot.data.name}" deform offset ${j} is not finite`;
+			}
+		}
+	}
+	return null;
+}
+
+/**
  * Plays every animation of one rig at `ANIMATION_SAMPLES` times and checks each frame. The rig shows the skin `defaultSkinName` picks.
  * Only the apply, update and triangle building are timed. A throw counts as a failed sample. Each animation's color keys are then checked
- * with `checkColorKeys`.
+ * with `checkColorKeys`, and its deform keys with `checkDeformKeys`. Each deform timeline counts as found when, at some sample, the slot
+ * shows an attachment whose `deformSource` is the timeline's target.
  *
  * @param {object} data The parsed skeleton.
  * @param {object} atlas The parsed atlas beside it.
  * @param {{ width: number, height: number }[]} pageSizes Each atlas page's real PNG size.
  * @param {object} modules The loaded `skeleton.ts`, `geometry.ts` and `animation.ts` modules, as `skeleton`, `geometry` and `animation`.
  * @param {object} stats The accumulator: `animations` and `samples` counts, `frameMicros` (one time per sample), `twoColorWithoutDark`, and
- *   the `colorKeys` and `colorSegments` that `checkColorKeys` counts.
+ *   the `colorKeys` and `colorSegments` that `checkColorKeys` counts, `deformTimelines`, `deformFound` and `deformNeverFound`, and the
+ *   `deformKeys` that `checkDeformKeys` counts.
  * @returns {string[]} The first `ANIMATION_PROBLEMS_SHOWN` problems, then a count of the rest.
  */
 function checkRigAnimations(data, atlas, pageSizes, modules, stats) {
@@ -816,9 +895,14 @@ function checkRigAnimations(data, atlas, pageSizes, modules, stats) {
 	};
 	for (const animation of data.animations) {
 		stats.animations++;
+		const deforms = [];
 		for (const timeline of animation.timelines) {
 			if (timeline.type === "twoColor" && data.slots[timeline.slotIndex].darkColor === null) {
 				stats.twoColorWithoutDark++;
+			}
+			if (timeline.type === "deform") {
+				const target = data.skins[timeline.skinIndex]?.attachments.get(timeline.slotIndex)?.get(timeline.attachmentName);
+				deforms.push({ slot: skeleton.slots[timeline.slotIndex], target, found: false });
 			}
 		}
 		for (let sample = 0; sample < ANIMATION_SAMPLES; sample++) {
@@ -832,7 +916,11 @@ function checkRigAnimations(data, atlas, pageSizes, modules, stats) {
 				skeleton.updateWorldTransform();
 				const lists = modules.geometry.skeletonTriangles(skeleton, atlas, pageSizes);
 				stats.frameMicros.push(Number(process.hrtime.bigint() - start) / 1000);
-				problem = checkAnimationFrame(skeleton, lists, seen);
+				problem = checkAnimationFrame(skeleton, lists, seen) ?? checkDeformFinite(skeleton);
+				for (const deform of deforms) {
+					const shown = deform.slot.attachment;
+					deform.found ||= shown !== null && deform.target !== undefined && modules.geometry.deformSource(skeleton, deform.slot.index, shown) === deform.target;
+				}
 			} catch (error) {
 				problem = `threw ${error.message}`;
 				seen.fill(0);
@@ -841,9 +929,26 @@ function checkRigAnimations(data, atlas, pageSizes, modules, stats) {
 				report(`animation "${animation.name}" at ${time.toFixed(4)}: ${problem}`);
 			}
 		}
+		for (const deform of deforms) {
+			stats.deformTimelines++;
+			if (deform.found) {
+				stats.deformFound++;
+			} else {
+				stats.deformNeverFound++;
+			}
+		}
 		const colorProblem = checkColorKeys(skeleton, animation, modules.animation, stats);
 		if (colorProblem !== null) {
 			report(`animation "${animation.name}": ${colorProblem}`);
+		}
+		let deformProblem;
+		try {
+			deformProblem = checkDeformKeys(data, skeleton, animation, modules.animation, stats);
+		} catch (error) {
+			deformProblem = `deform keys threw ${error.message}`;
+		}
+		if (deformProblem !== null) {
+			report(`animation "${animation.name}": ${deformProblem}`);
 		}
 	}
 	if (hidden > 0) {
@@ -862,7 +967,9 @@ function printAnimation(stats) {
 	console.log(
 		`Animation: ${stats.rigs} rigs, ${stats.animations} animations, ${stats.samples} samples, frame median ${quantile(sorted, 0.5).toFixed(1)} us, ` +
 			`p99 ${quantile(sorted, 0.99).toFixed(1)} us, max ${quantile(sorted, 1).toFixed(1)} us, ${stats.twoColorWithoutDark} two-color timelines on slots ` +
-			`without a dark color, ${stats.colorKeys} color keys and ${stats.colorSegments} linear color segments compared, ${stats.failed} rigs failed, ` +
+			`without a dark color, ${stats.colorKeys} color keys and ${stats.colorSegments} linear color segments compared, ` +
+			`${stats.deformTimelines} deform timelines (${stats.deformFound} found their attachment at some sample, ${stats.deformNeverFound} never did), ` +
+			`${stats.deformKeys} deform keys compared, ${stats.failed} rigs failed, ` +
 			`${stats.seconds.toFixed(1)} s`
 	);
 }
@@ -1373,7 +1480,21 @@ async function main() {
 		failed: 0,
 		seconds: 0
 	};
-	const animation = { rigs: 0, animations: 0, samples: 0, frameMicros: [], twoColorWithoutDark: 0, colorKeys: 0, colorSegments: 0, failed: 0, seconds: 0 };
+	const animation = {
+		rigs: 0,
+		animations: 0,
+		samples: 0,
+		frameMicros: [],
+		twoColorWithoutDark: 0,
+		colorKeys: 0,
+		colorSegments: 0,
+		deformTimelines: 0,
+		deformFound: 0,
+		deformNeverFound: 0,
+		deformKeys: 0,
+		failed: 0,
+		seconds: 0
+	};
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
