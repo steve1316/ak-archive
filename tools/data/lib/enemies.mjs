@@ -252,7 +252,13 @@ export function buildEnemyGroup(variants) {
 		attacks: union((variant) => [variant.attack]),
 		damages: union((variant) => variant.damage),
 		motions: union((variant) => [variant.motion]),
-		variants: variants.map((variant) => ({ id: variant.id, name: variant.name, index: variant.index }))
+		variants: variants.map((variant) => ({ id: variant.id, name: variant.name, index: variant.index })),
+		// The group's date is its earliest variant's. ISO days sort as plain strings.
+		releaseDate:
+			variants
+				.map((variant) => variant.releaseDate)
+				.filter(Boolean)
+				.sort()[0] ?? null
 	};
 	const details = Object.fromEntries(variants.map(({ id, name, index, sortId, ...rest }) => [id, rest]));
 	return { record, details };

@@ -38,6 +38,8 @@ export interface Enemy {
 	motions: string[];
 	/** The group's variants, head first. */
 	variants: EnemyVariantRef[];
+	/** Global release day of the group's earliest variant as `YYYY-MM-DD`, or null when no variant is dated. */
+	releaseDate: string | null;
 }
 
 /** One line of the handbook's ability list. */
@@ -101,6 +103,8 @@ export interface EnemyDetails {
 	motion: string;
 	/** The short tactical line the game shows in battle, or null when upstream has none. */
 	description: string | null;
+	/** This variant's Global release day as `YYYY-MM-DD`, or null when unknown. */
+	releaseDate: string | null;
 	/** The handbook's lore paragraph. */
 	lore: string;
 	/** The handbook's ability list, in order. */

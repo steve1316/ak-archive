@@ -30,6 +30,9 @@ const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbo
 /** The enemy tables. The stats live outside `excel/`, so this one is a path under `gamedata/`. */
 const ENEMY_TABLES = ["enemy_handbook_table", "levels/enemydata/enemy_database"];
 
+/** The committed release-date snapshot `pnpm data:dates` writes. */
+const DATES_PATH = "tools/data/release-dates.json";
+
 /**
  * Write a JSON file with a trailing newline, creating its directory.
  *
@@ -45,14 +48,31 @@ function writeJson(file, value) {
 }
 
 /**
+ * Read the release-date snapshot. A missing snapshot is not fatal: every date comes out null and the import says so.
+ *
+ * @returns {{operators: Record<string, string>, enemies: Record<string, string>}} Days by operator id and by enemy id.
+ */
+function readDates() {
+	if (!fs.existsSync(DATES_PATH)) {
+		console.warn(`${DATES_PATH} is missing, so every release date is null. Run pnpm data:dates.`);
+		return { operators: {}, enemies: {} };
+	}
+	const snapshot = JSON.parse(fs.readFileSync(DATES_PATH, "utf8"));
+	return { operators: snapshot.operators ?? {}, enemies: snapshot.enemies ?? {} };
+}
+
+/**
  * Build and write the enemy files: the index every card reads, one details file per head's level and the navbar's enemy search index.
  *
  * @param {object} handbook `enemy_handbook_table`.
  * @param {Record<string, Array<object>>} database `enemy_database`, keyed by enemy id.
+ * @param {Record<string, string>} enemyDates Days by enemy id, from the snapshot.
  * @returns {{total: number, variants: number}} The bytes written and how many variants were imported.
  */
-function writeEnemies(handbook, database) {
-	const groups = selectEnemies(handbook).map((rows) => buildEnemyGroup(rows.map((row) => buildVariant(row, database[row.enemyId], handbook.raceData, handbook.levelInfoList))));
+function writeEnemies(handbook, database, enemyDates) {
+	const groups = selectEnemies(handbook).map((rows) =>
+		buildEnemyGroup(rows.map((row) => ({ ...buildVariant(row, database[row.enemyId], handbook.raceData, handbook.levelInfoList), releaseDate: enemyDates[row.enemyId] ?? null })))
+	);
 	groups.sort((a, b) => a.record.sortId - b.record.sortId);
 	const variants = groups.reduce((count, group) => count + group.record.variants.length, 0);
 	console.log(`enemies: ${groups.length} groups, ${variants} variants`);
@@ -90,6 +110,7 @@ function writeEnemies(handbook, database) {
  */
 async function main() {
 	const lock = readLock();
+	const dates = readDates();
 	console.log(`upstream ${lock.repo}@${lock.sha.slice(0, 10)} (${lock.server})`);
 	const [characterTable, patchTable, uniequip, teams, handbook, skins, skillTable] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
 	const [enemyHandbook, enemyDatabase] = await Promise.all(ENEMY_TABLES.map((name) => loadTable(name, lock)));
@@ -104,7 +125,7 @@ async function main() {
 			id,
 			row,
 			side: handbook.side,
-			record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [] },
+			record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [], releaseDate: dates.operators[id] ?? null },
 			details: { skills: buildSkills(row, skillTable), ...handbook.shard }
 		};
 	});
@@ -135,7 +156,7 @@ async function main() {
 	const indexBytes = writeJson(path.join(OUT_DIR, "search-index.json"), searchIndex);
 	console.log(`  ${"search-index".padEnd(24)} ${String(searchIndex.length).padStart(3)} entries    ${(indexBytes / 1024).toFixed(0).padStart(5)} KB`);
 
-	const enemyBytes = writeEnemies(enemyHandbook, enemyDatabase);
+	const enemyBytes = writeEnemies(enemyHandbook, enemyDatabase, dates.enemies);
 	const upstreamBytes = writeJson(path.join(OUT_DIR, "upstream.json"), {
 		repo: lock.repo,
 		server: lock.server,

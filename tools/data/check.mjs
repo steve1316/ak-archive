@@ -115,6 +115,25 @@ const ENEMY_FIXTURES = [
 	{ id: "enemy_1007_slime", level: 1, maxHp: 2050, atk: 300, def: 0, magicResistance: 0, attackTime: 1.7 }
 ];
 
+/** A release day. */
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Operators with a release date at the first snapshot: 404 of 412. The rest are event-only oddities the wiki cannot date. */
+const MIN_OPERATOR_DATES = 400;
+
+/** Enemy groups with a release date at the first snapshot: 796 of 971. The rest only appear in Supply, Annihilation, SSS or roguelike stages. */
+const MIN_ENEMY_DATES = 796;
+
+/** Hand-checked against the wiki. Exusiai is a launch operator, Myrtle debuted with Heart of Surging Flame Part 1, Mizuki with Dossoles Holiday. */
+const DATE_FIXTURES = [
+	{ id: "char_103_angel", date: "2020-01-16" },
+	{ id: "char_151_myrtle", date: "2020-04-15" },
+	{ id: "char_437_mizuki", date: "2022-01-14" }
+];
+
+/** The Originium Slug is in the prologue, which shipped at launch. */
+const ENEMY_DATE_FIXTURES = [{ id: "enemy_1007_slime", date: "2020-01-16" }];
+
 /** The handbook's grade scale, best first. */
 const ENEMY_GRADES = ["SS", "S+", "S", "A+", "A", "B+", "B", "C", "D", "E"];
 
@@ -767,6 +786,48 @@ if (!fs.existsSync(enemySpineIndexPath)) {
 	}
 }
 
+let operatorDates = 0;
+for (const operator of operators) {
+	if (operator.releaseDate === undefined) {
+		fail(`${operator.id} has no releaseDate field`);
+	} else if (operator.releaseDate !== null) {
+		operatorDates += 1;
+		if (!DATE_PATTERN.test(operator.releaseDate)) {
+			fail(`${operator.id} has a malformed releaseDate ${operator.releaseDate}`);
+		}
+	}
+}
+if (operatorDates < MIN_OPERATOR_DATES) {
+	fail(`${operatorDates} operators have a release date, below the floor of ${MIN_OPERATOR_DATES}`);
+}
+for (const fixture of DATE_FIXTURES) {
+	const actual = byId.get(fixture.id)?.releaseDate;
+	if (actual !== fixture.date) {
+		fail(`${fixture.id} releaseDate is ${actual}, expected ${fixture.date}`);
+	}
+}
+
+let enemyDates = 0;
+for (const enemy of enemies) {
+	if (enemy.releaseDate === undefined) {
+		fail(`${enemy.id} has no releaseDate field`);
+	} else if (enemy.releaseDate !== null) {
+		enemyDates += 1;
+		if (!DATE_PATTERN.test(enemy.releaseDate)) {
+			fail(`${enemy.id} has a malformed releaseDate ${enemy.releaseDate}`);
+		}
+	}
+}
+if (enemyDates < MIN_ENEMY_DATES) {
+	fail(`${enemyDates} enemy groups have a release date, below the floor of ${MIN_ENEMY_DATES}`);
+}
+for (const fixture of ENEMY_DATE_FIXTURES) {
+	const actual = enemies.find((enemy) => enemy.id === fixture.id)?.releaseDate;
+	if (actual !== fixture.date) {
+		fail(`${fixture.id} releaseDate is ${actual}, expected ${fixture.date}`);
+	}
+}
+
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -786,6 +847,7 @@ console.log(`skills      ${withSkills} operators`);
 console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
 console.log(`details     ${withDetails} operators carry a details-file entry`);
 console.log(`record      ${withBasic} basic, ${withExam} exam`);
+console.log(`dates       ${operatorDates} operators, ${enemyDates} enemy groups`);
 console.log("markup      none leaked");
 console.log("placeholders none leaked");
 if (hasManifest) {

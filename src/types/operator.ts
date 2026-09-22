@@ -165,6 +165,8 @@ export interface Operator {
 	stats: OperatorStats;
 	/** Every costume upstream lists for this operator, in display order. The site keeps only those with published art. */
 	forms: OperatorFormEntry[];
+	/** Global release day as `YYYY-MM-DD`, from `tools/data/release-dates.json`, or null when unknown. */
+	releaseDate: string | null;
 }
 
 /** The operator page's own data: skills and handbook record, kept out of the index shard the operator page never draws. */
