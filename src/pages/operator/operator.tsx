@@ -130,16 +130,16 @@ export default function Operator() {
 
 	const handleRetry = useCallback(() => setAttempt((current) => current + 1), []);
 
-	// Applies a control change from the stats panel. A phase change clamps `level` into the new phase's max in this same update, rather than a
-	// separate effect that runs after paint, so a render can never show a level or a stat computed from a level the new phase does not reach.
+	// Applies a control change from the stats panel. A phase change moves `level` to the new phase's max in this same update, the way the page opens
+	// at max level, rather than in a separate effect that runs after paint, so a render never shows a level the new phase does not match.
 	const handleControlsChange = useCallback(
 		(patch: Partial<Controls>) => {
 			setControls((current) => {
 				const next = { ...current, ...patch };
-				if (patch.phase !== undefined) {
+				if (patch.phase !== undefined && patch.phase !== current.phase) {
 					const maxLevel = operator?.stats.phases[next.phase]?.maxLevel;
 					if (maxLevel !== undefined) {
-						next.level = Math.min(next.level, maxLevel);
+						next.level = maxLevel;
 					}
 				}
 				return next;
