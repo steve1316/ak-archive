@@ -5,7 +5,7 @@ import RarityStars from "../../components/RarityStars.js";
 import { classIconUrl } from "../../lib/assets.js";
 import type { OperatorForm } from "../../lib/forms.js";
 import type { Operator } from "../../types/operator.js";
-import { BADGE_SX, CHIP_SELECTED_SX, CHIP_UNSELECTED_SX, HERO_CHIPS_SX, HERO_NAME_SX, HERO_SUBTITLE_SX } from "../../lib/layout.js";
+import { BADGE_SX, CHIP_SELECTED_SX, CHIP_UNSELECTED_SX, HERO_CHIPS_SX, HERO_NAME_SX, HERO_RELEASE_SX, HERO_SUBTITLE_SX } from "../../lib/layout.js";
 
 /** The class icon inside the badge. */
 const BADGE_ICON_SX: SxProps<Theme> = { width: 17, height: 17 };
@@ -42,6 +42,7 @@ export default function IdentityBlock({ operator, forms, formKey, onFormChange }
 			<Typography variant="h3" component="h1" sx={HERO_NAME_SX}>
 				{operator.name} <Box component="span" sx={HERO_SUBTITLE_SX}>{`${operator.subProfession} — ${operator.position}`}</Box>
 			</Typography>
+			<Typography sx={HERO_RELEASE_SX}>{`Global release: ${operator.releaseDate ?? "Unknown"}`}</Typography>
 			{forms.length > 1 ? (
 				<Stack direction="row" useFlexGap sx={HERO_CHIPS_SX} role="group" aria-label="Forms">
 					{forms.map((form) => {

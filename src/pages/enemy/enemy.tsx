@@ -167,6 +167,7 @@ export default function EnemyPage() {
 									index={variant.index}
 									level={details.level}
 									races={details.races}
+									releaseDate={details.releaseDate}
 									variants={group.enemy.variants}
 									variantId={variant.id}
 									onVariantChange={handleVariantChange}

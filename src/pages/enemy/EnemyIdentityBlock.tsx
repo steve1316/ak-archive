@@ -1,7 +1,7 @@
 import { Box, Chip, Stack, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
-import { BADGE_SX, CHIP_SELECTED_SX, CHIP_UNSELECTED_SX, HERO_CHIPS_SX, HERO_NAME_SX, HERO_SUBTITLE_SX } from "../../lib/layout.js";
+import { BADGE_SX, CHIP_SELECTED_SX, CHIP_UNSELECTED_SX, HERO_CHIPS_SX, HERO_NAME_SX, HERO_RELEASE_SX, HERO_SUBTITLE_SX } from "../../lib/layout.js";
 import { ENEMY_LEVEL_COLOURS } from "../../theme.js";
 import type { EnemyVariantRef } from "../../types/enemy.js";
 
@@ -18,6 +18,8 @@ interface EnemyIdentityBlockProps {
 	level: string;
 	/** The selected variant's races, shown beside the name. */
 	races: string[];
+	/** The selected variant's Global release day, or null when unknown. */
+	releaseDate: string | null;
 	/** Every variant in the group, head first. */
 	variants: EnemyVariantRef[];
 	/** The selected variant's id. */
@@ -33,7 +35,7 @@ interface EnemyIdentityBlockProps {
  * @param props Component props.
  * @returns The block.
  */
-export default function EnemyIdentityBlock({ name, index, level, races, variants, variantId, onVariantChange }: EnemyIdentityBlockProps) {
+export default function EnemyIdentityBlock({ name, index, level, races, releaseDate, variants, variantId, onVariantChange }: EnemyIdentityBlockProps) {
 	return (
 		<Box sx={{ minWidth: 0 }}>
 			<Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
@@ -53,6 +55,7 @@ export default function EnemyIdentityBlock({ name, index, level, races, variants
 					</Box>
 				) : null}
 			</Typography>
+			<Typography sx={HERO_RELEASE_SX}>{`Global release: ${releaseDate ?? "Unknown"}`}</Typography>
 			{variants.length > 1 ? (
 				<Stack direction="row" useFlexGap sx={HERO_CHIPS_SX} role="group" aria-label="Variants">
 					{variants.map((variant) => {

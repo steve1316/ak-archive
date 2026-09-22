@@ -111,6 +111,9 @@ export const HERO_NAME_SX: SxProps<Theme> = { fontWeight: 700, lineHeight: 1.15,
 /** The small line beside the name, such as an operator's subclass and position. */
 export const HERO_SUBTITLE_SX: SxProps<Theme> = { fontSize: 14, fontWeight: 400, color: "text.secondary", ml: 1.25 };
 
+/** The "Global release" line under a hero name. */
+export const HERO_RELEASE_SX: SxProps<Theme> = { mt: 0.5, fontSize: 13, color: "text.secondary" };
+
 /** The row of choice chips under the name, such as an operator's forms or an enemy's variants. */
 export const HERO_CHIPS_SX: SxProps<Theme> = { flexWrap: "wrap", gap: 0.625, mt: 1.25 };
 
