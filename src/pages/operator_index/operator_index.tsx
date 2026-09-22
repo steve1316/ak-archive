@@ -6,6 +6,7 @@ import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, ScrollToTop, findNam
 import type { ActiveFilter, SortOption } from "archive-kit";
 
 import { loadAllOperators } from "../../lib/data.js";
+import { COLLATOR, optionsOf, toggled } from "../../lib/filters.js";
 import type { Operator } from "../../types/operator.js";
 import OperatorCard from "./OperatorCard.js";
 import OperatorFilterRows, { CLASS_ORDER } from "./OperatorFilterRows.js";
@@ -26,9 +27,6 @@ const CARD_SIZE = { xs: 6, sm: 4, md: 3, lg: 2.4 };
 /** Cards drawn before the "Load more" button, as gfl's index draws them. The index draws every card's art, so this is most of the page's work. */
 const PAGE_SIZE = 30;
 
-/** Compares text so digits order by value, putting "12F" before "THRM-EX", and case is ignored. Built once rather than per comparison. */
-const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-
 /** The empty option list, shared so the subclass row's memo keeps one identity while no class is selected. */
 const NO_OPTIONS: string[] = [];
 
@@ -37,36 +35,6 @@ const CLASS_RANK = new Map(CLASS_ORDER.map((profession, index) => [profession, i
 
 /** The direction each sort key lands in when it is chosen. Rarity reads best from 6 stars down, the other two read forwards. */
 const NATURAL_DESCENDING: Record<SortKey, boolean> = { rarity: true, name: false, class: false };
-
-/**
- * Add a value to a selection, or drop it when it is already selected.
- *
- * @param selection The values currently selected.
- * @param value The value the chip reported.
- * @returns The new selection.
- */
-function toggled<T>(selection: T[], value: T): T[] {
-	return selection.includes(value) ? selection.filter((entry) => entry !== value) : [...selection, value];
-}
-
-/**
- * Collect one filter axis's options out of the operators.
- *
- * @param operators The operators to read.
- * @param read Pulls one operator's values for this axis. Nulls are dropped, which is how an operator with no nation or no team is handled.
- * @returns The values, unique and sorted.
- */
-function optionsOf(operators: readonly Operator[], read: (operator: Operator) => ReadonlyArray<string | null>): string[] {
-	const values = new Set<string>();
-	for (const operator of operators) {
-		for (const value of read(operator)) {
-			if (value) {
-				values.add(value);
-			}
-		}
-	}
-	return [...values].sort(COLLATOR.compare);
-}
 
 /**
  * Sort the matching operators. Ties always fall back to the name in A-Z order, whichever way the primary key runs.
