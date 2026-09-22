@@ -387,8 +387,8 @@ export function loopTime(animation: Animation, time: number, loop: boolean): num
  * direction, compress and stretch. A transform timeline sets its constraint's four mixes. A path timeline sets its constraint's position,
  * spacing, or rotate and translate mixes. A deform timeline writes its slot's vertex offsets. A timeline whose first key is after `time`
  * leaves its bone, slot, constraint or draw order alone. Event timelines are skipped. Once each timeline and skeleton has been seen, it
- * allocates nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work arrays are kept per skeleton. Colors and deform offsets are written into the slot's own
- * objects. Call `updateWorldTransform` after.
+ * allocates nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work arrays are kept
+ * per skeleton. Colors and deform offsets are written into the slot's own objects. Call `updateWorldTransform` after.
  *
  * @param skeleton The skeleton, just reset by `setToSetupPose`.
  * @param animation The animation to sample.
