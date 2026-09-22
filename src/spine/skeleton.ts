@@ -3,11 +3,11 @@
 // Live skeleton
 
 /**
- * A posable skeleton built from `SkeletonData`: bones with local and world transforms, slots with their current attachment, and the
- * skeleton's own position and scale. `MATH.md` explains the bone world transform formulas and the user guide text behind them.
+ * A posable skeleton built from `SkeletonData`: bones with local and world transforms, slots with their current attachment and colors,
+ * and the skeleton's own position and scale. `MATH.md` explains the bone world transform formulas and the user guide text behind them.
  */
 
-import type { Attachment, BoneData, Skin, SkeletonData, SlotData } from "./types.js";
+import type { Attachment, BoneData, Color, Skin, SkeletonData, SlotData } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -60,30 +60,20 @@ export interface Bone {
 	worldY: number;
 }
 
-/** A slot in a live skeleton: the bone it follows and the attachment it currently shows. */
+/** A slot in a live skeleton: the bone it follows, the attachment it currently shows and its current colors. */
 export interface Slot {
 	/** The slot's setup data. */
 	data: SlotData;
 	/** The bone this slot is attached to. */
 	bone: Bone;
+	/** Index of this slot in `Skeleton.slots`, which is also its index in the data. */
+	index: number;
 	/** The attachment currently shown, or null for none. */
 	attachment: Attachment | null;
-}
-
-/** A 2x2 basis `[a b; c d]` plus a translation: a bone's parent frame. A `Bone` is one, and the skeleton's own frame is one for the root. */
-interface Frame {
-	/** X column's X component. */
-	a: number;
-	/** Y column's X component. */
-	b: number;
-	/** X column's Y component. */
-	c: number;
-	/** Y column's Y component. */
-	d: number;
-	/** Translation X. */
-	worldX: number;
-	/** Translation Y. */
-	worldY: number;
+	/** The current tint, the slot's own copy. `setToSetupPose` resets it from the data's color. */
+	color: Color;
+	/** The current dark tint for two-color tinting, or null when the slot has none. `setToSetupPose` resets it from the data's dark color. */
+	darkColor: Color | null;
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -112,6 +102,19 @@ export function localToWorld(bone: Bone, x: number, y: number): [number, number]
 export function defaultSkinName(data: SkeletonData): string | null {
 	const named = data.skins.length > 1 ? data.skins.find((skin) => skin.name !== DEFAULT_SKIN_NAME) : undefined;
 	return (named ?? data.skins.find((skin) => skin.name === DEFAULT_SKIN_NAME))?.name ?? null;
+}
+
+/**
+ * Copies one color's channels into another.
+ *
+ * @param target The color to write.
+ * @param source The color to read.
+ */
+function copyColor(target: Color, source: Color): void {
+	target.r = source.r;
+	target.g = source.g;
+	target.b = source.b;
+	target.a = source.a;
 }
 
 /**
@@ -144,14 +147,23 @@ function setBoneToSetupPose(bone: Bone): void {
 }
 
 /**
- * Computes one bone's world transform from its local transform and its parent frame. See `MATH.md` for each inherit mode.
+ * Computes one bone's world transform from its local transform and its parent frame: the parent bone's world transform, or the skeleton's
+ * own position and scale for the root. See `MATH.md` for each inherit mode. It takes only objects, so no number is boxed to pass it.
  *
  * @param bone The bone to update.
- * @param parent The parent's world frame: the parent bone, or the skeleton's own frame for the root.
- * @param skeletonScaleX The skeleton's scale along world X.
- * @param skeletonScaleY The skeleton's scale along world Y.
+ * @param skeleton The skeleton the bone belongs to.
  */
-function updateBone(bone: Bone, parent: Frame, skeletonScaleX: number, skeletonScaleY: number): void {
+function updateBone(bone: Bone, skeleton: Skeleton): void {
+	const parent = bone.parent;
+	const skeletonScaleX = skeleton.scaleX;
+	const skeletonScaleY = skeleton.scaleY;
+	const parentA = parent ? parent.a : skeletonScaleX;
+	const parentB = parent ? parent.b : 0;
+	const parentC = parent ? parent.c : 0;
+	const parentD = parent ? parent.d : skeletonScaleY;
+	const parentX = parent ? parent.worldX : skeleton.x;
+	const parentY = parent ? parent.worldY : skeleton.y;
+
 	// Local axes at unit length: the X axis at rotation + shearX, the Y axis at rotation + 90 + shearY. Scale sets their lengths.
 	const xAngle = (bone.rotation + bone.shearX) * DEG_TO_RAD;
 	const yAngle = (bone.rotation + 90 + bone.shearY) * DEG_TO_RAD;
@@ -162,22 +174,22 @@ function updateBone(bone: Bone, parent: Frame, skeletonScaleX: number, skeletonS
 	const { scaleX, scaleY } = bone;
 
 	// The position always goes through the full parent transform. Only the basis depends on the inherit mode.
-	bone.worldX = parent.a * bone.x + parent.b * bone.y + parent.worldX;
-	bone.worldY = parent.c * bone.x + parent.d * bone.y + parent.worldY;
+	bone.worldX = parentA * bone.x + parentB * bone.y + parentX;
+	bone.worldY = parentC * bone.x + parentD * bone.y + parentY;
 
 	const mode = bone.data.transformMode;
 	if (mode === "normal") {
-		setBasis(bone, parent.a, parent.b, parent.c, parent.d, ra * scaleX, rb * scaleY, rc * scaleX, rd * scaleY);
+		setBasis(bone, parentA, parentB, parentC, parentD, ra * scaleX, rb * scaleY, rc * scaleX, rd * scaleY);
 		return;
 	}
 
 	// The other modes read the parent without the skeleton's scale, then put that scale back, so a skeleton flip mirrors every bone.
 	const inverseX = skeletonScaleX === 0 ? 0 : 1 / skeletonScaleX;
 	const inverseY = skeletonScaleY === 0 ? 0 : 1 / skeletonScaleY;
-	const pa = parent.a * inverseX;
-	const pb = parent.b * inverseX;
-	const pc = parent.c * inverseY;
-	const pd = parent.d * inverseY;
+	const pa = parentA * inverseX;
+	const pb = parentB * inverseX;
+	const pc = parentC * inverseY;
+	const pd = parentD * inverseY;
 	switch (mode) {
 		case "onlyTranslation":
 			setBasis(bone, 1, 0, 0, 1, ra * scaleX, rb * scaleY, rc * scaleX, rd * scaleY);
@@ -199,8 +211,20 @@ function updateBone(bone: Bone, parent: Frame, skeletonScaleX: number, skeletonS
 			// An axis squashed to zero length leaves no direction to follow, so that axis falls back to the parent's X axis angle.
 			const theta = Math.atan2(pc, pa);
 			const flip = mode === "noScale" && reflected ? -1 : 1;
-			[bone.a, bone.c] = xLength >= MIN_AXIS_LENGTH ? [(xa / xLength) * scaleX, (xc / xLength) * scaleX] : rotatedAxis(theta, flip, ra * scaleX, rc * scaleX);
-			[bone.b, bone.d] = yLength >= MIN_AXIS_LENGTH ? [(ya / yLength) * scaleY * flipY, (yc / yLength) * scaleY * flipY] : rotatedAxis(theta, flip, rb * scaleY, rd * scaleY);
+			if (xLength >= MIN_AXIS_LENGTH) {
+				bone.a = (xa / xLength) * scaleX;
+				bone.c = (xc / xLength) * scaleX;
+			} else {
+				bone.a = rotatedAxisX(theta, flip, ra * scaleX, rc * scaleX);
+				bone.c = rotatedAxisY(theta, flip, ra * scaleX, rc * scaleX);
+			}
+			if (yLength >= MIN_AXIS_LENGTH) {
+				bone.b = (ya / yLength) * scaleY * flipY;
+				bone.d = (yc / yLength) * scaleY * flipY;
+			} else {
+				bone.b = rotatedAxisX(theta, flip, rb * scaleY, rd * scaleY);
+				bone.d = rotatedAxisY(theta, flip, rb * scaleY, rd * scaleY);
+			}
 			break;
 		}
 	}
@@ -211,18 +235,29 @@ function updateBone(bone: Bone, parent: Frame, skeletonScaleX: number, skeletonS
 }
 
 /**
- * Maps a local axis through `R(theta) * diag(1, flip)`, the fallback basis for `noScale` and `noScaleOrReflection`.
+ * Maps a local axis through `R(theta) * diag(1, flip)`, the fallback basis for `noScale` and `noScaleOrReflection`, and gives the X component.
  *
  * @param theta Rotation in radians.
  * @param flip 1, or -1 to mirror the Y component first.
  * @param x The axis's X component.
  * @param y The axis's Y component.
- * @returns The mapped axis as `[x, y]`.
+ * @returns The mapped axis's X component.
  */
-function rotatedAxis(theta: number, flip: number, x: number, y: number): [number, number] {
-	const cos = Math.cos(theta);
-	const sin = Math.sin(theta);
-	return [cos * x - sin * flip * y, sin * x + cos * flip * y];
+function rotatedAxisX(theta: number, flip: number, x: number, y: number): number {
+	return Math.cos(theta) * x - Math.sin(theta) * flip * y;
+}
+
+/**
+ * Maps a local axis through `R(theta) * diag(1, flip)`, as `rotatedAxisX` does, and gives the Y component.
+ *
+ * @param theta Rotation in radians.
+ * @param flip 1, or -1 to mirror the Y component first.
+ * @param x The axis's X component.
+ * @param y The axis's Y component.
+ * @returns The mapped axis's Y component.
+ */
+function rotatedAxisY(theta: number, flip: number, x: number, y: number): number {
+	return Math.sin(theta) * x + Math.cos(theta) * flip * y;
 }
 
 /**
@@ -257,8 +292,8 @@ export class Skeleton {
 	readonly bones: Bone[];
 	/** Every slot, in data order. */
 	readonly slots: Slot[];
-	/** The slots in the order they are drawn, back to front. */
-	drawOrder: Slot[];
+	/** The slots in the order they are drawn, back to front. The skeleton owns this array, so change it in place. */
+	readonly drawOrder: Slot[];
 	/** The active skin, or null to use only the default skin. */
 	skin: Skin | null = null;
 	/** World X of the skeleton's origin. */
@@ -289,14 +324,14 @@ export class Skeleton {
 			}
 			this.bones.push(createBone(boneData, parent));
 		}
-		this.slots = data.slots.map((slotData) => {
+		this.slots = data.slots.map((slotData, index) => {
 			const bone = this.bones[slotData.boneIndex];
 			if (!bone) {
 				throw new Error(`Slot ${slotData.name} names bone ${slotData.boneIndex}, which does not exist`);
 			}
-			return { data: slotData, bone, attachment: null };
+			return { data: slotData, bone, index, attachment: null, color: { ...slotData.color }, darkColor: slotData.darkColor ? { ...slotData.darkColor } : null };
 		});
-		this.drawOrder = [...this.slots];
+		this.drawOrder = [];
 		this.defaultSkin = data.skins.find((skin) => skin.name === DEFAULT_SKIN_NAME) ?? null;
 		this.setToSetupPose();
 	}
@@ -348,23 +383,50 @@ export class Skeleton {
 		return this.defaultSkin?.attachments.get(slotIndex)?.get(name) ?? null;
 	}
 
-	/** Resets every bone's local transform, the draw order and every slot's attachment to the setup pose. */
-	setToSetupPose(): void {
-		for (const bone of this.bones) {
-			setBoneToSetupPose(bone);
+	/**
+	 * Shows an attachment in a slot, looked up by name as `getAttachment` does.
+	 *
+	 * @param slotIndex Index of the slot.
+	 * @param name The attachment's name, or null to clear the slot. A name neither skin has also clears it.
+	 */
+	setAttachment(slotIndex: number, name: string | null): void {
+		const slot = this.slots[slotIndex];
+		if (!slot) {
+			throw new Error(`Slot ${slotIndex} does not exist`);
 		}
-		this.drawOrder = [...this.slots];
-		this.slots.forEach((slot, index) => {
-			const name = slot.data.attachmentName;
-			slot.attachment = name === null ? null : this.getAttachment(index, name);
-		});
+		slot.attachment = name === null ? null : this.getAttachment(slotIndex, name);
 	}
 
-	/** Computes every bone's world transform. Bones are in parent-first order, so one pass covers the tree. */
+	/** Resets every bone's local transform, the draw order, and every slot's attachment and colors to the setup pose. */
+	setToSetupPose(): void {
+		const bones = this.bones;
+		for (let i = 0; i < bones.length; i++) {
+			setBoneToSetupPose(bones[i]!);
+		}
+		const slots = this.slots;
+		this.drawOrder.length = slots.length;
+		for (let index = 0; index < slots.length; index++) {
+			const slot = slots[index]!;
+			this.drawOrder[index] = slot;
+			const name = slot.data.attachmentName;
+			slot.attachment = name === null ? null : this.getAttachment(index, name);
+			copyColor(slot.color, slot.data.color);
+			const darkColor = slot.data.darkColor;
+			if (darkColor === null) {
+				slot.darkColor = null;
+			} else if (slot.darkColor === null) {
+				slot.darkColor = { ...darkColor };
+			} else {
+				copyColor(slot.darkColor, darkColor);
+			}
+		}
+	}
+
+	/** Computes every bone's world transform. Bones are in parent-first order, so one pass covers the tree. Creates no objects. */
 	updateWorldTransform(): void {
-		const root: Frame = { a: this.scaleX, b: 0, c: 0, d: this.scaleY, worldX: this.x, worldY: this.y };
-		for (const bone of this.bones) {
-			updateBone(bone, bone.parent ?? root, this.scaleX, this.scaleY);
+		const bones = this.bones;
+		for (let i = 0; i < bones.length; i++) {
+			updateBone(bones[i]!, this);
 		}
 	}
 }

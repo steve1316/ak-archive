@@ -103,7 +103,9 @@ What the bones page says behind each one (https://esotericsoftware.com/spine-bon
 - A slot's attachment is looked up in the active skin first, then in the default skin. The runtime skins page describes this lookup
   (https://esotericsoftware.com/spine-runtime-skins, the opening section).
 - The setup pose resets every bone's local transform to its data, puts the draw order back to slot order, and sets each slot's attachment
-  from its setup name. A slot whose setup attachment name is null shows nothing.
+  from its setup name. A slot whose setup attachment name is null shows nothing. It also copies each slot's color and dark color from its
+  data. A slot holds its own copies, so changing them never touches the data.
+- `setAttachment` shows the attachment the lookup gives for a name. A null name, or a name neither skin has, clears the slot.
 - Changing the skin leaves bone locals and the draw order alone. From no skin, each slot whose setup attachment the new skin has takes it.
   From another skin, a slot showing the old skin's attachment takes the new skin's attachment under the same name, and other slots keep
   theirs. The runtime skins page describes both cases (https://esotericsoftware.com/spine-runtime-skins, "Skin changes"). It does not say
@@ -116,6 +118,16 @@ What the bones page says behind each one (https://esotericsoftware.com/spine-bon
 
 `geometry.ts` turns each slot's attachment into world positions, page UVs and triangle indices. The maths gate's geometry cases pin each
 rule below with a 256 x 128 page.
+
+### Pooled output
+
+A frame allocates nothing once the pools have grown. Each skeleton keeps one list object per slot and one position array per slot and
+length, and `skeletonTriangles` refills the same returned array. So a returned array, its lists and their typed arrays are only valid until
+the next `skeletonTriangles` or `slotTriangles` call on the same skeleton. A caller that keeps lists across calls copies them first. Region
+lists share one index array, mesh lists use the mesh's own triangles, and UVs come from a per-attachment cache, so nothing in a list may be
+changed. The region lookup, the resolved mesh and the page UVs are worked out once per attachment, and again only when the atlas object,
+the page-size array, the skeleton data or the slot differ. The atlas and page-size array are compared by identity, so a caller must pass
+new ones rather than change them in place.
 
 ### Finding the region
 
@@ -194,8 +206,8 @@ flipped v or a wrong strip offset moves the hull off the box. A wrong rotate dir
 
 ### Color
 
-A list's tint is the slot's setup color times the attachment's color, channel by channel. This stage ignores a slot's dark color, and the
-renderer draws every slot with the normal blend (see Drawing).
+A list's tint is the slot's live color times the attachment's color, channel by channel. A list also carries the slot's live dark color, or
+null when the slot has none. The renderer ignores the dark color for now and draws every slot with the normal blend (see Drawing).
 
 ## Drawing
 

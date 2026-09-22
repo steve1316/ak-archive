@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
- * transforms, setup-pose attachments and `src/spine/geometry.ts` triangles against hand-worked values. `MATH.md` explains each formula the
- * cases pin down.
+ * transforms, setup-pose attachments, live slot state and `src/spine/geometry.ts` triangles against hand-worked values. `MATH.md` explains
+ * each formula the cases pin down.
  *
  * Usage:
  *     node tools/assets/check_spine_math.mjs
@@ -161,6 +161,11 @@ const REGION_X270 = { ...REGION_X, name: "X270", rotate: 270 };
 
 /** The region attachment cases I and J share: a 20 x 10 image centred 5 units right of the bone. */
 const REGION_ATTACHMENT = { type: "region", path: null, rotation: 0, x: 5, y: 0, scaleX: 1, scaleY: 1, width: 20, height: 10, color: { r: 1, g: 1, b: 1, a: 1 } };
+
+/** The one-page atlas every geometry case draws from, holding regions I, J, R, X and X270. */
+const GEOMETRY_ATLAS = {
+	pages: [{ name: "page.png", width: 0, height: 0, format: "RGBA8888", filter: ["Linear", "Linear"], repeat: "none", pma: false, regions: [REGION_I, REGION_J, REGION_R, REGION_X, REGION_X270] }]
+};
 
 /** Case L's mesh: three bone-local vertices on region I. */
 const MESH_L = {
@@ -461,9 +466,7 @@ function geometrySkeleton(skeletonModule, bones, attachments) {
  */
 function checkGeometry(skeletonModule, geometryModule) {
 	const { slotTriangles } = geometryModule;
-	const atlas = {
-		pages: [{ name: "page.png", width: 0, height: 0, format: "RGBA8888", filter: ["Linear", "Linear"], repeat: "none", pma: false, regions: [REGION_I, REGION_J, REGION_R, REGION_X, REGION_X270] }]
-	};
+	const atlas = GEOMETRY_ATLAS;
 	const pages = [GEOMETRY_PAGE];
 	const linked = { type: "linkedmesh", name: "M", path: "I", color: { r: 1, g: 1, b: 1, a: 1 }, parentSkin: null, parentName: "L", deform: true, width: null, height: null };
 	const weighted = {
@@ -568,6 +571,148 @@ function checkGeometry(skeletonModule, geometryModule) {
 	return failures;
 }
 
+/**
+ * Formats a slot state value for printing: a color as its channels, an attachment by name, anything else as it is.
+ *
+ * @param {unknown} value The value.
+ * @returns {string} The printed value.
+ */
+function shownValue(value) {
+	if (Array.isArray(value)) {
+		return shown(value);
+	}
+	return String(value?.name ?? value);
+}
+
+/**
+ * Reads a color as `[r, g, b, a]`, so it compares within `TOLERANCE`.
+ *
+ * @param {{ r: number, g: number, b: number, a: number } | null | undefined} color The color.
+ * @returns {number[] | null | undefined} The channels, or the value itself when there is no color.
+ */
+function rgba(color) {
+	return color ? [color.r, color.g, color.b, color.a] : color;
+}
+
+/**
+ * Checks a slot's live state: its color and dark color reset from the data, `setAttachment` looks names up, and the triangle lists follow
+ * the live colors rather than the setup ones.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkSlotState(skeletonModule, geometryModule) {
+	const [first, second] = ["first", "second"].map(point);
+	const tinted = { ...slotData("slot", "a"), color: { r: 0.2, g: 0.4, b: 0.6, a: 0.8 }, darkColor: { r: 0.1, g: 0.2, b: 0.3, a: 1 } };
+	const build = (slot, attachments) => new skeletonModule.Skeleton(skeletonData([{}], [slot], [{ name: "default", attachments: new Map([[0, new Map(attachments)]]) }]));
+	const region = { ...REGION_ATTACHMENT, name: "I", color: { r: 0.5, g: 1, b: 1, a: 0.8 } };
+	const trianglesOf = (skeleton) => {
+		skeleton.updateWorldTransform();
+		return geometryModule.skeletonTriangles(skeleton, GEOMETRY_ATLAS, [GEOMETRY_PAGE])[0];
+	};
+	const cases = [
+		[
+			"setToSetupPose resets a changed color",
+			() => {
+				const skeleton = build(tinted, [["a", first]]);
+				Object.assign(skeleton.slots[0].color, { r: 1, g: 0, b: 0, a: 0.5 });
+				skeleton.setToSetupPose();
+				return [[0.2, 0.4, 0.6, 0.8], rgba(skeleton.slots[0].color)];
+			}
+		],
+		[
+			"a changed color leaves the slot data alone",
+			() => {
+				const skeleton = build(tinted, [["a", first]]);
+				Object.assign(skeleton.slots[0].color, { r: 1, g: 0, b: 0, a: 0.5 });
+				return [[0.2, 0.4, 0.6, 0.8], rgba(tinted.color)];
+			}
+		],
+		[
+			"setToSetupPose resets a changed dark color",
+			() => {
+				const skeleton = build(tinted, [["a", first]]);
+				Object.assign(skeleton.slots[0].darkColor, { r: 0.9, g: 0.9, b: 0.9 });
+				skeleton.setToSetupPose();
+				return [[0.1, 0.2, 0.3, 1], rgba(skeleton.slots[0].darkColor)];
+			}
+		],
+		[
+			"setToSetupPose clears a dark color the data lacks",
+			() => {
+				const skeleton = build(slotData("slot", "a"), [["a", first]]);
+				skeleton.slots[0].darkColor = { r: 0.5, g: 0.5, b: 0.5, a: 1 };
+				skeleton.setToSetupPose();
+				return [null, skeleton.slots[0].darkColor];
+			}
+		],
+		[
+			"setAttachment sets a named attachment",
+			() => {
+				const skeleton = build(slotData("slot", "a"), [
+					["a", first],
+					["b", second]
+				]);
+				skeleton.setAttachment(0, "b");
+				return [second, skeleton.slots[0].attachment];
+			}
+		],
+		[
+			"setAttachment with null clears the slot",
+			() => {
+				const skeleton = build(slotData("slot", "a"), [["a", first]]);
+				skeleton.setAttachment(0, null);
+				return [null, skeleton.slots[0].attachment];
+			}
+		],
+		[
+			"setAttachment with an unknown name clears the slot",
+			() => {
+				const skeleton = build(slotData("slot", "a"), [["a", first]]);
+				skeleton.setAttachment(0, "missing");
+				return [null, skeleton.slots[0].attachment];
+			}
+		],
+		[
+			"triangle color follows the live slot color",
+			() => {
+				const skeleton = build(slotData("slot", "I"), [["I", region]]);
+				Object.assign(skeleton.slots[0].color, { r: 1, g: 0, b: 0, a: 0.5 });
+				return [[0.5, 0, 0, 0.4], rgba(trianglesOf(skeleton)?.color)];
+			}
+		],
+		["triangle dark color is null when the slot has none", () => [null, trianglesOf(build(slotData("slot", "I"), [["I", region]]))?.darkColor]],
+		[
+			"triangle dark color follows the live slot dark color",
+			() => {
+				const skeleton = build({ ...tinted, attachmentName: "I" }, [["I", region]]);
+				Object.assign(skeleton.slots[0].darkColor, { g: 0.7 });
+				return [[0.1, 0.7, 0.3, 1], rgba(trianglesOf(skeleton)?.darkColor)];
+			}
+		]
+	];
+
+	const failures = [];
+	for (const [label, run] of cases) {
+		let problem = null;
+		try {
+			const [expected, actual] = run();
+			const ok = Array.isArray(expected) ? Array.isArray(actual) && actual.length === expected.length && close(expected, actual) : expected === actual;
+			if (!ok) {
+				problem = `expected ${shownValue(expected)}, got ${shownValue(actual)}`;
+			}
+		} catch (error) {
+			problem = `threw ${error.message}`;
+		}
+		console.log(`${problem === null ? "ok  " : "FAIL"} slot state: ${label}`);
+		if (problem !== null) {
+			failures.push(`slot state: ${label} ${problem}`);
+		}
+	}
+	return failures;
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -578,7 +723,8 @@ try {
 	const skeletonModule = await server.ssrLoadModule("/src/spine/skeleton.ts");
 	failures = [...checkBones(skeletonModule), ...checkReset(skeletonModule), ...checkAttachments(skeletonModule), ...checkSkinChange(skeletonModule)];
 	try {
-		failures.push(...checkGeometry(skeletonModule, await server.ssrLoadModule("/src/spine/geometry.ts")));
+		const geometryModule = await server.ssrLoadModule("/src/spine/geometry.ts");
+		failures.push(...checkGeometry(skeletonModule, geometryModule), ...checkSlotState(skeletonModule, geometryModule));
 	} catch (error) {
 		failures.push(`geometry: could not run: ${error.message}`);
 	}
