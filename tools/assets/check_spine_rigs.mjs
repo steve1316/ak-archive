@@ -13,20 +13,18 @@
  * one that runs on real data.
  *
  * Usage:
- *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping]
- *     [--dir NAME]
+ *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--dir NAME]
  *
  * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--dir` scans
- * `<staging>/assets/<NAME>` instead, such as `spine-enemies`, whose rigs sit one folder deep and count as each enemy's battle rig.
- * `--survey` also prints
- * how many rigs use each feature, how many each planned stage would draw in full, how many need exactly that stage, and how many operators
- * have at least one rig it draws. `--geometry` also turns every rig's setup pose into triangles with `src/spine/geometry.ts`: every drawing
- * attachment must give a list with finite positions and indices in range. A UV outside [0, 1] is a warning, since a few meshes reach past
- * their stripped image. Every clipped list is checked with `checkClippedFrame`. The drawn bounds are compared with the skeleton's declared
- * bounds by intersection-over-union. A rig with a path constraint is only reported, since those are not applied yet. Every other rig is
- * judged. Below 0.5 it fails unless the drawn box sits inside the declared one, which hidden or other-skin attachments can widen. A rig that
- * declares no bounds, or draws nothing in its setup pose, is counted as unscored. It also checks UV orientation: the packer strips
- * whitespace down to a mesh's hull, so a stripped mesh's hull, mapped to page pixels, should meet every edge of its packed box.
+ * `<staging>/assets/<NAME>` instead, such as `spine-enemies`, whose rigs sit one folder deep and count as each enemy's battle rig. `--survey`
+ * also prints how many rigs use each feature, how many each planned stage would draw in full, how many need exactly that stage, and how many
+ * operators have at least one rig it draws. `--geometry` also turns every rig's setup pose into triangles with `src/spine/geometry.ts`: every
+ * drawing attachment must give a list with finite positions and indices in range. A UV outside [0, 1] is a warning, since a few meshes reach
+ * past their stripped image. Every clipped list is checked with `checkClippedFrame`. The drawn bounds are compared with the skeleton's declared
+ * bounds by intersection-over-union. A rig with a path constraint is only reported, since those are not applied yet. Every other rig is judged.
+ * Below 0.5 it fails unless the drawn box sits inside the declared one, which hidden or other-skin attachments can widen. A rig that declares no
+ * bounds, or draws nothing in its setup pose, is counted as unscored. It also checks UV orientation: the packer strips whitespace down to a
+ * mesh's hull, so a stripped mesh's hull, mapped to page pixels, should meet every edge of its packed box.
  *
  * `--animation` plays every animation of every rig with `src/spine/animation.ts`. Each is sampled at `ANIMATION_SAMPLES` evenly spaced
  * times from 0 to its duration: reset to the setup pose, apply, update and build triangles. Every position, UV and color must be finite,
@@ -60,7 +58,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseStaging, shownPath, startVite } from "./spine_tools.mjs";
+import { DEFAULT_SPINE_DIR, parseDir, parseStaging, shownPath, startVite } from "./spine_tools.mjs";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -73,7 +71,9 @@ const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
 const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--dir NAME]  (scans <staging>/assets/spine)";
+const USAGE =
+	"Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--dir NAME]  " +
+	"(scans <staging>/assets/<NAME>, spine by default)";
 
 /** Lowest intersection-over-union between a rig's drawn and declared setup bounds before `--geometry` fails it. */
 const MIN_IOU = 0.5;
@@ -2229,15 +2229,17 @@ function printTransform(stats) {
  * `<spineDir>/<operatorId>/<formKey>/<kind>/<file>` that `spine_names.py` writes.
  *
  * @param {string} file The skeleton file's path.
- * @param {string} spineDir The `assets/spine` root the file was found under.
- * @returns {{ operatorId: string, formKey: string, kind: string } | null} The rig's identity, or null if the path is neither 1 nor 3
- *   directories deep under `spineDir`.
+ * @param {string} spineDir The scanned root the file was found under.
+ * @param {string} dirName The scanned `assets` subfolder, which says which layout to expect. Only a tree other than `DEFAULT_SPINE_DIR` has
+ *   its rigs one folder deep.
+ * @returns {{ operatorId: string, formKey: string, kind: string } | null} The rig's identity, or null if the path is not as deep as the
+ *   scanned tree's layout.
  */
-function parseRigPath(file, spineDir) {
+function parseRigPath(file, spineDir, dirName) {
 	const parts = path.relative(spineDir, path.dirname(file)).split(path.sep);
 	if (parts.length === 1) {
-		// The enemy layout: one battle rig per enemy, one folder deep.
-		return { operatorId: parts[0], formKey: "base", kind: "battle" };
+		// The enemy layout: one battle rig per enemy, one folder deep. The operator tree is always three deep, so there this is not a rig.
+		return dirName === DEFAULT_SPINE_DIR ? null : { operatorId: parts[0], formKey: "base", kind: "battle" };
 	}
 	if (parts.length !== 3) {
 		return null;
@@ -2358,13 +2360,9 @@ function pairingKey(file) {
  * Parse and check every staged rig and atlas, print each failure and a summary, and exit 1 if anything failed.
  */
 async function main() {
-	const dirIndex = process.argv.indexOf("--dir");
-	const dirName = dirIndex === -1 ? "spine" : process.argv[dirIndex + 1];
-	if (!dirName || dirName.startsWith("--")) {
-		console.error(USAGE);
-		process.exit(1);
-	}
-	const spineDir = path.join(parseStaging(process.argv.slice(2), USAGE), "assets", dirName);
+	const args = process.argv.slice(2);
+	const dirName = parseDir(args, USAGE);
+	const spineDir = path.join(parseStaging(args, USAGE), "assets", dirName);
 	const skelFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".skel") : [];
 	const atlasFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".atlas") : [];
 	if (skelFiles.length === 0 && atlasFiles.length === 0) {
@@ -2534,7 +2532,7 @@ async function main() {
 				repeatingFiles++;
 			}
 			if (survey) {
-				const rigPath = parseRigPath(file, spineDir);
+				const rigPath = parseRigPath(file, spineDir, dirName);
 				if (rigPath) {
 					recordRig(survey, rigPath, featuresModule.featuresOf(data), featuresModule.rigStage(data));
 				}

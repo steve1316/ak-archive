@@ -1,6 +1,6 @@
 /**
- * Helpers shared by the Spine tools, `check_spine_rigs.mjs` and `fill_spine_anims.mjs`: the repo paths, the `--staging` option, printing a
- * path, and the Vite server that loads `src/spine/` from Node.
+ * Helpers shared by the Spine tools, `check_spine_rigs.mjs` and `fill_spine_anims.mjs`: the repo paths, the `--staging` and `--dir` options,
+ * printing a path, and the Vite server that loads `src/spine/` from Node.
  */
 
 import path from "node:path";
@@ -19,6 +19,9 @@ export const REPO_ROOT = path.resolve(TOOLS_DIR, "..", "..");
 
 /** The staging root used when `--staging` is not given. The staged rigs sit under its `assets/spine`. */
 export const DEFAULT_STAGING = path.join(TOOLS_DIR, ".staging");
+
+/** The `assets` subfolder scanned when `--dir` is not given: the operator rig tree, whose rigs sit three folders deep. */
+export const DEFAULT_SPINE_DIR = "spine";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -42,6 +45,26 @@ export function parseStaging(args, usage) {
 		process.exit(1);
 	}
 	return path.resolve(value);
+}
+
+/**
+ * Reads the scanned `assets` subfolder from the command line. Prints the usage line and exits 1 when `--dir` has no value.
+ *
+ * @param {string[]} args The arguments after the script name.
+ * @param {string} usage The calling tool's usage line.
+ * @returns {string} The folder name under the staging root's `assets`, such as `spine` or `spine-enemies`.
+ */
+export function parseDir(args, usage) {
+	const index = args.indexOf("--dir");
+	if (index === -1) {
+		return DEFAULT_SPINE_DIR;
+	}
+	const value = args[index + 1];
+	if (!value || value.startsWith("--")) {
+		console.error(usage);
+		process.exit(1);
+	}
+	return value;
 }
 
 /**
