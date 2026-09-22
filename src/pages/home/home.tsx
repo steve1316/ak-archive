@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { alpha, Box, Button, Card, CardActionArea, CardActions, CardContent, Container, Grid, Grow, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
@@ -7,7 +7,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
 import { ScrollToTop } from "archive-kit";
 
-import { classIconUrl, hasPortrait } from "../../lib/assets.js";
+import { classIconUrl, enemyIconUrl, hasPortrait } from "../../lib/assets.js";
 import { searchIndex } from "../../lib/data.js";
 import OperatorCarousel from "./OperatorCarousel.js";
 
@@ -35,8 +35,8 @@ const GROW_STYLE = { transformOrigin: "0 0 0" };
 /** The 8 classes in the game's own order, shown as the Operator Index card's art. */
 const CLASSES = ["Vanguard", "Guard", "Defender", "Sniper", "Caster", "Medic", "Supporter", "Specialist"] as const;
 
-/** The class icon grid, filling the card's 16:9 media box over a glow in the site's accent colour. */
-const CLASS_GRID_SX: SxProps<Theme> = {
+/** A home card's icon grid, filling its 16:9 media box over a glow in the site's accent colour. */
+const ICON_GRID_SX: SxProps<Theme> = {
 	position: "absolute",
 	inset: 0,
 	display: "grid",
@@ -47,8 +47,68 @@ const CLASS_GRID_SX: SxProps<Theme> = {
 	background: (theme) => `radial-gradient(circle at 50% 40%, ${alpha(theme.palette.primary.main, 0.3)}, ${theme.palette.background.default} 70%)`
 };
 
-/** One class icon in the grid, scaled to fit its cell. */
-const CLASS_ICON_SX: SxProps<Theme> = { width: "100%", height: "100%", objectFit: "contain", opacity: 0.9 };
+/** One icon in the grid, scaled to fit its cell. */
+const GRID_ICON_SX: SxProps<Theme> = { width: "100%", height: "100%", objectFit: "contain", opacity: 0.9 };
+
+/** Eight of the story's Leaders, shown as the Enemy Index card's art. Fixed ids, so the home page never has to load the enemy list. */
+const FEATURED_ENEMIES = ["enemy_1500_skulsr", "enemy_1502_crowns", "enemy_1503_talula", "enemy_1504_cqbw", "enemy_1505_frstar", "enemy_1506_patrt", "enemy_1507_mephi", "enemy_1508_faust"] as const;
+
+/** The Operator Index card's art: every class icon. */
+const CLASS_ICON_URLS = CLASSES.map(classIconUrl);
+
+/** The Enemy Index card's art: the featured Leaders' icons. */
+const ENEMY_ICON_URLS = FEATURED_ENEMIES.map(enemyIconUrl);
+
+/** Props for SectionCard. */
+interface SectionCardProps {
+	/** The route the card opens. */
+	to: string;
+	/** The section's name, which is also the card's heading. */
+	title: string;
+	/** One sentence on what the section holds. */
+	blurb: string;
+	/** The icons laid out as the card's art, over its 16:9 media box. */
+	icons: readonly string[];
+}
+
+/**
+ * One card linking into a section of the site: art, name, a line of text and an arrow button.
+ *
+ * @param props Component props.
+ * @returns The card.
+ */
+function SectionCard({ to, title, blurb, icons }: SectionCardProps) {
+	return (
+		<Grid size={{ xs: 12, sm: 6, md: 4 }}>
+			<Grow in style={GROW_STYLE} timeout={600}>
+				<Card sx={styles.card}>
+					{/* The artwork links to the section too, with a name for screen readers. */}
+					<CardActionArea component={Link} to={to} aria-label={title}>
+						<Box sx={styles.cardMedia}>
+							<Box sx={ICON_GRID_SX}>
+								{icons.map((url) => (
+									<Box key={url} component="img" src={url} alt="" sx={GRID_ICON_SX} />
+								))}
+							</Box>
+						</Box>
+					</CardActionArea>
+					<CardContent sx={styles.cardContent}>
+						<Typography component="h2" variant="h5" gutterBottom>
+							{title}
+						</Typography>
+						<Typography color="textSecondary">{blurb}</Typography>
+					</CardContent>
+					<CardActions sx={styles.cardButton}>
+						{/* One link styled as a button, rather than a button nested inside a link, with a name for screen readers. */}
+						<Button component={Link} to={to} size="small" variant="contained" color="primary" aria-label={`Open ${title}`}>
+							<ArrowForwardIcon />
+						</Button>
+					</CardActions>
+				</Card>
+			</Grow>
+		</Grid>
+	);
+}
 
 /**
  * Pick distinct operator ids with a portrait, uniformly at random.
@@ -83,8 +143,6 @@ export default function Home() {
 	// Stable, so the memoised carousel does not re-render whenever the home page does.
 	const reshuffle = useCallback(() => setCarouselIds(randomOperatorIds(CAROUSEL_SIZE)), []);
 
-	const classIcons = useMemo(() => CLASSES.map((name) => ({ name, url: classIconUrl(name) })), []);
-
 	return (
 		<Box component="main" sx={styles.root}>
 			<ScrollToTop />
@@ -101,34 +159,13 @@ export default function Home() {
 			{/* Cards Section for Navigation */}
 			<Container sx={styles.cardGrid} maxWidth="md">
 				<Grid container spacing={4}>
-					<Grid size={{ xs: 12, sm: 6, md: 4 }}>
-						<Grow in style={GROW_STYLE} timeout={600}>
-							<Card sx={styles.card}>
-								{/* The artwork links to the section too, with a name for screen readers. */}
-								<CardActionArea component={Link} to="/operators" aria-label="Operator Index">
-									<Box sx={styles.cardMedia}>
-										<Box sx={CLASS_GRID_SX}>
-											{classIcons.map((icon) => (
-												<Box key={icon.name} component="img" src={icon.url} alt="" sx={CLASS_ICON_SX} />
-											))}
-										</Box>
-									</Box>
-								</CardActionArea>
-								<CardContent sx={styles.cardContent}>
-									<Typography component="h2" variant="h5" gutterBottom>
-										Operator Index
-									</Typography>
-									<Typography color="textSecondary">View Index of Operators along with additional information like statistics, skills and chibi animations.</Typography>
-								</CardContent>
-								<CardActions sx={styles.cardButton}>
-									{/* One link styled as a button, rather than a button nested inside a link, with a name for screen readers. */}
-									<Button component={Link} to="/operators" size="small" variant="contained" color="primary" aria-label="Open Operator Index">
-										<ArrowForwardIcon />
-									</Button>
-								</CardActions>
-							</Card>
-						</Grow>
-					</Grid>
+					<SectionCard
+						to="/operators"
+						title="Operator Index"
+						blurb="View Index of Operators along with additional information like statistics, skills and chibi animations."
+						icons={CLASS_ICON_URLS}
+					/>
+					<SectionCard to="/enemies" title="Enemy Index" blurb="View Index of Enemies along with their handbook grades, stats per level and abilities." icons={ENEMY_ICON_URLS} />
 				</Grid>
 			</Container>
 			{/* End of Cards Section */}
