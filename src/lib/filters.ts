@@ -60,3 +60,24 @@ export function yearOptions(dates: ReadonlyArray<string | null>): string[] {
 	const years = [...new Set(dates.map(releaseYear))];
 	return years.sort((a, b) => (a === UNKNOWN_YEAR ? 1 : b === UNKNOWN_YEAR ? -1 : COLLATOR.compare(a, b)));
 }
+
+/**
+ * Compare two release days for a sort. Undated entries sort last whichever way the sort runs, and ISO days order correctly as plain strings.
+ *
+ * @param a One release day, or null.
+ * @param b The other release day, or null.
+ * @param descending Whether the sort runs newest first.
+ * @returns Negative, zero or positive, as `Array.prototype.sort` expects.
+ */
+export function compareReleaseDates(a: string | null, b: string | null, descending: boolean): number {
+	if (a === b) {
+		return 0;
+	}
+	if (a === null) {
+		return 1;
+	}
+	if (b === null) {
+		return -1;
+	}
+	return (a < b ? -1 : 1) * (descending ? -1 : 1);
+}

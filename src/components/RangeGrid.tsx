@@ -21,19 +21,19 @@ const TRAIT_FILL = `${TRAIT_AREA_COLOUR}59`;
 /** What one tile shows. */
 type TileKind = "self" | "attack" | "trait" | "empty";
 
-/** Each tile kind's look. The trait shade only ever lands on an attack tile. */
-const TILE_SX: Record<TileKind, SxProps<Theme>> = {
+/** Each tile kind's look, shared with the legend swatches. The trait shade only ever lands on an attack tile. Checked with `satisfies` so it can be spread. */
+const TILE_SX = {
 	self: { bgcolor: "text.primary", borderRadius: "2px" },
 	attack: { border: 2, borderColor: "text.secondary", borderRadius: "2px" },
 	trait: { border: 2, borderColor: TRAIT_AREA_COLOUR, bgcolor: TRAIT_FILL, borderRadius: "2px" },
 	empty: {}
-};
+} satisfies Record<TileKind, SxProps<Theme>>;
 
 /** The grid beside its legend. */
 const ROOT_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1.75 };
 
 /** One legend swatch. Checked with `satisfies` rather than annotated, so the legend can spread it - the pattern `RecordBlock.tsx` uses. */
-const SWATCH_SX = { display: "inline-block", width: 10, height: 10, mr: 0.5, verticalAlign: "-1px", borderRadius: "2px" } satisfies SxProps<Theme>;
+const SWATCH_SX = { display: "inline-block", boxSizing: "border-box", width: 10, height: 10, mr: 0.5, verticalAlign: "-1px" } satisfies SxProps<Theme>;
 
 /** The legend line under the label. */
 const LEGEND_SX: SxProps<Theme> = { display: "flex", flexWrap: "wrap", columnGap: 1.5, fontSize: 12, color: "text.secondary", mt: 0.5 };
@@ -95,16 +95,16 @@ export default function RangeGrid({ rangeId, traitRangeId = null, label = "Attac
 				</Typography>
 				<Box sx={LEGEND_SX}>
 					<span>
-						<Box component="span" sx={{ ...SWATCH_SX, bgcolor: "text.primary" }} />
+						<Box component="span" sx={{ ...SWATCH_SX, ...TILE_SX.self }} />
 						Operator
 					</span>
 					<span>
-						<Box component="span" sx={{ ...SWATCH_SX, border: 2, borderColor: "text.secondary" }} />
+						<Box component="span" sx={{ ...SWATCH_SX, ...TILE_SX.attack }} />
 						Range
 					</span>
 					{layout.hasTrait ? (
 						<span>
-							<Box component="span" sx={{ ...SWATCH_SX, border: 1, borderColor: TRAIT_AREA_COLOUR, bgcolor: TRAIT_FILL }} />
+							<Box component="span" sx={{ ...SWATCH_SX, ...TILE_SX.trait }} />
 							Trait area
 						</span>
 					) : null}

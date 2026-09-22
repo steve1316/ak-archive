@@ -6,7 +6,7 @@ import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, ScrollToTop, findNam
 import type { ActiveFilter, SortOption } from "archive-kit";
 
 import { loadAllEnemies } from "../../lib/data.js";
-import { COLLATOR, optionsOf, releaseYear, toggled, yearOptions } from "../../lib/filters.js";
+import { COLLATOR, compareReleaseDates, optionsOf, releaseYear, toggled, yearOptions } from "../../lib/filters.js";
 import type { Enemy } from "../../types/enemy.js";
 import EnemyCard from "./EnemyCard.js";
 import EnemyFilterRows, { LEVEL_ORDER } from "./EnemyFilterRows.js";
@@ -49,9 +49,8 @@ function sortEnemies(enemies: Enemy[], key: SortKey, descending: boolean): Enemy
 	}
 	const direction = descending ? -1 : 1;
 	return [...enemies].sort((a, b) => {
-		// Undated enemies sit at the bottom whichever way the release sort runs.
-		if (key === "release" && (a.releaseDate === null) !== (b.releaseDate === null)) {
-			return a.releaseDate === null ? 1 : -1;
+		if (key === "release") {
+			return compareReleaseDates(a.releaseDate, b.releaseDate, descending) || a.sortId - b.sortId;
 		}
 		let order: number;
 		switch (key) {
@@ -63,9 +62,6 @@ function sortEnemies(enemies: Enemy[], key: SortKey, descending: boolean): Enemy
 				break;
 			case "name":
 				order = COLLATOR.compare(a.name, b.name);
-				break;
-			case "release":
-				order = COLLATOR.compare(a.releaseDate ?? "", b.releaseDate ?? "");
 				break;
 		}
 		return direction * order || a.sortId - b.sortId;

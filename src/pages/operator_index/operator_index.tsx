@@ -6,7 +6,7 @@ import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, ScrollToTop, findNam
 import type { ActiveFilter, SortOption } from "archive-kit";
 
 import { loadAllOperators } from "../../lib/data.js";
-import { COLLATOR, optionsOf, releaseYear, toggled, yearOptions } from "../../lib/filters.js";
+import { COLLATOR, compareReleaseDates, optionsOf, releaseYear, toggled, yearOptions } from "../../lib/filters.js";
 import type { Operator } from "../../types/operator.js";
 import OperatorCard from "./OperatorCard.js";
 import OperatorFilterRows, { CLASS_ORDER } from "./OperatorFilterRows.js";
@@ -48,9 +48,8 @@ const NATURAL_DESCENDING: Record<SortKey, boolean> = { rarity: true, name: false
 function sortOperators(operators: Operator[], key: SortKey, descending: boolean): Operator[] {
 	const direction = descending ? -1 : 1;
 	return [...operators].sort((a, b) => {
-		// Undated operators sit at the bottom whichever way the release sort runs, rather than flipping to the top on a reverse.
-		if (key === "release" && (a.releaseDate === null) !== (b.releaseDate === null)) {
-			return a.releaseDate === null ? 1 : -1;
+		if (key === "release") {
+			return compareReleaseDates(a.releaseDate, b.releaseDate, descending) || COLLATOR.compare(a.name, b.name);
 		}
 		let order: number;
 		switch (key) {
@@ -63,9 +62,6 @@ function sortOperators(operators: Operator[], key: SortKey, descending: boolean)
 				break;
 			case "name":
 				order = COLLATOR.compare(a.name, b.name);
-				break;
-			case "release":
-				order = COLLATOR.compare(a.releaseDate ?? "", b.releaseDate ?? "");
 				break;
 		}
 		return direction * order || COLLATOR.compare(a.name, b.name);
