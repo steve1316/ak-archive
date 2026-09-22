@@ -106,8 +106,7 @@ export function spineFormKey(pageKey: string, entry: SpineEntry): string | null 
 }
 
 /**
- * Builds a loader that fetches one index once and shares the request with every later call. A failed fetch is forgotten, so the next call
- * tries again.
+ * Builds a loader that fetches one index once and shares the request with every later call. A failed fetch is forgotten, so the next call tries again.
  *
  * @param url The index's URL.
  * @param what What to call the index in an error.
@@ -131,8 +130,16 @@ function cachedIndex<T>(url: string, what: string): () => Promise<T> {
 	};
 }
 
-/** Fetches the operator rig index once and caches it for every later call. */
+/**
+ * Fetches the operator rig index once and caches it for every later call.
+ *
+ * @returns The index.
+ */
 export const loadSpineIndex = cachedIndex<SpineIndex>(SPINE_INDEX_URL, "rig index");
 
-/** Fetches the enemy rig index once and caches it for every later call. */
+/**
+ * Fetches the enemy rig index once and caches it for every later call.
+ *
+ * @returns The index.
+ */
 export const loadEnemySpineIndex = cachedIndex<EnemySpineIndex>(ENEMY_SPINE_INDEX_URL, "enemy rig index");

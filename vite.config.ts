@@ -19,8 +19,8 @@ const BASE = process.env.VITE_BASE ?? "/ak-archive/";
 const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * The dev routes that serve staged Spine rigs straight from the offline pipeline's staging folder: operator rigs under `__spine/` and enemy
- * rigs under `__spine-enemies/`. Never bundled.
+ * The dev routes that serve staged Spine rigs straight from the offline pipeline's staging folder:
+ * operator rigs under `__spine/` and enemy rigs under `__spine-enemies/`. Never bundled.
  */
 const SPINE_STAGING_ROUTES: ReadonlyArray<{ prefix: string; root: string }> = [
 	{ prefix: "__spine/", root: path.join(REPO_ROOT, "tools/assets/.staging/assets/spine") },
@@ -70,8 +70,7 @@ async function serveStagedSpineFile(root: string, rawPath: string, res: ServerRe
 
 /**
  * Dev-only middleware serving staged Spine rig files under `<base>__spine/` and `<base>__spine-enemies/`, straight from the offline
- * pipeline's staging folder. The `apply: "serve"` guard keeps this out of `vite build` entirely, so a production build never touches the
- * staging folder.
+ * pipeline's staging folder. The `apply: "serve"` guard keeps this out of `vite build` entirely, so a production build never touches the staging folder.
  *
  * @returns The Vite plugin.
  */
