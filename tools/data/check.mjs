@@ -101,9 +101,6 @@ const MARKUP = /<[^>]+>|\{-?[a-zA-Z@][^}]*\}/;
 /** The locked placeholder upstream ships for handbook content not yet unlocked. Any of it in shipped text means the profile filter missed it. */
 const PLACEHOLDER = /^[？?\s]+$/;
 
-/** A base skill's room must resolve to a display name such as "Trading Post". All-caps like TRADING means the room lookup missed it. */
-const RAW_ROOM_ENUM = /^[A-Z_]+$/;
-
 /** Problems found so far. The run reports all of them rather than stopping at the first. */
 const failures = [];
 
@@ -192,12 +189,16 @@ if (byId.size !== operators.length) {
 	fail(`${operators.length - byId.size} duplicate operator ids across shards`);
 }
 
-// Regression gate: skills, record and baseSkills moved to the details file, so a shard record still carrying one means the importer regressed.
+// Regression gate: skills and record moved to the details file, so a shard record still carrying one means the importer regressed. Base
+// skills were dropped from the site, so no file may carry them.
 for (const operator of operators) {
 	for (const field of ["skills", "record", "baseSkills"]) {
 		if (Object.hasOwn(operator, field)) {
-			fail(`${operator.id} in its shard still carries ${field}, which belongs in the details file now`);
+			fail(`${operator.id} in its shard still carries ${field}`);
 		}
+	}
+	if (Object.hasOwn(detailsById.get(operator.id) ?? {}, "baseSkills")) {
+		fail(`${operator.id} still carries baseSkills in its details file, which the site no longer shows`);
 	}
 }
 
@@ -443,25 +444,14 @@ if (withExam < MIN_RECORD_EXAM) {
 }
 
 // Profile placeholders. Upstream ships a locked handbook entry as literal full-width question marks for content not yet unlocked, and it must
-// not survive the import - Amiya carries the only one at the pinned sha, in her lore. Base skills are walked too since they come from the same
-// handbook parse, though they now ride in the details file rather than the side file.
+// not survive the import - Amiya carries the only one at the pinned sha, in her lore.
 for (const shard of SHARDS) {
 	const profiles = shardProfiles.get(shard.key);
-	const details = shardDetails.get(shard.key);
 	for (const operator of shardOperators.get(shard.key)) {
 		const lore = profiles[operator.id]?.lore ?? [];
 		for (const [index, section] of lore.entries()) {
 			if (PLACEHOLDER.test(section.title) || PLACEHOLDER.test(section.text)) {
 				fail(`${operator.id} lore section ${index} kept a placeholder: ${JSON.stringify(section.title)} / ${JSON.stringify(section.text)}`);
-			}
-		}
-		const baseSkills = details[operator.id]?.baseSkills ?? [];
-		for (const [index, skill] of baseSkills.entries()) {
-			if (PLACEHOLDER.test(skill.name ?? "") || PLACEHOLDER.test(skill.description ?? "")) {
-				fail(`${operator.id} base skill ${index} kept a placeholder: ${JSON.stringify(skill.name)}`);
-			}
-			if (RAW_ROOM_ENUM.test(skill.room ?? "")) {
-				fail(`${operator.id} base skill ${index} has an unresolved room: ${JSON.stringify(skill.room)}`);
 			}
 		}
 	}

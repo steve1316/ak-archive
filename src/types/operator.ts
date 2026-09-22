@@ -167,14 +167,12 @@ export interface Operator {
 	forms: OperatorFormEntry[];
 }
 
-/** The operator page's own data: skills, handbook record and base skills, kept out of the index shard the operator page never draws. */
+/** The operator page's own data: skills and handbook record, kept out of the index shard the operator page never draws. */
 export interface OperatorDetails {
 	/** Combat skills in slot order. Empty for the operators that have none. */
 	skills: OperatorSkill[];
 	/** The handbook's Basic Info and Physical Exam, parsed. Those two sections are not in the lore. */
 	record: HandbookRecord;
-	/** RIIC base skills. */
-	baseSkills: BaseSkill[];
 }
 
 /** An operator plus its details, which is what the operator page renders. */
@@ -186,22 +184,6 @@ export interface LoreSection {
 	title: string;
 	/** The section body, with line breaks kept. */
 	text: string;
-}
-
-/** One RIIC base skill, as `building_data` describes it. */
-export interface BaseSkill {
-	/** Upstream buff id. */
-	id: string;
-	/** The skill's name. */
-	name: string;
-	/** Which base room it applies in, resolved to the game's display name, such as `Trading Post`. */
-	room: string;
-	/** What it does, with markup stripped. */
-	description: string;
-	/** The 0-based elite phase that unlocks it. */
-	phase: number;
-	/** The level within `phase` that unlocks it. */
-	level: number;
 }
 
 /** One field of the handbook's bracketed record, such as `[Height] 192cm`. */

@@ -118,7 +118,7 @@ export async function loadProfile(id: string): Promise<Profile | undefined> {
 }
 
 /**
- * Load one operator's skills, handbook record and base skills.
+ * Load one operator's skills and handbook record.
  *
  * The operator page fetches this alongside `loadOperator`, so the two requests start together, unlike `loadProfile`, which waits for the
  * handbook section to scroll into view.
@@ -138,9 +138,9 @@ export async function loadOperatorDetails(id: string): Promise<OperatorDetails |
 /**
  * Load every operator, for the index, which genuinely renders all of them.
  *
- * All eight shards come to 1122 KB raw and 116 KB gzipped, both measured from the production build at the pinned sha, now that skills, the
- * handbook record and base skills live in the details files instead. The filter axes the index needs - subclass, nation, tags - are
- * deliberately not in the search index, because that file renders on every route and must stay small.
+ * All eight shards come to 1122 KB raw and 116 KB gzipped, both measured from the production build at the pinned sha, now that skills and the
+ * handbook record live in the details files instead. The filter axes the index needs - subclass, nation, tags - are deliberately not in the
+ * search index, because that file renders on every route and must stay small.
  *
  * @returns Every operator, in shard order.
  */

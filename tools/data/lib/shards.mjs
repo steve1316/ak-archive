@@ -3,7 +3,7 @@
  *
  * GFL shards by numeric id range. Arknights ids are strings such as `char_002_amiya`, and class is the index's main filter axis anyway, so the
  * split is by class instead. Each class has three files: `file` holds the records the index reads, `profiles` holds the same operators'
- * handbook prose (lore only), and `details` holds their skills, handbook record and base skills - the operator page loads `file` and `details`
+ * handbook prose (lore only), and `details` holds their skills and handbook record - the operator page loads `file` and `details`
  * together, and `profiles` only once the handbook section scrolls into view. `src/lib/data.ts` must list the same files in the same order.
  *
  * Measured at the pinned commit the classes are uneven - WARRIOR 83 down to MEDIC 38 - so these are not the even ~50 shards first planned. The

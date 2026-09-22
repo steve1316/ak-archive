@@ -11,10 +11,10 @@
 const MARKUP = /<[^>]*>/g;
 
 /**
- * Upstream ships a locked field - a talent name, a lore section's body, a base skill's text - as literal full-width question marks when its
+ * Upstream ships a locked field - a talent name, a lore section's body - as literal full-width question marks when its
  * content has not unlocked yet at the pinned sha, rather than omitting the field. `*` rather than `+` so an empty string also counts as a
  * placeholder: some callers filter empty text separately and some do not, and the shipped data has zero empty names, titles or texts across
- * 3554 lore sections, 880 base skills and 1755 talent candidates, so the permissive form is safe everywhere and catches slightly more for free.
+ * 3554 lore sections and 1755 talent candidates, so the permissive form is safe everywhere and catches slightly more for free.
  */
 const UPSTREAM_PLACEHOLDER = /^[？?\s]*$/;
 

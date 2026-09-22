@@ -5,19 +5,18 @@
  */
 
 import { asArray } from "./json.mjs";
-import { phaseOf } from "./operators.mjs";
 import { splitRecord } from "./record.mjs";
 import { isPlaceholder, stripMarkup } from "./text.mjs";
 
 /**
- * One operator's lore sections, handbook record and base skills, split into a shard half and a side half.
+ * One operator's lore sections and handbook record, split into a shard half and a side half.
  *
  * @param {string} id The operator id.
- * @param {object} context Lookups: `handbookDict` from `handbook_info_table`, and `chars`, `buffs` plus `rooms` from `building_data`.
- * @returns {{shard: {record: object, baseSkills: Array<object>}, side: {lore: Array<{title: string, text: string}>}}} The record and base
- *   skills sit above the fold, so they ride in the shard the page already loads, and the lore alone stays in the side file.
+ * @param {object} context Lookups: `handbookDict` from `handbook_info_table`.
+ * @returns {{shard: {record: object}, side: {lore: Array<{title: string, text: string}>}}} The record sits above the fold, so it rides in the
+ *   shard the page already loads, and the lore alone stays in the side file.
  */
-export function buildHandbook(id, { handbookDict, buildingChars, buildingBuffs, buildingRooms }) {
+export function buildHandbook(id, { handbookDict }) {
 	const sections = asArray(handbookDict[id]?.storyTextAudio);
 	const lore = sections
 		.map((section) => ({
@@ -33,27 +32,6 @@ export function buildHandbook(id, { handbookDict, buildingChars, buildingBuffs, 
 		// no matter how the title reads.
 		.filter((section) => !isPlaceholder(section.text));
 
-	const baseSkills = [];
-	for (const slot of asArray(buildingChars[id]?.buffChar)) {
-		for (const entry of asArray(slot.buffData)) {
-			const buff = buildingBuffs[entry.buffId];
-			if (!buff) {
-				continue;
-			}
-			baseSkills.push({
-				id: entry.buffId,
-				name: buff.buffName,
-				// `buff.roomType` is the raw enum, such as `TRADING`. `building_data`'s own `rooms` dict has the display name the game shows,
-				// the same way `operators.mjs` resolves class and position - falling back to the enum only if a room is ever missing there.
-				room: buildingRooms[buff.roomType]?.name ?? buff.roomType,
-				description: stripMarkup(buff.description),
-				// The unlock condition is an elite phase plus a level, which is what a page shows beside the skill. `phaseOf` throws on anything
-				// the enum does not cover, rather than quietly calling it E0.
-				phase: phaseOf(entry.cond?.phase),
-				level: entry.cond?.level ?? 1
-			});
-		}
-	}
 	const { record, lore: prose } = splitRecord(lore);
-	return { shard: { record, baseSkills }, side: { lore: prose } };
+	return { shard: { record }, side: { lore: prose } };
 }

@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 
-import { Box, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Paper, Tab, Tabs, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { eliteIconUrl, potentialIconUrl } from "../../lib/icons.js";
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
-import type { BaseSkill, Controls, OperatorFull } from "../../types/operator.js";
+import type { Controls, OperatorFull } from "../../types/operator.js";
 import { RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "./layout.js";
 import SkillsPanel from "./SkillsPanel.js";
 
@@ -59,7 +59,7 @@ const POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center"
 const POTENTIAL_ICON_SX: SxProps<Theme> = { width: 34, height: 34, flex: "none" };
 
 /** Which tab of the Abilities card is open. */
-type AbilityTab = "skills" | "talents" | "potentials" | "base";
+type AbilityTab = "skills" | "talents" | "potentials";
 
 /**
  * One talent resolved for display at the page's current controls: either its unlocked candidate - with the base candidate's description kept
@@ -76,16 +76,6 @@ interface AbilitiesCardProps {
 	operator: OperatorFull;
 	/** The page's controls, which pick each talent's candidate. */
 	controls: Controls;
-}
-
-/**
- * The room and unlock condition shown under a base skill's name, such as "Trading - Unlocks at E0 Lv1".
- *
- * @param skill The base skill to describe.
- * @returns The formatted room and unlock text.
- */
-function baseSkillMeta(skill: BaseSkill): string {
-	return `${skill.room} - Unlocks at E${skill.phase} Lv${skill.level}`;
 }
 
 /**
@@ -120,7 +110,7 @@ function resolveTalents(operator: OperatorFull, phase: number, level: number, po
 }
 
 /**
- * The operator page's Abilities card: talents, potentials and base skills in their own tabs, with a talent value highlighted when it differs
+ * The operator page's Abilities card: skills, talents and potentials in their own tabs, with a talent value highlighted when it differs
  * from the talent's base candidate and a parenthesised potential delta - such as `(+2%)` in `ATK +7% (+2%)` - always highlighted, since it is
  * upstream's own mark for what the current potential adds.
  *
@@ -139,9 +129,6 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 		list.push({ key: "talents", label: "Talents" });
 		if (operator.potentials.length > 0) {
 			list.push({ key: "potentials", label: "Potentials" });
-		}
-		if (operator.baseSkills.length > 0) {
-			list.push({ key: "base", label: "Base skills" });
 		}
 		return list;
 	}, [operator]);
@@ -189,21 +176,6 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 		</Box>
 	);
 
-	const baseSkillRows = (
-		<Stack spacing={0.875} sx={BODY_SX}>
-			{operator.baseSkills.map((skill) => (
-				<Box key={skill.id}>
-					<Typography component="span" sx={{ fontWeight: 700 }}>
-						{skill.name}
-					</Typography>
-					<Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-						{baseSkillMeta(skill)}
-					</Typography>
-				</Box>
-			))}
-		</Stack>
-	);
-
 	return (
 		<Paper variant="outlined" sx={SECTION_SX}>
 			<Tabs value={shown} onChange={handleTab} variant="scrollable" allowScrollButtonsMobile aria-label="Abilities" sx={TABS_SX}>
@@ -214,7 +186,6 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 			{shown === "skills" ? <SkillsPanel key={operator.id} skills={operator.skills} phase={controls.phase} /> : null}
 			{shown === "talents" ? <Box sx={TILES_SX}>{talentTiles}</Box> : null}
 			{shown === "potentials" ? potentialRows : null}
-			{shown === "base" ? baseSkillRows : null}
 		</Paper>
 	);
 }
