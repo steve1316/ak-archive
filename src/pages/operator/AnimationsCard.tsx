@@ -53,7 +53,7 @@ const KIND_SX: SxProps<Theme> = { flex: "none", mb: SECTION_HEADING_GAP };
 /** The Front/Back switch under the Battle tab. */
 const FACING_SX: SxProps<Theme> = { flex: "none", alignSelf: "center", mb: SECTION_HEADING_GAP };
 
-/** The caption block under the stage: the playing animation, then the interaction hint. */
+/** The caption under the stage, naming the playing animation. */
 const CAPTION_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center", display: "flex", flexDirection: "column" };
 
 /** The caption block while nothing plays: hidden, but still holding its height. */
@@ -67,7 +67,7 @@ const PLACEHOLDER_ICON_SX: SxProps<Theme> = { width: 70, display: "block", mx: "
 
 /** Props for AnimationsCard. */
 interface AnimationsCardProps {
-	/** Whether the stage responds to clicks, wheel and drags. The caption describing them is only shown when it does. */
+	/** Whether the stage plays and responds to clicks, wheel and drags. The animation caption is only shown when it does. */
 	interactive: boolean;
 	/** Draws the stage for the selected rig kind and facing. */
 	renderStage: (request: StageRequest) => ReactNode;
@@ -144,13 +144,10 @@ export default function AnimationsCard({ interactive, renderStage }: AnimationsC
 			) : null}
 			<Box sx={STAGE_SX}>{renderStage({ kind, facing: chosenFacing, onStatus: setStatus })}</Box>
 			{interactive ? (
-				// Both lines keep their height while nothing plays, so the stage does not jump when a chibi loads.
+				// The caption keeps its height while nothing plays, so the stage does not jump when a chibi loads.
 				<Box sx={status.caption === null ? CAPTION_HIDDEN_SX : CAPTION_SX}>
 					<Typography variant="caption" color="text.primary" aria-live="polite">
 						{status.caption ?? "\u00a0"}
-					</Typography>
-					<Typography variant="caption" color="text.secondary">
-						Click to cycle · scroll to zoom · drag to pan
 					</Typography>
 				</Box>
 			) : null}
