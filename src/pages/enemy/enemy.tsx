@@ -1,0 +1,194 @@
+import { useCallback, useEffect, useState } from "react";
+
+import { Box, Paper, Typography } from "@mui/material";
+import type { SxProps, Theme } from "@mui/material";
+import { Navigate, useParams, useSearchParams } from "react-router-dom";
+
+import { ArtPlaceholder, ENEMY_CARD_ASPECT, LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
+
+import RecordBlock from "../../components/RecordBlock.js";
+import { enemyIconUrl, hasEnemyIcon } from "../../lib/assets.js";
+import { loadEnemyGroup } from "../../lib/data.js";
+import { PAGE_SX, SECTION_HEADING_SX, SECTION_SX, STATS_ROW_SX, TIGHT_RADIUS } from "../../lib/layout.js";
+import { enemyPath, enemySlug, resolveEnemySlug, VARIANT_PARAM } from "../../lib/routes.js";
+import NotFound404 from "../../not_found_404.js";
+import type { Enemy, EnemyDetails } from "../../types/enemy.js";
+import type { HandbookRecord } from "../../types/operator.js";
+import EnemyAbilitiesCard from "./EnemyAbilitiesCard.js";
+import EnemyIdentityBlock from "./EnemyIdentityBlock.js";
+import EnemyStatsPanel from "./EnemyStatsPanel.js";
+
+/** The icon column's width, the same as the operator page's art card so the two pages line up. */
+const ICON_WIDTH = 180;
+
+/** Row 1: icon, then identity and record. Stacked on a narrow screen. */
+const ROW1_SX: SxProps<Theme> = { mb: 2, display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: `${ICON_WIDTH}px minmax(0, 1fr)` } };
+
+/** The icon. The game draws it on a transparent canvas, so it sits on a card-coloured square. */
+const ICON_SX: SxProps<Theme> = {
+	display: "block",
+	width: ICON_WIDTH,
+	aspectRatio: ENEMY_CARD_ASPECT,
+	objectFit: "contain",
+	border: 1,
+	borderColor: "divider",
+	borderRadius: TIGHT_RADIUS,
+	bgcolor: "background.paper",
+	justifySelf: { xs: "center", md: "start" }
+};
+
+/** The handbook's lore paragraph. */
+const LORE_SX: SxProps<Theme> = { fontSize: 14.5, lineHeight: 1.7, whiteSpace: "pre-line", maxWidth: "80ch" };
+
+/**
+ * The record fields for one variant, in the shape `RecordBlock` draws.
+ *
+ * @param details The variant's details.
+ * @returns The fields. Race is left out, since the name line already shows it, and enemies have no physical exam, so `exam` is always empty.
+ */
+function recordOf(details: EnemyDetails): HandbookRecord {
+	const field = (label: string, value: string) => ({ label, value, grade: null });
+	return {
+		basic: [field("Attack", details.attack), field("Damage", details.damage.join(", ")), field("Movement", details.motion)],
+		exam: []
+	};
+}
+
+/**
+ * The enemy detail page: the same two rows as the operator page, then the handbook's lore.
+ *
+ * A group's variants share one page. The selected variant lives in the query string as `?variant=`, as the operator page keeps its form in
+ * `?skin=`, and switching replaces the history entry. A link straight to a variant's own id, such as `/enemy/1007_slime_2`, is sent to its
+ * group's page with that variant selected.
+ *
+ * @returns The page.
+ */
+export default function EnemyPage() {
+	const id = resolveEnemySlug(useParams().id);
+	const [searchParams, setSearchParams] = useSearchParams();
+
+	const [group, setGroup] = useState<{ enemy: Enemy; details: Record<string, EnemyDetails> } | null>(null);
+	const [missing, setMissing] = useState(false);
+	const [error, setError] = useState(false);
+	// Bumped by the retry button to run the load again.
+	const [attempt, setAttempt] = useState(0);
+	const [level, setLevel] = useState(0);
+
+	useEffect(() => {
+		if (!id) {
+			setMissing(true);
+			return;
+		}
+		let active = true;
+		setGroup(null);
+		setMissing(false);
+		setError(false);
+		loadEnemyGroup(id).then(
+			(loaded) => {
+				if (!active) {
+					return;
+				}
+				if (!loaded) {
+					setMissing(true);
+					return;
+				}
+				setGroup(loaded);
+			},
+			() => {
+				if (active) {
+					setError(true);
+				}
+			}
+		);
+		return () => {
+			active = false;
+		};
+	}, [id, attempt]);
+
+	// The selected variant: the query string's, when it names one of this group's, otherwise the head, which the importer always lists first.
+	const requested = resolveEnemySlug(searchParams.get(VARIANT_PARAM));
+	const variant = group?.enemy.variants.find((entry) => entry.id === requested) ?? group?.enemy.variants[0];
+	const details = variant ? group?.details[variant.id] : undefined;
+	// A level past the new variant's last falls back to level 0 in this same render, rather than an effect that resets it after paint.
+	const shownLevel = details && level < details.levels.length ? level : 0;
+
+	const handleRetry = useCallback(() => setAttempt((current) => current + 1), []);
+
+	const handleVariantChange = useCallback(
+		(next: string) => {
+			setSearchParams(
+				(current) => {
+					const params = new URLSearchParams(current);
+					if (next === group?.enemy.id) {
+						params.delete(VARIANT_PARAM);
+					} else {
+						params.set(VARIANT_PARAM, enemySlug(next));
+					}
+					return params;
+				},
+				{ replace: true }
+			);
+		},
+		[group, setSearchParams]
+	);
+
+	if (missing) {
+		return <NotFound404 />;
+	}
+	// A variant's own id opens its group's page with it selected.
+	if (group && id && id !== group.enemy.id) {
+		return <Navigate to={enemyPath(group.enemy.id, id)} replace />;
+	}
+
+	return (
+		<Box component="main">
+			<PageBackdrop artUrl={undefined} />
+			<ScrollToTop />
+			<Box sx={PAGE_SX}>
+				{error || (group && !details) ? (
+					<LoadError what="this enemy" onRetry={handleRetry} titleComponent="h1" />
+				) : group && variant && details ? (
+					<>
+						<Box sx={ROW1_SX}>
+							{hasEnemyIcon(variant.id) ? (
+								<Box component="img" src={enemyIconUrl(variant.id)} alt={variant.name} sx={ICON_SX} />
+							) : (
+								<ArtPlaceholder name={variant.name} aspect={ENEMY_CARD_ASPECT} sx={{ width: ICON_WIDTH }} />
+							)}
+							<Box sx={{ minWidth: 0 }}>
+								<EnemyIdentityBlock
+									name={variant.name}
+									index={variant.index}
+									level={details.level}
+									races={details.races}
+									variants={group.enemy.variants}
+									variantId={variant.id}
+									onVariantChange={handleVariantChange}
+								/>
+								<RecordBlock record={recordOf(details)} affiliation={null} trait={details.description} />
+							</Box>
+						</Box>
+						<Box sx={STATS_ROW_SX}>
+							<EnemyStatsPanel levels={details.levels} level={shownLevel} onLevelChange={setLevel} />
+							<EnemyAbilitiesCard abilities={details.abilities} />
+						</Box>
+						<Box sx={{ mt: 2 }}>
+							<Paper variant="outlined" sx={SECTION_SX}>
+								<Typography variant="h6" component="h2" sx={SECTION_HEADING_SX}>
+									Handbook
+								</Typography>
+								<Typography component="p" sx={LORE_SX}>
+									{details.lore}
+								</Typography>
+							</Paper>
+						</Box>
+					</>
+				) : (
+					<Typography variant="body1" color="text.secondary" role="status">
+						Loading...
+					</Typography>
+				)}
+			</Box>
+		</Box>
+	);
+}
