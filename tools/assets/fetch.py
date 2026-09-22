@@ -8,8 +8,9 @@ directories are checked out of a repo that is 17.8 GB whole - this pulls about 9
 whose portrait `charpor` stopped carrying after October 2025. Its `en` branch is refreshed hourly by the repo's own GitHub Actions
 job, so it stays current on its own and the 8 class icons no longer depend on the dead `Aceship/Arknight-Images` mirror. `--only enemies` pulls just `enemy`
 (the 158x158 handbook icons) out of `fexli/ArknightsResource` into a clone of its own, pinned by its own lock, so refreshing enemy icons never
-moves the sha the operator art was taken from. `--only enemy-spine` pulls `models_enemies` (enemy chibi rigs) out of `isHarryh/Ark-Models` into its own clone and lock. No stage produces anything the site reads - later pipeline stages re-encode this staged tree
-to WebP and publish it.
+moves the sha the operator art was taken from. `--only enemy-spine` pulls `models_enemies` (enemy chibi rigs)
+out of `isHarryh/Ark-Models` into its own clone and lock. No stage produces anything the site reads - later
+pipeline stages re-encode this staged tree to WebP and publish it.
 See `PROJECT.md` for the mirror decisions behind both sources.
 
 Usage:
