@@ -146,6 +146,9 @@ const FORM_DATE_FIXTURES = [
 	{ id: "char_103_angel", key: "1", date: null }
 ];
 
+/** Exusiai's chips, oldest outfit first after her default art: Wild Operation (2020), Midnight Delivery (2023), City Rider (2024). */
+const FORM_ORDER_FIXTURES = [{ id: "char_103_angel", keys: ["1", "2", "wild_1", "sale_8", "kfc_1"] }];
+
 /** Hand-checked debut lines: a launch enemy, a main story boss that arrived later, and an event enemy whose event has since rerun. */
 const ENEMY_DEBUT_FIXTURES = [
 	{ id: "enemy_1007_slime", debut: "Game launch" },
@@ -925,6 +928,23 @@ for (const operator of operators) {
 		} else if (form.releaseDate !== null && !DATE_PATTERN.test(form.releaseDate)) {
 			fail(`${operator.id} form ${form.key} has a malformed releaseDate ${form.releaseDate}`);
 		}
+	}
+}
+for (const operator of operators) {
+	// Default art comes first, then outfits oldest to newest.
+	const dates = operator.forms.map((form) => form.releaseDate);
+	const firstOutfit = dates.findIndex((date) => date !== null);
+	if (firstOutfit !== -1 && dates.slice(firstOutfit).some((date, index, list) => date === null || (index > 0 && date < list[index - 1]))) {
+		fail(`${operator.id} forms are not default art first, then outfits oldest to newest`);
+	}
+}
+for (const fixture of FORM_ORDER_FIXTURES) {
+	const actual = byId
+		.get(fixture.id)
+		?.forms.map((form) => form.key)
+		.join(", ");
+	if (actual !== fixture.keys.join(", ")) {
+		fail(`${fixture.id} forms are ${actual}, expected ${fixture.keys.join(", ")}`);
 	}
 }
 for (const fixture of FORM_DATE_FIXTURES) {

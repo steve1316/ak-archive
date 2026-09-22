@@ -36,10 +36,31 @@ export function normaliseFormKey(key) {
 }
 
 /**
+ * Order two forms: default art first, then outfits by release day, with `sortId` breaking every tie.
+ *
+ * @param {{releaseDate: string | null, sortId: number}} a One form.
+ * @param {{releaseDate: string | null, sortId: number}} b The other form.
+ * @returns {number} Negative, zero or positive, as `Array.prototype.sort` expects.
+ */
+function compareForms(a, b) {
+	if (a.releaseDate !== b.releaseDate) {
+		if (a.releaseDate === null) {
+			return -1;
+		}
+		if (b.releaseDate === null) {
+			return 1;
+		}
+		return a.releaseDate < b.releaseDate ? -1 : 1;
+	}
+	return a.sortId - b.sortId;
+}
+
+/**
  * Group the skin table's outfits into each operator's forms.
  *
- * An outfit with no name is kept only when it is a known default outfit, since anything else would need a label invented for it. Order follows
- * upstream's `sortId`, which puts the default outfits first.
+ * An outfit with no name is kept only when it is a known default outfit, since anything else would need a label invented for it. Default art
+ * comes first in upstream's `sortId` order, then outfits oldest to newest by Global release, with outfits released the same day kept in `sortId`
+ * order.
  *
  * @param {Record<string, any>} charSkins The skin table's `charSkins` map.
  * @returns {Map<string, {key: string, name: string, releaseDate: string | null}[]>} Forms keyed by operator id, each list in display order. An
@@ -68,7 +89,7 @@ export function buildForms(charSkins) {
 
 	const forms = new Map();
 	for (const [owner, list] of grouped) {
-		list.sort((a, b) => a.sortId - b.sortId);
+		list.sort(compareForms);
 		forms.set(
 			owner,
 			list.map(({ key, name, releaseDate }) => ({ key, name, releaseDate }))
