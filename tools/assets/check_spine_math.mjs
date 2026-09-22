@@ -1609,6 +1609,94 @@ function checkDrawing(rendererModule) {
 	return runCases("drawing", cases);
 }
 
+/**
+ * Builds a path attachment with plain vertices.
+ *
+ * @param {number[]} points The vertex coordinates, flattened as x0, y0, x1, y1, ... in `[handle in, knot, handle out]` triplets.
+ * @param {boolean} closed Whether the last knot joins back to the first.
+ * @returns {import("../../src/spine/types.ts").PathAttachment} The attachment.
+ */
+function pathAttachment(points, closed) {
+	return {
+		type: "path",
+		name: "path",
+		closed,
+		constantSpeed: true,
+		vertices: { weighted: false, values: Float32Array.from(points) },
+		lengths: new Float32Array(points.length / 6),
+		color: null
+	};
+}
+
+/**
+ * Builds a one-slot skeleton on an identity root showing a path, posed, with a sampler for the path filled in.
+ *
+ * @param {object} modules The loaded `skeleton` and `paths` modules.
+ * @param {number[]} points The path's vertex coordinates, as `pathAttachment` takes them.
+ * @param {boolean} closed Whether the path is closed.
+ * @returns {object} The sampler after `samplePath`.
+ */
+function sampledPath(modules, points, closed) {
+	const attachment = pathAttachment(points, closed);
+	const skins = [{ name: "default", attachments: new Map([[0, new Map([["path", attachment]])]]) }];
+	const skeleton = new modules.skeleton.Skeleton(skeletonData([{}], [slotData("path", "path")], skins));
+	skeleton.updateWorldTransform();
+	const sampler = modules.paths.createPathSampler(attachment);
+	modules.paths.samplePath(sampler, skeleton, skeleton.slots[0], attachment);
+	return sampler;
+}
+
+/**
+ * Reads the point and direction at a distance along a sampled path. The angle is returned as its cosine and sine, so a half turn compares
+ * equal whether it comes out as PI or -PI.
+ *
+ * @param {object} pathsModule The loaded `paths.ts` module.
+ * @param {object} sampler The sampled path.
+ * @param {number} distance The distance along the path.
+ * @returns {number[]} `[x, y, cos(angle), sin(angle)]`.
+ */
+function pathPoint(pathsModule, sampler, distance) {
+	const out = new Float64Array(3);
+	pathsModule.pointAt(sampler, distance, out, 0);
+	return [out[0], out[1], Math.cos(out[2]), Math.sin(out[2])];
+}
+
+/**
+ * Checks path geometry: total lengths, points and directions along open and closed paths, the straight-line extension past an open path's
+ * ends, wrapping on a closed path, a quarter circle's length, and a path with no length.
+ *
+ * @param {object} modules The loaded `skeleton` and `paths` modules.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkPaths(modules) {
+	const paths = modules.paths;
+	const straight = [-10, 0, 0, 0, 10, 0, 20, 0, 30, 0, 40, 0];
+	const loop = [10, 0, 0, 0, 10, 0, 20, 0, 30, 0, 20, 0];
+	const k = 55.2285;
+	const quarter = [100, -k, 100, 0, 100, k, k, 100, 0, 100, -k, 100];
+	const cases = [
+		["straight open path is 30 long", () => [30, sampledPath(modules, straight, false).total]],
+		["straight open midpoint", () => [[15, 0, 1, 0], pathPoint(paths, sampledPath(modules, straight, false), 15)]],
+		["before the start extends back along the start", () => [[-5, 0, 1, 0], pathPoint(paths, sampledPath(modules, straight, false), -5)]],
+		["past the end extends on along the end", () => [[35, 0, 1, 0], pathPoint(paths, sampledPath(modules, straight, false), 35)]],
+		["closed path wraps forward", () => [[5, 0, 1, 0], pathPoint(paths, sampledPath(modules, loop, true), 65)]],
+		["closed return leg points back", () => [[15, 0, -1, 0], pathPoint(paths, sampledPath(modules, loop, true), 45)]],
+		["closed path wraps backward", () => [[5, 0, -1, 0], pathPoint(paths, sampledPath(modules, loop, true), -5)]],
+		["quarter circle is within 0.05 of its arc length", () => [1, Number(Math.abs(sampledPath(modules, quarter, false).total - 157.0796) < 0.05)]],
+		[
+			"quarter circle halfway sits on the circle, pointing back up it",
+			() => {
+				const sampler = sampledPath(modules, quarter, false);
+				const [x, y, cos, sin] = pathPoint(paths, sampler, sampler.total / 2);
+				const ok = Math.abs(x - 70.7107) < 0.05 && Math.abs(y - 70.7107) < 0.05 && Math.abs(Math.atan2(sin, cos) - (3 * Math.PI) / 4) < 0.01;
+				return [1, Number(ok)];
+			}
+		],
+		["a path with every vertex on one point has no length", () => [0, sampledPath(modules, [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5], false).total]]
+	];
+	return runCases("paths", cases);
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -1654,6 +1742,11 @@ try {
 		failures.push(...checkClipping(modules));
 	} catch (error) {
 		failures.push(`clipping: could not run: ${error.message}`);
+	}
+	try {
+		failures.push(...checkPaths({ skeleton: skeletonModule, paths: await server.ssrLoadModule("/src/spine/paths.ts") }));
+	} catch (error) {
+		failures.push(`paths: could not run: ${error.message}`);
 	}
 	try {
 		const rendererModule = await server.ssrLoadModule("/src/spine/renderer.ts");

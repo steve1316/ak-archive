@@ -92,3 +92,13 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
   records the rules taken from these. The page gives no formulas, and none were copied. Sutherland-Hodgman clipping, ear clipping and
   barycentric UVs are textbook geometry, written from first principles.
 - The staged Arknights rig files again, as the oracle for the clip windings, concave clips and end slots that `MATH.md` counts.
+
+## 2026-09-22 (paths)
+
+- https://esotericsoftware.com/spine-paths - fetched with curl into the plan workspace. Used for what a path is: a composite Bezier spline of
+  knots and handles, the closed flag joining the first and last knots, and constant speed trading accuracy for fewer calculations. The page
+  gives no vertex order and no formulas, and none were copied. `MATH.md` ("Paths") records the layout the corpus decides and the cubic
+  Bezier arc length, which is textbook geometry written from first principles.
+- https://esotericsoftware.com/spine-path-constraints - fetched with curl into the plan workspace. Used here for one rule: a position
+  before the start or past the end of an open path follows a straight line along the direction that end points.
+- The staged Arknights rig files again, as the oracle for the path vertex layout, measured against each plain path's stored `lengths`.

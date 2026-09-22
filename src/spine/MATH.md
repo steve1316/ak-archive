@@ -799,3 +799,38 @@ The maths gate pins the rules with a 10 x 10 square and a triangle over its corn
 shape `(0,0) (20,0) (20,10) (10,10) (10,20) (0,20)` inside a large triangle (area 300, every vertex inside the L), where clipping starts
 and ends, and a deform key that narrows the clip. Dropping the counterclockwise turn fails the clockwise case, and treating every polygon
 as convex fails the L case.
+
+## Paths
+
+A path attachment is a composite Bezier spline of knots and handles (the paths page). The page never says how the vertices are ordered, so
+the corpus decides.
+
+### Vertex layout
+
+The vertices come in triplets, one per knot: handle in, knot, handle out. Curve `k` runs from knot `k` through its out handle and the next
+knot's in handle to the next knot, which is vertex indices `3k+1, 3k+2, 3k+3, 3k+4`, wrapping on a closed path. An open path has one curve
+fewer than it has knots, and a closed path joins its last knot back to the first. Evidence, from the 237 plain path attachments in the
+corpus: with this layout the cumulative curve lengths track the stored `lengths` within 1% on 143 of them, and with the other candidate
+(`3k` to `3k+3`) on none. `lengths` always holds one entry per knot.
+
+### Arc length
+
+Each curve is the textbook cubic Bezier `P(t) = u^3 P0 + 3u^2 t P1 + 3u t^2 P2 + t^3 P3`, with `u = 1 - t`. Its length is the sum of
+chords at 32 evenly spaced parameters, which keeps a quarter circle within 0.02% of its true length. A distance along the path is found by
+binary search in the cumulative table, then linear within the sample, and the direction there is the angle of `P'(t)`. Where the
+derivative vanishes (a knot whose handle sits on it) the direction is the chord across that sample.
+
+`lengths` is not read. Measured in the setup world pose, it differs from a 1,000-chord arc length by up to 4% with no constant factor, so
+it is an estimate the editor stores, not a length the runtime can place bones by.
+
+### Ends and wrapping
+
+Past either end of an open path, the path carries on in a straight line. The path constraints page places a position before the start or
+past the end on a line along the direction that end points, and does not say more. Before the start the line
+heads from the first knot toward its out handle, and past the end from the last knot's in handle toward the knot. A handle on its knot
+falls back to the neighbouring knot. A closed path wraps the distance into its length in both directions.
+
+### Constant speed
+
+The 8 paths with constant speed off are measured the same way. The paths page describes turning it off as fewer calculations and less
+accurate placement, so constant-speed placement is the intended result. Confirm against PRTS.
