@@ -5,8 +5,12 @@ means, never from a Spine runtime's source (see `SOURCES.md`). Where the guide l
 **confirm against PRTS**: the PRTS wiki's viewer render is the reference that settles it. A choice PRTS contradicts is changed here and in the
 code, never patched per rig.
 
+The user compared the setup poses of 8 reference rigs side by side with PRTS and accepted all 8. A choice those rigs exercise is marked
+**settled by the PRTS side by side**. A choice they never show (no bone uses it, or no part that uses it is visible) keeps **confirm against
+PRTS** until a later comparison covers it.
+
 `tools/assets/check_spine_math.mjs` checks these formulas with small hand-worked cases: each inherit mode, shear on either axis, skeleton
-scale, the zero-length fallback, a few multi-bone chains, and the setup pose's reset and skin lookup.
+scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, and skin changes.
 
 ## Coordinates and angles
 
@@ -31,7 +35,7 @@ lc = sin(r + shX) * sX      ld = sin(r + 90 + shY) * sY
   "Scale tool" and "Scale examples")
 - **Shear.** The tools page says shear changes the angle between the X and Y axes, and that its X and Y handles each adjust that angle. It
   does not spell out the exact geometry. The reading here is that each shear value tilts its own axis: shear X turns the X axis by `shX`,
-  shear Y turns the Y axis by `shY`, and neither changes an axis's length. **Confirm against PRTS.**
+  shear Y turns the Y axis by `shY`, and neither changes an axis's length. **Confirm against PRTS**: no reference rig has a sheared bone.
   (https://esotericsoftware.com/spine-tools, "Shear tool")
 
 ## World transform
@@ -41,17 +45,22 @@ Bones are stored parent first, so one pass in file order computes every world tr
 - **Position.** The tools page says rotation, scale and shear are stored in the bone's own axes but translation is stored in the parent's
   axes. So a bone's world origin is always its parent's full transform applied to its local `(x, y)`, whatever it inherits.
   (https://esotericsoftware.com/spine-tools, "Axes")
-- **Basis.** For a bone that inherits everything, the world basis is `P * L`, with `P` the parent's world basis. The bones page says a
-  bone's transform affects its child bones, and the tools page's scale example shows a parent's nonuniform scale shearing its children, which
-  `P * L` does. (https://esotericsoftware.com/spine-bones, "Bone transforms"; https://esotericsoftware.com/spine-tools, "Scale examples")
-- **The root bone's parent is the skeleton.** Its frame is the basis `diag(skeleton.scaleX, skeleton.scaleY)` at `(skeleton.x, skeleton.y)`.
-  This is how the page places and flips a whole rig, and it is this runtime's own choice rather than anything in the rig.
+- **Basis.** For a bone that inherits everything, the world basis is `Pworld * L`, with `Pworld` the parent's world basis. The bones page
+  says a bone's transform affects its child bones, and the tools page's scale example shows a parent's nonuniform scale shearing its
+  children, which `Pworld * L` does. (https://esotericsoftware.com/spine-bones, "Bone transforms";
+  https://esotericsoftware.com/spine-tools, "Scale examples")
+- **The root bone's parent is the skeleton.** Its frame is the basis `S = diag(skeleton.scaleX, skeleton.scaleY)` at
+  `(skeleton.x, skeleton.y)`. This is how the page places and flips a whole rig, and it is this runtime's own choice rather than anything
+  in the rig. `S` applies to every bone, whatever it inherits: the inherit modes below work on the parent with `S` taken off, and `S` goes
+  back on after. So a skeleton flip mirrors a bone that ignores its parent's rotation or reflection too. A skeleton scale of 0 has no
+  inverse, so that row of the parent is read as 0, and `S` squashes the bone to 0 on that axis anyway. The references all draw at skeleton
+  scale 1, so PRTS says nothing about this rule.
 
 ## Inherit modes
 
 The bones page's Inherit checkboxes let a bone ignore parts of its parent's transform: rotation, scale and reflection. A `.skel` stores the
 combination as one of five transform modes. In every mode the world origin still goes through the full parent transform. Only the basis
-changes. With `P = [a b; c d]` the parent's world basis:
+changes. With `P = [a b; c d]` the parent's world basis with the skeleton's scale taken off, `S^-1 * Pworld`:
 
 - `theta = atan2(c, a)`, the angle of the parent's X axis
 - `sx = hypot(a, c)`, `sy = hypot(b, d)`, the lengths of the parent's axes
@@ -60,11 +69,11 @@ changes. With `P = [a b; c d]` the parent's world basis:
 
 | Mode | World basis | Status |
 |---|---|---|
-| `normal` | `P * L` | From the guide |
-| `onlyTranslation` | `L` | **Confirm against PRTS** |
-| `noRotationOrReflection` | `diag(sx, sy) * L` | **Confirm against PRTS** |
-| `noScale` | columns of `P * Lrs` at unit length, times `sX` and `sY` | **Confirm against PRTS** |
-| `noScaleOrReflection` | as `noScale`, with the Y column negated when `det(P) < 0` | **Confirm against PRTS** |
+| `normal` | `Pworld * L` | From the guide |
+| `onlyTranslation` | `S * L` | **Confirm against PRTS** (no visible bone in the references) |
+| `noRotationOrReflection` | `S * diag(sx, sy) * L` | **Settled by the PRTS side by side** (7 visible bones across Mudrock, Executor and Skadi) |
+| `noScale` | `S` times the unit columns of `P * Lrs`, times `sX` and `sY` | **Settled by the PRTS side by side** (10 visible Mudrock bones) |
+| `noScaleOrReflection` | as `noScale`, with the Y column negated when `det(P) < 0` | **Confirm against PRTS** (no visible bone in the references) |
 
 `Lrs` is the local basis with both scales set to 1, so it holds only rotation and shear.
 
@@ -79,8 +88,8 @@ What the bones page says behind each one (https://esotericsoftware.com/spine-bon
   size does not. For example, under a parent scaled `(2, 1)` a child at rotation 45 ends up with its X axis at about 26.6 degrees, not 45.
 - **Zero-length axes.** When a parent scale of 0 squashes a column of `M` to zero length, it has no direction to keep. That column falls
   back to `R(theta) * diag(1, flip)` applied to the bone's scaled local axis, the parent's X axis angle alone, with `flip` held at 1 for
-  `noScaleOrReflection`. This is this runtime's choice. Rounding keeps a squashed axis slightly above zero (a bone at rotation 90 gets
-  `cos(90)` of about 6e-17, not 0), so any axis shorter than 1e-6 counts as zero length.
+  `noScaleOrReflection`. This is this runtime's choice. **Confirm against PRTS**: no reference bone hits it. Rounding keeps a squashed axis
+  slightly above zero (a bone at rotation 90 gets `cos(90)` of about 6e-17, not 0), so any axis shorter than 1e-6 counts as zero length.
 - **Reflection off.** Normally a negative scale flips the bone to point the other way, and with Reflection off it does not. `noScale` keeps
   whatever reflection `M` carries from the parent. `noScaleOrReflection` negates the Y column when `det(P) < 0`, which undoes the parent's
   reflection. `noRotationOrReflection` drops it, since `diag(sx, sy)` is never a reflection.
@@ -91,10 +100,17 @@ What the bones page says behind each one (https://esotericsoftware.com/spine-bon
 ## Skins and the setup pose
 
 - The binary reader names the default skin `"default"` and puts it first. Every staged rig has one, always at index 0.
-- A slot's attachment is looked up in the active skin first, then in the default skin. A slot whose setup attachment name is null shows
-  nothing. The setup pose resets every bone's local transform to its data, puts the draw order back to slot order, and sets each slot's
-  attachment from its setup name.
-- A handful of staged rigs keep some setup attachments only in a named skin, so with no skin chosen those slots show nothing until one is.
+- A slot's attachment is looked up in the active skin first, then in the default skin. The runtime skins page describes this lookup
+  (https://esotericsoftware.com/spine-runtime-skins, the opening section).
+- The setup pose resets every bone's local transform to its data, puts the draw order back to slot order, and sets each slot's attachment
+  from its setup name. A slot whose setup attachment name is null shows nothing.
+- Changing the skin leaves bone locals and the draw order alone. From no skin, each slot whose setup attachment the new skin has takes it.
+  From another skin, a slot showing the old skin's attachment takes the new skin's attachment under the same name, and other slots keep
+  theirs. The runtime skins page describes both cases (https://esotericsoftware.com/spine-runtime-skins, "Skin changes"). It does not say
+  what happens when the new skin lacks that name. Here the slot takes whatever the lookup gives, which falls back to the default skin, and
+  that is this runtime's choice. A caller that wants the new skin's full setup pose resets the pose after.
+- With no skin chosen, the player shows `defaultSkinName`: the first non-default skin in file order when a rig has more than one skin, else
+  the default skin. 16 staged rigs have more than one, and some keep setup attachments only in their named skin.
 
 ## Geometry
 
@@ -124,7 +140,8 @@ left   = -width/2  + offsetX * unitX    right = left   + packedWidth  * unitX
 bottom = -height/2 + offsetY * unitY    top   = bottom + packedHeight * unitY
 ```
 
-The whitespace above the packed image is `originalHeight - packedHeight - offsetY`, which the same page gives as `offsetTop`.
+The whitespace above the packed image is `originalHeight - packedHeight - offsetY`, which the same page gives as `offsetTop`. **Settled by
+the PRTS side by side**: a wrong strip offset would shift stripped parts off their neighbours.
 
 ### UVs and the packed rotation
 
@@ -143,8 +160,8 @@ Then `u = (x + qx) / pageWidth` and `v = (y + qy) / pageHeight`, with the page s
 - **Direction.** The atlas format page says a region with `rotate: true` was "stored in the page image rotated by 90 degrees counter
   clockwise" (https://esotericsoftware.com/spine-atlas-format, "Region sections"). So at 90 the image's top edge becomes the box's left
   edge and its bottom-left corner lands on the box's bottom-right. 270 is the same turn the other way and 180 is upside down. The texture
-  packer page only says some images are rotated 90 degrees and gives no direction. **Confirm against PRTS**: a wrong direction draws the
-  part upside down.
+  packer page only says some images are rotated 90 degrees and gives no direction. **Settled by the PRTS side by side** for 90, 180 and
+  270: a wrong direction draws the part upside down, and no reference part was.
   Only the maths gate's rotated case and PRTS can catch a wrong direction. The corpus gate cannot: a turned region keeps its box on the page
   and its quad in the world, so every UV range and bounds number stays the same.
 
@@ -152,7 +169,8 @@ Then `u = (x + qx) / pageWidth` and `v = (y + qy) / pageHeight`, with the page s
 
 A mesh's `uvs` run 0 to 1 across the region's original image, with v = 0 at the top edge, pointing down. Each maps to the packed image as
 `px = u * originalWidth - offsetX` and `py = v * originalHeight - offsetTop`, then through the same table, so a mesh and a region on one
-image line up. The meshes page is silent on the v direction. **Confirm against PRTS**: a wrong reading draws the mesh upside down.
+image line up. The meshes page is silent on the v direction. **Settled by the PRTS side by side**: a wrong reading draws the mesh upside
+down, and no reference mesh was.
 
 The corpus backs this reading. The texture packer strips whitespace down to the mesh hull (https://esotericsoftware.com/spine-texture-packer,
 the setting that uses mesh UVs to strip whitespace). Across the stripped meshes in every 4th staged rig, 2,906 of 2,934 hulls meet the packed
@@ -167,14 +185,17 @@ flipped v or a wrong strip offset moves the hull off the box. A wrong rotate dir
 - **Plain vertices** are in the slot bone's space: `localToWorld(slot.bone, vx, vy)`.
 - **Weighted vertices** add up each influence: `sum(weight * localToWorld(bones[index], bindX, bindY))`. The weights page says each vertex
   carries a weight per bound bone and that the weights sum to 100% (https://esotericsoftware.com/spine-weights, "Adjusting weights"). The
-  slot's own bone plays no part.
+  slot's own bone plays no part. **Settled by the PRTS side by side**: 99.9% of staged rigs use weighted meshes, so
+  the references lean on this sum throughout.
 - **Linked meshes** share the source mesh's vertices, UVs, triangles and weights, but can use a different image
   (https://esotericsoftware.com/spine-meshes, "Linked meshes"). The source is looked up in the same slot, in the skin the linked mesh names or
-  the default skin when it names none. Its region comes from the linked mesh's own `path ?? name`.
+  the default skin when it names none. Its region comes from the linked mesh's own `path ?? name`. **Confirm against PRTS**: no linked mesh
+  is visible in the references.
 
 ### Color
 
-A list's tint is the slot's setup color times the attachment's color, channel by channel.
+A list's tint is the slot's setup color times the attachment's color, channel by channel. This stage ignores a slot's dark color, and the
+renderer draws every slot with the normal blend (see Drawing).
 
 ## Drawing
 
@@ -183,9 +204,11 @@ A list's tint is the slot's setup color times the attachment's color, channel by
 - **Premultiplied color.** The staged PNGs are straight alpha (see `FORMAT-3.8.md`, atlas point 4), so each page is premultiplied when it
   is decoded. A list's tint is premultiplied too, as `(r*a, g*a, b*a, a)`. The fragment color is the texel times the tint, which stays
   premultiplied, and it blends with `ONE, ONE_MINUS_SRC_ALPHA`: `out = src + dst * (1 - src.a)`. Skipping the premultiply would leave
-  bright fringes on soft edges, and premultiplying twice would leave dark ones.
+  bright fringes on soft edges, and premultiplying twice would leave dark ones. **Settled by the PRTS side by side**: the references show
+  neither.
 - **Blend modes.** Every list uses that normal blend for now, whatever its slot's `blendMode`. Additive, multiply and screen come later.
 - **Sampling.** Page textures use LINEAR filtering and CLAMP_TO_EDGE with no mipmaps. The first PNG row is uploaded as v = 0, so the page
   UVs above are used as they are.
-- **Projection.** A view rectangle in world units maps onto the whole viewport with y up. The player fits the pose's `bounds` into the
-  canvas with 5% of the canvas empty on each side, the aspect kept and the box centred.
+- **Projection.** A view rectangle in world units maps onto the whole viewport with y up. The player frames the setup pose's `bounds` once,
+  at load, and each draw fits that box into the canvas with 5% of the canvas empty on each side, the aspect kept and the box centred. The
+  framing does not follow the pose as it moves, so the camera stays still. `refit` frames the current pose again.

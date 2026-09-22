@@ -7,7 +7,7 @@
  * order. `MATH.md` explains the region quad, the whitespace strip, the UV mapping at each packed rotation, weighted vertices and linked meshes.
  */
 
-import { localToWorld } from "./skeleton.js";
+import { DEFAULT_SKIN_NAME, DEG_TO_RAD, localToWorld } from "./skeleton.js";
 import type { Skeleton, Slot } from "./skeleton.js";
 import type { Atlas, AtlasRegion, BlendMode, Color, LinkedMeshAttachment, MeshAttachment, RegionAttachment } from "./types.js";
 
@@ -15,14 +15,8 @@ import type { Atlas, AtlasRegion, BlendMode, Color, LinkedMeshAttachment, MeshAt
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
 
-/** Multiplies degrees into radians. */
-const DEG_TO_RAD = Math.PI / 180;
-
 /** The two triangles of a region quad, whose corners run bottom-left, bottom-right, top-right, top-left. */
 const QUAD_INDICES = [0, 1, 2, 2, 3, 0];
-
-/** The name the binary reader gives the default skin. */
-const DEFAULT_SKIN_NAME = "default";
 
 /** Most linked mesh hops followed before giving up, so a parent loop cannot spin forever. */
 const MAX_LINK_DEPTH = 8;

@@ -14,13 +14,13 @@ import type { Attachment, BoneData, Skin, SkeletonData, SlotData } from "./types
 // Constants
 
 /** Multiplies degrees into radians. */
-const DEG_TO_RAD = Math.PI / 180;
+export const DEG_TO_RAD = Math.PI / 180;
 
 /** An axis shorter than this counts as zero length. Rounding (such as `cos(90)` giving about 6e-17) leaves squashed axes slightly above 0. */
 const MIN_AXIS_LENGTH = 1e-6;
 
 /** The name the binary reader gives the default skin. */
-const DEFAULT_SKIN_NAME = "default";
+export const DEFAULT_SKIN_NAME = "default";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,6 +103,18 @@ export function localToWorld(bone: Bone, x: number, y: number): [number, number]
 }
 
 /**
+ * Picks the skin to show when none is chosen. Several staged rigs keep their setup attachments only in a named skin, so a rig with more
+ * than one skin shows its first non-default skin in file order. A rig with only the default skin keeps it.
+ *
+ * @param data The skeleton data.
+ * @returns The skin name, or null when the rig has no skins.
+ */
+export function defaultSkinName(data: SkeletonData): string | null {
+	const named = data.skins.length > 1 ? data.skins.find((skin) => skin.name !== DEFAULT_SKIN_NAME) : undefined;
+	return (named ?? data.skins.find((skin) => skin.name === DEFAULT_SKIN_NAME))?.name ?? null;
+}
+
+/**
  * Makes a bone with its local transform from the setup data and an identity world transform.
  *
  * @param data The bone's setup data.
@@ -136,8 +148,10 @@ function setBoneToSetupPose(bone: Bone): void {
  *
  * @param bone The bone to update.
  * @param parent The parent's world frame: the parent bone, or the skeleton's own frame for the root.
+ * @param skeletonScaleX The skeleton's scale along world X.
+ * @param skeletonScaleY The skeleton's scale along world Y.
  */
-function updateBone(bone: Bone, parent: Frame): void {
+function updateBone(bone: Bone, parent: Frame, skeletonScaleX: number, skeletonScaleY: number): void {
 	// Local axes at unit length: the X axis at rotation + shearX, the Y axis at rotation + 90 + shearY. Scale sets their lengths.
 	const xAngle = (bone.rotation + bone.shearX) * DEG_TO_RAD;
 	const yAngle = (bone.rotation + 90 + bone.shearY) * DEG_TO_RAD;
@@ -148,21 +162,29 @@ function updateBone(bone: Bone, parent: Frame): void {
 	const { scaleX, scaleY } = bone;
 
 	// The position always goes through the full parent transform. Only the basis depends on the inherit mode.
-	const { a: pa, b: pb, c: pc, d: pd } = parent;
-	bone.worldX = pa * bone.x + pb * bone.y + parent.worldX;
-	bone.worldY = pc * bone.x + pd * bone.y + parent.worldY;
+	bone.worldX = parent.a * bone.x + parent.b * bone.y + parent.worldX;
+	bone.worldY = parent.c * bone.x + parent.d * bone.y + parent.worldY;
 
 	const mode = bone.data.transformMode;
+	if (mode === "normal") {
+		setBasis(bone, parent.a, parent.b, parent.c, parent.d, ra * scaleX, rb * scaleY, rc * scaleX, rd * scaleY);
+		return;
+	}
+
+	// The other modes read the parent without the skeleton's scale, then put that scale back, so a skeleton flip mirrors every bone.
+	const inverseX = skeletonScaleX === 0 ? 0 : 1 / skeletonScaleX;
+	const inverseY = skeletonScaleY === 0 ? 0 : 1 / skeletonScaleY;
+	const pa = parent.a * inverseX;
+	const pb = parent.b * inverseX;
+	const pc = parent.c * inverseY;
+	const pd = parent.d * inverseY;
 	switch (mode) {
-		case "normal":
-			setBasis(bone, pa, pb, pc, pd, ra * scaleX, rb * scaleY, rc * scaleX, rd * scaleY);
-			return;
 		case "onlyTranslation":
 			setBasis(bone, 1, 0, 0, 1, ra * scaleX, rb * scaleY, rc * scaleX, rd * scaleY);
-			return;
+			break;
 		case "noRotationOrReflection":
 			setBasis(bone, Math.hypot(pa, pc), 0, 0, Math.hypot(pb, pd), ra * scaleX, rb * scaleY, rc * scaleX, rd * scaleY);
-			return;
+			break;
 		case "noScale":
 		case "noScaleOrReflection": {
 			// The parent turns and bends the unit axes. Each axis is then cut back to unit length and given the bone's own scale.
@@ -179,9 +201,13 @@ function updateBone(bone: Bone, parent: Frame): void {
 			const flip = mode === "noScale" && reflected ? -1 : 1;
 			[bone.a, bone.c] = xLength >= MIN_AXIS_LENGTH ? [(xa / xLength) * scaleX, (xc / xLength) * scaleX] : rotatedAxis(theta, flip, ra * scaleX, rc * scaleX);
 			[bone.b, bone.d] = yLength >= MIN_AXIS_LENGTH ? [(ya / yLength) * scaleY * flipY, (yc / yLength) * scaleY * flipY] : rotatedAxis(theta, flip, rb * scaleY, rd * scaleY);
-			return;
+			break;
 		}
 	}
+	bone.a *= skeletonScaleX;
+	bone.b *= skeletonScaleX;
+	bone.c *= skeletonScaleY;
+	bone.d *= skeletonScaleY;
 }
 
 /**
@@ -276,20 +302,35 @@ export class Skeleton {
 	}
 
 	/**
-	 * Sets the active skin by name. It does not change the slots' attachments until `setToSetupPose` runs.
+	 * Sets the active skin by name and swaps in its attachments. Bone locals and the draw order stay as they are. From no skin, each slot
+	 * whose setup attachment the new skin has takes it. From another skin, a slot showing the old skin's attachment takes what `getAttachment`
+	 * gives for the same name, and every other slot keeps its attachment. Call `setToSetupPose` after for a full reset.
 	 *
 	 * @param name The skin's name, or null to use only the default skin.
 	 */
 	setSkin(name: string | null): void {
-		if (name === null) {
-			this.skin = null;
-			return;
-		}
-		const skin = this.data.skins.find((candidate) => candidate.name === name);
-		if (!skin) {
+		const skin = name === null ? null : this.data.skins.find((candidate) => candidate.name === name);
+		if (skin === undefined) {
 			throw new Error(`Skin not found: ${name}`);
 		}
+		const oldSkin = this.skin;
 		this.skin = skin;
+		this.slots.forEach((slot, index) => {
+			if (oldSkin === null) {
+				const setupName = slot.data.attachmentName;
+				const fromSkin = setupName === null ? undefined : skin?.attachments.get(index)?.get(setupName);
+				if (fromSkin) {
+					slot.attachment = fromSkin;
+				}
+				return;
+			}
+			for (const [key, attachment] of oldSkin.attachments.get(index) ?? []) {
+				if (attachment === slot.attachment) {
+					slot.attachment = this.getAttachment(index, key);
+					return;
+				}
+			}
+		});
 	}
 
 	/**
@@ -323,7 +364,7 @@ export class Skeleton {
 	updateWorldTransform(): void {
 		const root: Frame = { a: this.scaleX, b: 0, c: 0, d: this.scaleY, worldX: this.x, worldY: this.y };
 		for (const bone of this.bones) {
-			updateBone(bone, bone.parent ?? root);
+			updateBone(bone, bone.parent ?? root, this.scaleX, this.scaleY);
 		}
 	}
 }

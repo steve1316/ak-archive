@@ -21,7 +21,7 @@ import { spineRigUrls, SPINE_DEV_ROOT } from "../../lib/spine.js";
 import { featuresOf, SUPPORTED } from "../../spine/features.js";
 import type { SpinePlayer } from "../../spine/player.js";
 import type { View } from "../../spine/renderer.js";
-import { localToWorld } from "../../spine/skeleton.js";
+import { defaultSkinName, localToWorld } from "../../spine/skeleton.js";
 import type { Skeleton } from "../../spine/skeleton.js";
 import type { Atlas } from "../../spine/types.js";
 
@@ -279,7 +279,7 @@ export default function SpineLab() {
 
 	const skinNames = useMemo(() => (loadedRig ? loadedRig.skeleton.data.skins.map((skin) => skin.name) : []), [loadedRig]);
 	const skinParam = searchParams.get(SKIN_PARAM);
-	const selectedSkin = skinParam !== null && skinNames.includes(skinParam) ? skinParam : ((loadedRig && playerModule?.defaultSkinName(loadedRig.skeleton.data)) ?? "");
+	const selectedSkin = skinParam !== null && skinNames.includes(skinParam) ? skinParam : ((loadedRig && defaultSkinName(loadedRig.skeleton.data)) ?? "");
 
 	const features = useMemo(() => (loadedRig ? [...featuresOf(loadedRig.skeleton.data)].sort() : []), [loadedRig]);
 	const regionCount = useMemo(() => (loadedRig ? loadedRig.atlas.pages.reduce((sum, page) => sum + page.regions.length, 0) : 0), [loadedRig]);
@@ -292,7 +292,10 @@ export default function SpineLab() {
 			overlay?.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
 			return;
 		}
+		// A skin change shows that skin's setup pose, framed afresh.
 		player.setSkin(selectedSkin || null);
+		player.setToSetupPose();
+		player.refit();
 		player.render();
 		if (overlay) {
 			if (showBones) {

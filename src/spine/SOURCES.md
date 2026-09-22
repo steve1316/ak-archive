@@ -31,3 +31,22 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
   lives in the same slot, and may use its own image.
 - https://esotericsoftware.com/spine-weights - bound bones carry a weight per vertex, and the weights for a vertex sum to 100%. This gives the
   weighted vertex sum in `MATH.md`.
+- https://esotericsoftware.com/spine-skeletons - read while working out the world transform. It covers skeleton-level editor settings (export,
+  reference scale, draw order between skeletons, hiding) and gave nothing the maths uses.
+- https://esotericsoftware.com/spine-runtimes-guide - the runtimes guide's table of contents, used only to find the pages below. Only the
+  guide's prose was used. Its code samples were not copied or followed.
+- https://esotericsoftware.com/spine-runtime-architecture - the "Data objects" and "Instance objects" sections: stateless setup data such as
+  `SkeletonData` and `BoneData`, and a stateful instance named without the "Data" suffix that keeps its data to reset to the setup pose.
+  This is the `SkeletonData` and `Skeleton` split.
+- https://esotericsoftware.com/spine-runtime-skeletons - the source for these API names, each used in the page's prose: `a`, `b`, `c` and
+  `d` as the world transform's 2x2 matrix, with `a` and `c` the X axis and `b` and `d` the Y axis ("World transforms"); `worldX` and
+  `worldY` as the bone's world position ("World transforms"); `updateWorldTransform` on a skeleton, which updates every bone in order
+  ("updateWorldTransform"); `drawOrder` as the skeleton's list of slots in drawing order ("Generic rendering"); and `setToSetupPose` and
+  `setSkin` as calls that change slot attachments ("Changing attachments"). The prose says a world transform maps a point from a bone's
+  local coordinates to world coordinates, but it names no method for that. `localToWorld` is this runtime's own name.
+- https://esotericsoftware.com/spine-runtime-skins - the opening section: attachments that were in no skin sit in a skin named `default`,
+  and `getAttachment` looks in the skeleton's current skin first, then in the default skin. The "Skin changes" section: what setting a skin
+  does to slot attachments when the skeleton has no skin yet and when it already has one. `MATH.md` records both rules and the case the page
+  leaves open.
+- Any other method or helper name in `src/spine/` (for example `localToWorld`, `slotTriangles`, `fitView`, `refit` and `defaultSkinName`)
+  is this runtime's own choice. Type names such as `Bone`, `Slot`, `Skin` and `Attachment` are the user guide's own terms.

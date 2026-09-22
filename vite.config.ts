@@ -12,10 +12,16 @@ import { baseTrailingSlash, spaFallback } from "archive-kit/config";
 // Pages serves the site from /ak-archive/, while Docker and local previews serve it from the root. VITE_BASE lets the same source produce both.
 const BASE = process.env.VITE_BASE ?? "/ak-archive/";
 
-/** This config file's own folder, which is the repo root. Resolved from the file's URL rather than `process.cwd()`, so it holds regardless of where `vite` was launched from. */
+/**
+ * This config file's own folder, which is the repo root. Resolved from the file's URL rather than `process.cwd()`, so it holds regardless of
+ * where `vite` was launched from.
+ */
 const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
-/** Where the offline pipeline stages Spine rig files for local development, as `.skel`, `.atlas` and `.png` per operator, form and kind. Never bundled: the dev-only rig lab reads it through the middleware below. */
+/**
+ * Where the offline pipeline stages Spine rig files for local development, as `.skel`, `.atlas` and `.png` per operator, form and kind. Never
+ * bundled: the dev-only rig lab reads it through the middleware below.
+ */
 const SPINE_STAGING_ROOT = path.join(REPO_ROOT, "tools/assets/.staging/assets/spine");
 
 /** Content type served for each staged Spine file extension. */

@@ -50,6 +50,32 @@ const BONE_CASES = [
 		unitY: [-10, -1]
 	},
 	{ name: "H skeleton scale", skeleton: { scaleY: -1 }, bones: [{}, { x: 10 }], origin: [10, 0], unitX: [11, 0], unitY: [10, -1] },
+	// A skeleton flip mirrors every bone, whatever it inherits. The child's axes at rotation 30 come out mirrored across the Y axis.
+	{
+		name: "Q1 skeleton flip, onlyTranslation child",
+		skeleton: { scaleX: -1 },
+		bones: [{}, { x: 10, rotation: 30, transformMode: "onlyTranslation" }],
+		origin: [-10, 0],
+		unitX: [-10.86603, 0.5],
+		unitY: [-9.5, 0.86603]
+	},
+	{
+		name: "Q2 skeleton flip, noScaleOrReflection child",
+		skeleton: { scaleX: -1 },
+		bones: [{}, { x: 10, rotation: 30, transformMode: "noScaleOrReflection" }],
+		origin: [-10, 0],
+		unitX: [-10.86603, 0.5],
+		unitY: [-9.5, 0.86603]
+	},
+	// The mode reads the parent without the skeleton's scale, so the skeleton's size counts once, not twice.
+	{
+		name: "Q3 skeleton scale -2, noRotationOrReflection child",
+		skeleton: { scaleX: -2 },
+		bones: [{}, { x: 10, transformMode: "noRotationOrReflection" }],
+		origin: [-20, 0],
+		unitX: [-22, 0],
+		unitY: [-20, 1]
+	},
 	// A nonuniform parent bends a rotated noScale child's axes without changing their length.
 	{
 		name: "N noScale, nonuniform parent",
@@ -371,6 +397,47 @@ function checkAttachments(skeletonModule) {
 }
 
 /**
+ * Checks `setSkin` swaps attachments the way the runtime skins page describes, without touching bone locals. From no skin, the new skin's
+ * setup-pose attachments go on. From another skin, only a slot showing the old skin's attachment changes, to what the lookup gives for the
+ * same name.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkSkinChange(skeletonModule) {
+	const [defaultA, defaultB, altA, otherA, otherB] = ["defaultA", "defaultB", "altA", "otherA", "otherB"].map(point);
+	const skinOf = (name, front, back) => ({ name, attachments: new Map([[0, new Map(front)], ...(back ? [[1, new Map(back)]] : [])]) });
+	const skins = [skinOf("default", [["a", defaultA]], [["b", defaultB]]), skinOf("alt", [["a", altA]]), skinOf("other", [["a", otherA]], [["b", otherB]])];
+	const skeleton = new skeletonModule.Skeleton(skeletonData([{ x: 3 }], [slotData("front", "a"), slotData("back", "b")], skins));
+	const bone = skeleton.bones[0];
+	const results = [];
+
+	bone.x = 7;
+	skeleton.setSkin("alt");
+	results.push(["first skin puts on its setup attachment", altA, skeleton.slots[0].attachment]);
+	results.push(["first skin leaves a slot it lacks", defaultB, skeleton.slots[1].attachment]);
+	results.push(["bone locals untouched", 7, bone.x]);
+
+	skeleton.setSkin("other");
+	results.push(["switch swaps the old skin's attachment", otherA, skeleton.slots[0].attachment]);
+	results.push(["switch leaves a default skin attachment", defaultB, skeleton.slots[1].attachment]);
+
+	skeleton.setToSetupPose();
+	skeleton.setSkin("alt");
+	results.push(["switch to a skin without the name falls back to default", defaultB, skeleton.slots[1].attachment]);
+
+	const failures = [];
+	for (const [label, expected, actual] of results) {
+		const ok = expected === actual;
+		console.log(`${ok ? "ok  " : "FAIL"} skin change: ${label}`);
+		if (!ok) {
+			failures.push(`skin change: ${label} expected ${expected?.name ?? expected}, got ${actual?.name ?? actual}`);
+		}
+	}
+	return failures;
+}
+
+/**
  * Builds a one-slot skeleton on a root bone at the origin, with the given attachments in the default skin and the first one shown.
  *
  * @param {object} skeletonModule The loaded `skeleton.ts` module.
@@ -509,7 +576,7 @@ const server = await startVite();
 let failures = [];
 try {
 	const skeletonModule = await server.ssrLoadModule("/src/spine/skeleton.ts");
-	failures = [...checkBones(skeletonModule), ...checkReset(skeletonModule), ...checkAttachments(skeletonModule)];
+	failures = [...checkBones(skeletonModule), ...checkReset(skeletonModule), ...checkAttachments(skeletonModule), ...checkSkinChange(skeletonModule)];
 	try {
 		failures.push(...checkGeometry(skeletonModule, await server.ssrLoadModule("/src/spine/geometry.ts")));
 	} catch (error) {

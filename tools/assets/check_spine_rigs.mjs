@@ -82,9 +82,6 @@ const REGION_LIKE_TYPES = new Set(["region", "mesh", "linkedmesh"]);
 /** The 8-byte signature every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
-/** The name the binary reader gives the default skin. */
-const DEFAULT_SKIN_NAME = "default";
-
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -490,8 +487,8 @@ function checkTriangleList(list) {
 }
 
 /**
- * Poses one rig in its setup pose and checks the triangles `geometry.ts` builds for it. A rig with more than one skin shows its first named
- * skin, since some rigs keep setup attachments only there.
+ * Poses one rig in its setup pose and checks the triangles `geometry.ts` builds for it. The rig shows the skin `defaultSkinName` picks, its
+ * first named skin when it has more than one, since some rigs keep setup attachments only there.
  *
  * @param {object} data The parsed skeleton.
  * @param {object} atlas The parsed atlas beside it.
@@ -505,10 +502,9 @@ function checkTriangleList(list) {
  */
 function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule) {
 	const skeleton = new skeletonModule.Skeleton(data);
-	const namedSkin = data.skins.find((skin) => skin.name !== DEFAULT_SKIN_NAME);
-	if (data.skins.length > 1 && namedSkin) {
-		skeleton.setSkin(namedSkin.name);
-	}
+	const skinName = skeletonModule.defaultSkinName(data);
+	const namedSkin = skinName !== null && skinName !== skeletonModule.DEFAULT_SKIN_NAME;
+	skeleton.setSkin(skinName);
 	skeleton.setToSetupPose();
 	skeleton.updateWorldTransform();
 
@@ -557,7 +553,7 @@ function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule
 		hullFits,
 		lists: lists.length,
 		triangles,
-		namedSkin: data.skins.length > 1 && Boolean(namedSkin),
+		namedSkin,
 		constrained
 	};
 }

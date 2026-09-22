@@ -4,7 +4,8 @@
 
 /**
  * Loads one rig into a canvas and draws its current pose with `SpineRenderer`. Fetches the skeleton, atlas and page images, builds the
- * `Skeleton`, and fits the drawing to the canvas with a margin, aspect kept and centred.
+ * `Skeleton`, and frames the setup pose in the canvas with a margin, aspect kept and centred. The framing stays put as the pose changes,
+ * until `refit` runs.
  */
 
 import { readAtlas } from "./atlas.js";
@@ -13,8 +14,8 @@ import { bounds, skeletonTriangles } from "./geometry.js";
 import type { PageSize } from "./geometry.js";
 import { SpineRenderer } from "./renderer.js";
 import type { View } from "./renderer.js";
-import { Skeleton } from "./skeleton.js";
-import type { Atlas, SkeletonData } from "./types.js";
+import { defaultSkinName, Skeleton } from "./skeleton.js";
+import type { Atlas } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -53,22 +54,13 @@ interface LoadedRig {
 	pageSizes: PageSize[];
 	/** Each page's texture, by page index. */
 	textures: WebGLTexture[];
+	/** The world box every `render` fits to the canvas, set by `refit`, or null when the pose drew nothing then. */
+	framedBox: View | null;
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
-
-/**
- * Picks the skin to show when none is chosen. Several staged rigs keep their setup attachments only in a named skin, so a rig with more
- * than one skin shows its first non-default skin. A rig with only the default skin keeps it.
- *
- * @param data The skeleton data, default skin first.
- * @returns The skin name, or null when the rig has no skins.
- */
-export function defaultSkinName(data: SkeletonData): string | null {
-	return (data.skins.length > 1 ? data.skins[1] : data.skins[0])?.name ?? null;
-}
 
 /**
  * Fits a world box into a viewport with `FIT_MARGIN` on each side, keeping the aspect and centring the box.
@@ -120,7 +112,7 @@ export class SpinePlayer {
 	private rig: LoadedRig | null = null;
 	/** Counts `load` calls, so a load that a newer one overtook drops its result. */
 	private loadCount = 0;
-	/** The world rectangle the last `render` showed, or null when it drew nothing. */
+	/** The world rectangle the last `render` showed, or null when nothing was framed. */
 	private lastView: View | null = null;
 
 	/**
@@ -152,14 +144,14 @@ export class SpinePlayer {
 		return this.rig?.skeleton.data.animations.map((animation) => animation.name) ?? [];
 	}
 
-	/** The world rectangle the last `render` fitted to the canvas, or null when it drew nothing. */
+	/** The world rectangle the last `render` fitted to the canvas, or null when nothing was framed. */
 	get view(): View | null {
 		return this.lastView;
 	}
 
 	/**
 	 * Loads a rig, replacing any rig already loaded. The old rig is dropped at once, so on an abort or a failed fetch the player is empty.
-	 * The skin starts as `defaultSkinName` picks, in the setup pose.
+	 * The skin starts as `defaultSkinName` picks, in the setup pose, and the framing fits that pose.
 	 *
 	 * @param urls The rig's file URLs.
 	 * @param signal Cancels the fetches. An abort rejects the returned promise.
@@ -187,9 +179,12 @@ export class SpinePlayer {
 				atlas,
 				skeleton,
 				pageSizes: images.map((image) => ({ width: image.width, height: image.height })),
-				textures: images.map((image) => this.renderer.upload(image))
+				textures: images.map((image) => this.renderer.upload(image)),
+				framedBox: null
 			};
 			this.setSkin(null);
+			this.setToSetupPose();
+			this.refit();
 		} finally {
 			for (const image of images) {
 				image.close();
@@ -198,7 +193,7 @@ export class SpinePlayer {
 	}
 
 	/**
-	 * Sets the skin and puts the skeleton back in the setup pose.
+	 * Sets the skin and swaps in its attachments, as `Skeleton.setSkin` does. The pose is left alone, so call `setToSetupPose` for a reset.
 	 *
 	 * @param name The skin's name, or null for the skin `defaultSkinName` picks.
 	 */
@@ -208,10 +203,27 @@ export class SpinePlayer {
 			return;
 		}
 		skeleton.setSkin(name ?? defaultSkinName(skeleton.data));
-		skeleton.setToSetupPose();
 	}
 
-	/** Resizes the canvas's backing store to its displayed size and draws the current pose. Draws nothing when no rig is loaded. */
+	/** Puts the skeleton back in the setup pose with the current skin. Does nothing when no rig is loaded. */
+	setToSetupPose(): void {
+		this.rig?.skeleton.setToSetupPose();
+	}
+
+	/** Frames the current pose: every later `render` fits this pose's bounds to the canvas, however the pose moves after. */
+	refit(): void {
+		const rig = this.rig;
+		if (!rig) {
+			return;
+		}
+		rig.skeleton.updateWorldTransform();
+		rig.framedBox = bounds(skeletonTriangles(rig.skeleton, rig.atlas, rig.pageSizes));
+	}
+
+	/**
+	 * Resizes the canvas's backing store to its displayed size and draws the current pose in the framing `refit` set. Draws nothing when no
+	 * rig is loaded.
+	 */
 	render(): void {
 		const canvas = this.canvas;
 		const ratio = window.devicePixelRatio || 1;
@@ -229,8 +241,7 @@ export class SpinePlayer {
 		}
 		rig.skeleton.updateWorldTransform();
 		const lists = skeletonTriangles(rig.skeleton, rig.atlas, rig.pageSizes);
-		const box = bounds(lists);
-		this.lastView = box ? fitView(box, width, height) : null;
+		this.lastView = rig.framedBox ? fitView(rig.framedBox, width, height) : null;
 		this.renderer.draw(lists, rig.textures, this.lastView ?? { minX: 0, minY: 0, maxX: 1, maxY: 1 }, width, height);
 	}
 
