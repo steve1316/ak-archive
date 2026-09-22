@@ -14,8 +14,11 @@
  *
  * Usage:
  *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping]
+ *     [--dir NAME]
  *
- * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--survey` also prints
+ * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--dir` scans
+ * `<staging>/assets/<NAME>` instead, such as `spine-enemies`, whose rigs sit one folder deep and count as each enemy's battle rig.
+ * `--survey` also prints
  * how many rigs use each feature, how many each planned stage would draw in full, how many need exactly that stage, and how many operators
  * have at least one rig it draws. `--geometry` also turns every rig's setup pose into triangles with `src/spine/geometry.ts`: every drawing
  * attachment must give a list with finite positions and indices in range. A UV outside [0, 1] is a warning, since a few meshes reach past
@@ -70,7 +73,7 @@ const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
 const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping]  (scans <staging>/assets/spine)";
+const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--dir NAME]  (scans <staging>/assets/spine)";
 
 /** Lowest intersection-over-union between a rig's drawn and declared setup bounds before `--geometry` fails it. */
 const MIN_IOU = 0.5;
@@ -2227,11 +2230,15 @@ function printTransform(stats) {
  *
  * @param {string} file The skeleton file's path.
  * @param {string} spineDir The `assets/spine` root the file was found under.
- * @returns {{ operatorId: string, formKey: string, kind: string } | null} The rig's identity, or null if the path is not 3 directories
- *   deep under `spineDir`.
+ * @returns {{ operatorId: string, formKey: string, kind: string } | null} The rig's identity, or null if the path is neither 1 nor 3
+ *   directories deep under `spineDir`.
  */
 function parseRigPath(file, spineDir) {
 	const parts = path.relative(spineDir, path.dirname(file)).split(path.sep);
+	if (parts.length === 1) {
+		// The enemy layout: one battle rig per enemy, one folder deep.
+		return { operatorId: parts[0], formKey: "base", kind: "battle" };
+	}
 	if (parts.length !== 3) {
 		return null;
 	}
@@ -2351,7 +2358,13 @@ function pairingKey(file) {
  * Parse and check every staged rig and atlas, print each failure and a summary, and exit 1 if anything failed.
  */
 async function main() {
-	const spineDir = path.join(parseStaging(process.argv.slice(2), USAGE), "assets", "spine");
+	const dirIndex = process.argv.indexOf("--dir");
+	const dirName = dirIndex === -1 ? "spine" : process.argv[dirIndex + 1];
+	if (!dirName || dirName.startsWith("--")) {
+		console.error(USAGE);
+		process.exit(1);
+	}
+	const spineDir = path.join(parseStaging(process.argv.slice(2), USAGE), "assets", dirName);
 	const skelFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".skel") : [];
 	const atlasFiles = fs.existsSync(spineDir) ? findFiles(spineDir, ".atlas") : [];
 	if (skelFiles.length === 0 && atlasFiles.length === 0) {
