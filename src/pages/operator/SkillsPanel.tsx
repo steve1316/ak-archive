@@ -4,6 +4,7 @@ import type { MouseEvent, ReactNode } from "react";
 import { Box, Divider, FormControl, InputLabel, MenuItem, Select, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import type { SelectChangeEvent, SxProps, Theme } from "@mui/material";
 
+import RangeGrid from "../../components/RangeGrid.js";
 import { skillIconUrl } from "../../lib/icons.js";
 import type { OperatorSkill, SkillLevel, SkillRun } from "../../types/operator.js";
 import { RAISED_TILE_SX, TIGHT_RADIUS } from "../../lib/layout.js";
@@ -84,17 +85,19 @@ interface SkillsPanelProps {
 	skills: OperatorSkill[];
 	/** The page's elite phase, which decides which skills are still locked. */
 	phase: number;
+	/** The operator's trait area, shaded inside a skill's range. */
+	traitRangeId: string | null;
 }
 
 /**
  * The Skills tab, in gfl's shape: a switcher with each skill's icon, then one skill card with a Level drop-down at its top right. The level is
  * shared across the skills and starts at the highest the operator has, as the stats start at max level. A skill the page's elite phase has not
- * reached stays viewable, dimmed in the switcher, with its unlock phase under the name.
+ * reached stays viewable, dimmed in the switcher, with its unlock phase under the name. A skill that replaces the range draws it under the description.
  *
  * @param props Component props.
  * @returns The panel.
  */
-export default function SkillsPanel({ skills, phase }: SkillsPanelProps) {
+export default function SkillsPanel({ skills, phase, traitRangeId }: SkillsPanelProps) {
 	const levelCount = useMemo(() => Math.max(...skills.map((skill) => skill.levels.length)), [skills]);
 	const [selected, setSelected] = useState(0);
 	const [level, setLevel] = useState(levelCount - 1);
@@ -166,6 +169,14 @@ export default function SkillsPanel({ skills, phase }: SkillsPanelProps) {
 					</span>
 				</Box>
 				<Typography sx={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-line" }}>{renderRuns(entry.description)}</Typography>
+				<Divider sx={{ my: 1.25 }} />
+				{entry.rangeId ? (
+					<RangeGrid rangeId={entry.rangeId} traitRangeId={traitRangeId} label="Range while active" />
+				) : (
+					<Typography variant="body2" color="text.secondary">
+						Uses normal range
+					</Typography>
+				)}
 			</Box>
 		</Box>
 	);

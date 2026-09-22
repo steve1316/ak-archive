@@ -183,7 +183,7 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 					<Tab key={entry.key} value={entry.key} label={entry.label} />
 				))}
 			</Tabs>
-			{shown === "skills" ? <SkillsPanel key={operator.id} skills={operator.skills} phase={controls.phase} /> : null}
+			{shown === "skills" ? <SkillsPanel key={operator.id} skills={operator.skills} phase={controls.phase} traitRangeId={operator.traitRangeId} /> : null}
 			{shown === "talents" ? <Box sx={TILES_SX}>{talentTiles}</Box> : null}
 			{shown === "potentials" ? potentialRows : null}
 		</Paper>
