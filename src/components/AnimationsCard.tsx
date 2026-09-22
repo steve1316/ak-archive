@@ -4,8 +4,7 @@ import type { MouseEvent, ReactNode } from "react";
 import { Box, Paper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
-import { classIconUrl } from "../../lib/assets.js";
-import { SECTION_HEADING_GAP, SECTION_HEADING_SX, SECTION_SX, TIGHT_RADIUS } from "../../lib/layout.js";
+import { SECTION_HEADING_GAP, SECTION_HEADING_SX, SECTION_SX, TIGHT_RADIUS } from "../lib/layout.js";
 
 /** Which of an operator's two chibi rigs is on the stage. Named after upstream's own split: `build_<id>` is battle, `<id>/Back` is dorm. */
 export type RigKind = "battle" | "dorm";
@@ -71,26 +70,28 @@ interface AnimationsCardProps {
 	interactive: boolean;
 	/** Draws the stage for the selected rig kind and facing. */
 	renderStage: (request: StageRequest) => ReactNode;
+	/** Hides the Battle/Dorm switch and the Front/Back toggle, for a subject with a single battle rig such as an enemy. */
+	battleOnly?: boolean;
 }
 
 /** Props for StagePlaceholder. */
 interface StagePlaceholderProps {
-	/** The operator's class, whose icon stands in for the chibi. */
-	profession: string;
+	/** The image that stands in for the chibi, such as an operator's class icon or an enemy's icon, or null for none. */
+	iconUrl: string | null;
 	/** Why no chibi is playing. */
 	message: string;
 }
 
 /**
- * What the stage shows when no chibi plays: the operator's class icon and the reason.
+ * What the stage shows when no chibi plays: a greyed stand-in image and the reason.
  *
  * @param props Component props.
  * @returns The placeholder.
  */
-export function StagePlaceholder({ profession, message }: StagePlaceholderProps) {
+export function StagePlaceholder({ iconUrl, message }: StagePlaceholderProps) {
 	return (
 		<Box sx={{ textAlign: "center", px: 2 }}>
-			<Box component="img" src={classIconUrl(profession)} alt="" sx={PLACEHOLDER_ICON_SX} />
+			{iconUrl ? <Box component="img" src={iconUrl} alt="" sx={PLACEHOLDER_ICON_SX} /> : null}
 			<Typography variant="body2" color="text.secondary">
 				{message}
 			</Typography>
@@ -100,12 +101,13 @@ export function StagePlaceholder({ profession, message }: StagePlaceholderProps)
 
 /**
  * The Animations card from gfl's doll page: Battle and Dorm, a Front/Back switch under Battle, then a stage that fills the card. No zoom
- * buttons - the stage zooms on the wheel and pans on a drag, as gfl's does, and a click cycles to the next animation.
+ * buttons - the stage zooms on the wheel and pans on a drag, as gfl's does, and a click cycles to the next animation. With `battleOnly` the
+ * card is just the stage and its caption.
  *
  * @param props Component props.
  * @returns The card.
  */
-export default function AnimationsCard({ interactive, renderStage }: AnimationsCardProps) {
+export default function AnimationsCard({ interactive, renderStage, battleOnly = false }: AnimationsCardProps) {
 	const [kind, setKind] = useState<RigKind>("battle");
 	const [chosenFacing, setChosenFacing] = useState<RigFacing>("front");
 	const [status, setStatus] = useState<StageStatus>(INITIAL_STATUS);
@@ -130,11 +132,13 @@ export default function AnimationsCard({ interactive, renderStage }: AnimationsC
 			<Typography variant="h6" component="h2" sx={SECTION_HEADING_SX}>
 				Animations
 			</Typography>
-			<ToggleButtonGroup value={kind} exclusive fullWidth size="small" onChange={handleKindChange} aria-label="Animation set" sx={KIND_SX}>
-				<ToggleButton value="battle">Battle</ToggleButton>
-				<ToggleButton value="dorm">Dorm</ToggleButton>
-			</ToggleButtonGroup>
-			{kind === "battle" ? (
+			{battleOnly ? null : (
+				<ToggleButtonGroup value={kind} exclusive fullWidth size="small" onChange={handleKindChange} aria-label="Animation set" sx={KIND_SX}>
+					<ToggleButton value="battle">Battle</ToggleButton>
+					<ToggleButton value="dorm">Dorm</ToggleButton>
+				</ToggleButtonGroup>
+			)}
+			{kind === "battle" && !battleOnly ? (
 				<ToggleButtonGroup value={displayFacing} exclusive size="small" onChange={handleFacingChange} aria-label="Battle chibi facing" sx={FACING_SX}>
 					<ToggleButton value="front">Front</ToggleButton>
 					<ToggleButton value="back" disabled={!status.hasBack}>
