@@ -10,7 +10,8 @@ The user compared the setup poses of 8 reference rigs side by side with PRTS and
 PRTS** until a later comparison covers it.
 
 `tools/assets/check_spine_math.mjs` checks these formulas with small hand-worked cases: each inherit mode, shear on either axis, skeleton
-scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, and skin changes.
+scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, skin changes, and the animation curves,
+key search and bone timelines.
 
 ## Coordinates and angles
 
@@ -224,3 +225,71 @@ null when the slot has none. The renderer ignores the dark color for now and dra
 - **Projection.** A view rectangle in world units maps onto the whole viewport with y up. The player frames the setup pose's `bounds` once,
   at load, and each draw fits that box into the canvas with 5% of the canvas empty on each side, the aspect kept and the box centred. The
   framing does not follow the pose as it moves, so the camera stays still. `refit` frames the current pose again.
+
+## Animation
+
+`animation.ts` samples an animation at a time and writes each bone's local transform. The JSON format page's "Bone timelines" section
+describes each key's value (https://esotericsoftware.com/spine-json-format). The binary format stores the same values. The maths gate pins
+every rule below with a case.
+
+### Curves
+
+Each key's curve runs from that key to the next, so a timeline with `n` keys has `n - 1` curves.
+
+- `stepped` holds the key's value until the next key. `linear` blends in a straight line.
+- A bezier `[cx1, cy1, cx2, cy2]` is a cubic from (0, 0) to (1, 1) with those two control points. X is the fraction of the time between the
+  two keys and y the fraction of the difference between their values. The page's slot and deform sections say this in those words. Its bone
+  section calls the units "frame" and "value", which is the wrong reading for these files: across the 10.0 million bone-timeline beziers in
+  the corpus, every control x lies between -0.333 and 1.333, so they are fractions. Control y runs from -37.5 to 37.5, and 34 curves have a
+  control y outside [-2, 3], so a bezier may overshoot the two key values.
+- To ease a time fraction `t`, bisection over the curve parameter `s` in [0, 1] finds where x equals `t`, in 30 halvings, and gives y
+  there. A `t` at or below 0 gives exactly 0, and one at or above 1 gives exactly 1, so every key time shows that key's own value.
+- 418 curves have a control x outside [0, 1], so x leaves [0, 1] and crosses 0 or 1 more than once. The search lands on the far crossing,
+  so just after a key the value still jumps, even though the ends are exact. For example ulpia's `epoque_48/back` `Skill_3_Begin` has a
+  rotate curve `[0, 0.68, -0.286, 0.92]` whose value just after its key is about 0.688, so the bone jumps 69% of the way to the next key
+  within the first instant. 15 bone beziers jump by more than 0.001 at a key this way. Which crossing to take is this runtime's choice. **Confirm
+  against PRTS** on that ulpia animation.
+
+### Key search
+
+- Most timelines' key times never go down. 943 slot and deform timelines join 2 or 3 sorted runs of keys end to end (see `FORMAT-3.8.md`).
+  Key times are split into maximal non-decreasing runs. At a time, the last run whose first key is at or before that time wins, and inside
+  it the last key at or before the time. Of several keys with the same time, the last one wins. This is this runtime's choice, since the
+  page never describes keys out of order. **Confirm against PRTS.**
+- **Before the first key** the timeline does not apply, and the bone keeps its setup value. 24,500 timelines in the corpus start after
+  0. The page is silent. **Confirm against PRTS.**
+- **After the last key** of a run, that key's value holds.
+- The run starts are worked out once per key-time array and cached, so `applyAnimation` allocates nothing per call.
+
+### Bone timelines
+
+Each timeline writes its bone's local value from the setup value, so sampling twice gives the same pose.
+
+| Timeline | Page says the key value is | Local value |
+|---|---|---|
+| rotate | the rotation relative to the setup pose, 0 if omitted | setup rotation + key angle |
+| translate | the X and Y position relative to the setup pose, 0 if omitted | setup x, y + key x, y |
+| scale | the X and Y scale relative to the setup pose, 1 if omitted | setup scale x key scale |
+| shear | the X and Y shear relative to the setup pose, 0 if omitted | setup shear + key shear |
+
+- **Rotate takes the short way round.** Between two keys the difference `next - prev` is wrapped into [-180, 180) before it is blended.
+  The page is silent, so this is measured from the corpus: 63,651 adjacent rotate key pairs differ by more than 180 degrees, most by 330 to
+  360. Amiya's back `Attack` bone `B_Belt_B` has keys 0, -343, -31, -333, -16.6, -352.7, 0. Sampled 400 times under this rule it sways
+  between -31 and 27 degrees from setup and never moves more than 1.2 degrees between samples. Blended straight, it would spin nearly a
+  full turn back and forth. **Confirm against PRTS.**
+- **Scale multiplies.** A default of 1 is the identity only for a multiply, and the corpus agrees. For bones whose setup scale is far from
+  1 (`|s - 1| > 0.2`), the first scale key in each rig's `Idle` animation (else `Default`, else its first) was compared with 1 and with the
+  setup scale, within 0.02. Of 3,985 such axes, 3,757 start near 1, 24 near the setup scale and 204 near neither. Across every animation it
+  is 32,557 against 251. Under a replace rule the 3,757 would snap the bone to scale 1 on the first frame. Some of the 24 are a setup
+  scale of -1 with a key of -1 (for example `C_Weapon` in `char_1050_chen3`), which a multiply turns to +1. **Confirm against PRTS** on
+  those.
+- Translate and shear add, as the page says.
+
+### Looping
+
+`loopTime` maps a play time onto the animation: `time mod duration` when looping, `min(time, duration)` when not, and 0 when the duration
+is 0. 2,773 of 23,190 staged animations have duration 0. `Animation.duration` is the largest key time, since the binary format stores none.
+
+### Not applied yet
+
+Slot and draw order timelines are skipped for now, and so are constraint, deform and event timelines.

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
- * transforms, setup-pose attachments, live slot state and `src/spine/geometry.ts` triangles against hand-worked values. `MATH.md` explains
- * each formula the cases pin down.
+ * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, and `src/spine/animation.ts` curves, key search
+ * and bone timelines against hand-worked values. `MATH.md` explains each formula the cases pin down.
  *
  * Usage:
  *     node tools/assets/check_spine_math.mjs
@@ -187,6 +187,33 @@ const MESH_L_EXPECTED = {
 	positions: [0, 0, 10, 0, 0, 10],
 	uvs: [0.390625, 0.46875, 0.46875, 0.46875, 0.390625, 0.390625]
 };
+
+/** The curve cases: a curve, the time fraction between two keys, and the eased value fraction expected there. */
+const CURVE_CASES = [
+	{ curve: { bezier: [0, 0, 1, 1] }, t: 0.3, expected: 0.3 },
+	{ curve: { bezier: [0.25, 0.1, 0.25, 1] }, t: 0.5, expected: 0.8024 },
+	{ curve: { bezier: [0.42, 0, 1, 1] }, t: 0.5, expected: 0.31536 },
+	{ curve: { bezier: [0.42, 0, 0.58, 1] }, t: 0.25, expected: 0.12916 },
+	{ curve: "stepped", t: 0.99, expected: 0 },
+	{ curve: "linear", t: 0.25, expected: 0.25 },
+	// Control x outside [0, 1] makes x turn back, so the search can land on a far crossing. The ends must still be exact.
+	{ curve: { bezier: [-0.2, 0, 1.2, 1] }, t: 0, expected: 0 },
+	{ curve: { bezier: [-0.2, 0, 1.2, 1] }, t: 1, expected: 1 },
+	{ curve: { bezier: [-0.2, 0, 1.2, 1] }, t: 0.5, expected: 0.5 },
+	{ curve: { bezier: [0, 0.68, -0.286, 0.92] }, t: 0, expected: 0 }
+];
+
+/** The key search cases: key times, a time, and the key index expected there, or -1 when no run of keys has started. */
+const KEY_CASES = [
+	{ times: [0, 1, 2], time: 1.5, expected: 1 },
+	{ times: [0, 1, 2], time: -0.1, expected: -1 },
+	{ times: [0.567, 0.733, 0, 0.567, 0.733], time: 0.6, expected: 3 },
+	{ times: [0.567, 0.733, 0, 0.567, 0.733], time: 0.1, expected: 2 },
+	{ times: [0.5, 1], time: 0.2, expected: -1 },
+	{ times: [0, 1, 1, 2], time: 1, expected: 2 },
+	{ times: [0, 1, 2], time: 5, expected: 2 },
+	{ times: [], time: 0.5, expected: -1 }
+];
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -713,6 +740,88 @@ function checkSlotState(skeletonModule, geometryModule) {
 	return failures;
 }
 
+/**
+ * Builds a bone timeline over two keys at times 0 and 1 with a linear curve, or a later start when `times` is given.
+ *
+ * @param {string} type The timeline type: `rotate`, `translate`, `scale` or `shear`.
+ * @param {number[]} values The two key values. Rotate uses them as angles, the others as both X and Y.
+ * @param {number[]} times The two key times.
+ * @returns {import("../../src/spine/types.ts").Timeline} The timeline, driving bone 1.
+ */
+function boneTimeline(type, values, times = [0, 1]) {
+	const keys = { boneIndex: 1, times, curves: ["linear"] };
+	return type === "rotate" ? { type, ...keys, angles: values } : { type, ...keys, x: values, y: values };
+}
+
+/**
+ * Poses a 2-bone rig (a root and a child 10 units along it) with one timeline, sampled at a time, and runs `updateWorldTransform`.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @param {object} child Overrides for the child bone's setup data.
+ * @param {object} timeline The one timeline, driving the child.
+ * @param {number} time The time to sample, in seconds.
+ * @returns {import("../../src/spine/skeleton.ts").Bone} The child bone.
+ */
+function posedChild(skeletonModule, animationModule, child, timeline, time) {
+	const skeleton = new skeletonModule.Skeleton(skeletonData([{}, { x: 10, ...child }]));
+	const animation = { name: "test", duration: Math.max(...timeline.times), timelines: [timeline] };
+	skeleton.setToSetupPose();
+	animationModule.applyAnimation(skeleton, animation, time);
+	skeleton.updateWorldTransform();
+	return skeleton.bones[1];
+}
+
+/**
+ * Runs every animation case: curves, key search, loop times, and each bone timeline applied to a small rig.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkAnimation(skeletonModule, animationModule) {
+	const { curveValue, keyIndex, loopTime } = animationModule;
+	const pose = (child, timeline, time) => posedChild(skeletonModule, animationModule, child, timeline, time);
+	const worldAngle = (bone) => (Math.atan2(bone.c, bone.a) * 180) / Math.PI;
+	const loop = { name: "loop", duration: 1, timelines: [] };
+	const cases = [
+		...CURVE_CASES.map(({ curve, t, expected }) => [`curve ${JSON.stringify(curve)} at ${t}`, () => [expected, curveValue(curve, t)]]),
+		...KEY_CASES.map(({ times, time, expected }) => [`key search [${times}] at ${time}`, () => [expected, keyIndex(times, time)]]),
+		["loopTime 2.5 over 1, looping", () => [0.5, loopTime(loop, 2.5, true)]],
+		["loopTime 2.5 over 1, not looping", () => [1, loopTime(loop, 2.5, false)]],
+		["loopTime over duration 0", () => [0, loopTime({ ...loop, duration: 0 }, 2.5, true)]],
+		["loopTime clamps a negative time when not looping", () => [0, loopTime(loop, -0.5, false)]],
+		["loopTime gives 0 for a NaN time when looping", () => [0, loopTime(loop, NaN, true)]],
+		["loopTime gives 0 for an infinite time when looping", () => [0, loopTime(loop, Infinity, true)]],
+		["rotate takes the short way round", () => [18.5, pose({ rotation: 10 }, boneTimeline("rotate", [0, -343]), 0.5).rotation]],
+		["rotate adds to the setup rotation", () => [25, pose({ rotation: 10 }, boneTimeline("rotate", [10, 30]), 0.25).rotation]],
+		["rotate turns the world x axis", () => [45, worldAngle(pose({}, boneTimeline("rotate", [0, 90]), 0.5))]],
+		["translate adds to the setup x", () => [8, pose({ x: 5 }, boneTimeline("translate", [3, 3]), 0.5).x]],
+		["shear adds to the setup shear", () => [8, pose({ shearX: 5 }, boneTimeline("shear", [3, 3]), 0.5).shearX]],
+		["scale multiplies the setup scale", () => [1, pose({ scaleX: 0.5 }, boneTimeline("scale", [2, 2]), 0.5).scaleX]],
+		["before the first key the setup value stays", () => [5, pose({ x: 5 }, boneTimeline("translate", [3, 7], [0.5, 1]), 0.2).x]],
+		["after the last key its value holds", () => [12, pose({ x: 5 }, boneTimeline("translate", [3, 7]), 4).x]]
+	];
+
+	const failures = [];
+	for (const [label, run] of cases) {
+		let problem = null;
+		try {
+			const [expected, actual] = run();
+			if (typeof actual !== "number" || !(Math.abs(expected - actual) <= TOLERANCE)) {
+				problem = `expected ${expected}, got ${actual}`;
+			}
+		} catch (error) {
+			problem = `threw ${error.message}`;
+		}
+		console.log(`${problem === null ? "ok  " : "FAIL"} animation: ${label}`);
+		if (problem !== null) {
+			failures.push(`animation: ${label} ${problem}`);
+		}
+	}
+	return failures;
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -727,6 +836,12 @@ try {
 		failures.push(...checkGeometry(skeletonModule, geometryModule), ...checkSlotState(skeletonModule, geometryModule));
 	} catch (error) {
 		failures.push(`geometry: could not run: ${error.message}`);
+	}
+	try {
+		const animationModule = await server.ssrLoadModule("/src/spine/animation.ts");
+		failures.push(...checkAnimation(skeletonModule, animationModule));
+	} catch (error) {
+		failures.push(`animation: could not run: ${error.message}`);
 	}
 } catch (error) {
 	failures = [`could not run: ${error.message}`];
