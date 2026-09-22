@@ -131,8 +131,14 @@ const DATE_FIXTURES = [
 	{ id: "char_437_mizuki", date: "2022-01-14" }
 ];
 
-/** The Originium Slug is in the prologue, which shipped at launch. */
-const ENEMY_DATE_FIXTURES = [{ id: "enemy_1007_slime", date: "2020-01-16" }];
+/**
+ * The Originium Slug is in the prologue, which shipped at launch. `enemy_10071_ftprg` debuted in When Elegies Are Ashes, whose stages now sit in its
+ * 2026 rerun's zone, so it guards against dating an enemy by a rerun.
+ */
+const ENEMY_DATE_FIXTURES = [
+	{ id: "enemy_1007_slime", date: "2020-01-16" },
+	{ id: "enemy_10071_ftprg", date: "2025-08-28" }
+];
 
 /**
  * Hand-checked range ids. Ch'en the Holungday grows at E1, has a front-row trait area and an S3 that widens her range. Swire's S1 changes range at

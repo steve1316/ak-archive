@@ -24,6 +24,9 @@ export const ID_ALIASES = {
 	char_1037_amiya3: "Amiya (Medic)"
 };
 
+/** The suffix EN gives a rerun's name, such as `Near Light - Rerun` or `Il Siracusano - Retrospection`. */
+const RERUN_SUFFIX = /\s*-\s*(Rerun|Retrospection)\s*$/i;
+
 /**
  * The day part of a wiki timestamp such as `2020-01-16 11:00:00`.
  *
@@ -127,22 +130,52 @@ export function chapterDay(number, wikitext) {
 }
 
 /**
+ * Map every rerun activity to its original run's start time. A rerun is flagged `isReplicate` and named after its original plus a suffix, and the
+ * names are matched case-insensitively since upstream spells `IL Siracusano` one way and its rerun another.
+ *
+ * @param {Record<string, {name: string, startTime: number, isReplicate?: boolean}>} basicInfo `activity_table.basicInfo`.
+ * @returns {Map<string, number>} Rerun activity id to its original's start time. A rerun with no findable original is left out.
+ */
+function originalStarts(basicInfo) {
+	const byName = new Map();
+	for (const info of Object.values(basicInfo)) {
+		if (!info.isReplicate) {
+			byName.set(info.name.trim().toLowerCase(), info.startTime);
+		}
+	}
+	const starts = new Map();
+	for (const [id, info] of Object.entries(basicInfo)) {
+		const original = info.isReplicate ? byName.get(info.name.replace(RERUN_SUFFIX, "").trim().toLowerCase()) : undefined;
+		if (original) {
+			starts.set(id, original);
+		}
+	}
+	return starts;
+}
+
+/**
  * Date every stage that can be dated. A main story zone uses its chapter's day, otherwise the zone's event start from `activity_table`.
  *
- * Supply, Annihilation and Stationary Security Service zones belong to no event and stay undated.
+ * When an event reruns, EN moves its stages into the rerun's zone, so a zone that maps to a rerun is dated by the original run instead. A rerun whose
+ * original cannot be found leaves its stages undated rather than dating them by the rerun. Supply, Annihilation and Stationary Security Service
+ * zones belong to no event and stay undated.
  *
  * @param {Record<string, {zoneId: string}>} stages `stage_table.stages`.
- * @param {{zoneToActivity?: Record<string, string>, basicInfo?: Record<string, {startTime: number}>}} activityTable `activity_table`.
+ * @param {{zoneToActivity?: Record<string, string>, basicInfo?: Record<string, {name: string, startTime: number, isReplicate?: boolean}>}} activityTable
+ * `activity_table`.
  * @param {Map<string, string>} chapters Main story zone id, such as `main_7`, to its Global day.
  * @returns {Map<string, string>} Stage id to day.
  */
 export function stageDates(stages, activityTable, chapters) {
+	const basicInfo = activityTable.basicInfo ?? {};
+	const reruns = originalStarts(basicInfo);
 	const days = new Map();
 	for (const [stageId, stage] of Object.entries(stages)) {
 		let day = chapters.get(stage.zoneId) ?? null;
 		if (!day) {
 			const activityId = activityTable.zoneToActivity?.[stage.zoneId];
-			const startTime = activityId ? activityTable.basicInfo?.[activityId]?.startTime : undefined;
+			const info = activityId ? basicInfo[activityId] : undefined;
+			const startTime = info?.isReplicate ? reruns.get(activityId) : info?.startTime;
 			day = startTime ? dayOfUnix(startTime) : null;
 		}
 		if (day) {
