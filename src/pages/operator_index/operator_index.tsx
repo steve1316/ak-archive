@@ -6,19 +6,20 @@ import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, ScrollToTop, findNam
 import type { ActiveFilter, SortOption } from "archive-kit";
 
 import { loadAllOperators } from "../../lib/data.js";
-import { COLLATOR, optionsOf, toggled } from "../../lib/filters.js";
+import { COLLATOR, optionsOf, releaseYear, toggled, yearOptions } from "../../lib/filters.js";
 import type { Operator } from "../../types/operator.js";
 import OperatorCard from "./OperatorCard.js";
 import OperatorFilterRows, { CLASS_ORDER } from "./OperatorFilterRows.js";
 
 /** What the results can be ordered by. */
-type SortKey = "name" | "rarity" | "class";
+type SortKey = "name" | "rarity" | "class" | "release";
 
-/** How the index can be ordered. There is no release date in the data, so it is not an option. */
+/** How the index can be ordered. */
 const SORT_OPTIONS: ReadonlyArray<SortOption<SortKey>> = [
 	{ value: "rarity", label: "Rarity" },
 	{ value: "name", label: "Name" },
-	{ value: "class", label: "Class" }
+	{ value: "class", label: "Class" },
+	{ value: "release", label: "Release date" }
 ];
 
 /** How many cards fit a row at each breakpoint: five across on a wide screen. */
@@ -33,8 +34,8 @@ const NO_OPTIONS: string[] = [];
 /** Where each class sits in the game's own order, so the Class sort matches the order the class chips are drawn in. */
 const CLASS_RANK = new Map(CLASS_ORDER.map((profession, index) => [profession, index]));
 
-/** The direction each sort key lands in when it is chosen. Rarity reads best from 6 stars down, the other two read forwards. */
-const NATURAL_DESCENDING: Record<SortKey, boolean> = { rarity: true, name: false, class: false };
+/** The direction each sort key lands in when it is chosen. Rarity and release date read best from the top down, the other two read forwards. */
+const NATURAL_DESCENDING: Record<SortKey, boolean> = { rarity: true, name: false, class: false, release: true };
 
 /**
  * Sort the matching operators. Ties always fall back to the name in A-Z order, whichever way the primary key runs.
@@ -47,6 +48,10 @@ const NATURAL_DESCENDING: Record<SortKey, boolean> = { rarity: true, name: false
 function sortOperators(operators: Operator[], key: SortKey, descending: boolean): Operator[] {
 	const direction = descending ? -1 : 1;
 	return [...operators].sort((a, b) => {
+		// Undated operators sit at the bottom whichever way the release sort runs, rather than flipping to the top on a reverse.
+		if (key === "release" && (a.releaseDate === null) !== (b.releaseDate === null)) {
+			return a.releaseDate === null ? 1 : -1;
+		}
 		let order: number;
 		switch (key) {
 			case "rarity":
@@ -58,6 +63,9 @@ function sortOperators(operators: Operator[], key: SortKey, descending: boolean)
 				break;
 			case "name":
 				order = COLLATOR.compare(a.name, b.name);
+				break;
+			case "release":
+				order = COLLATOR.compare(a.releaseDate ?? "", b.releaseDate ?? "");
 				break;
 		}
 		return direction * order || COLLATOR.compare(a.name, b.name);
@@ -84,6 +92,7 @@ export default function OperatorIndex() {
 	const [faction, setFaction] = useState("");
 	const [positions, setPositions] = useState<string[]>([]);
 	const [tags, setTags] = useState<string[]>([]);
+	const [years, setYears] = useState<string[]>([]);
 	const [query, setQuery] = useState("");
 	const [sortKey, setSortKey] = useState<SortKey>("rarity");
 	const [sortDescending, setSortDescending] = useState(NATURAL_DESCENDING.rarity);
@@ -120,6 +129,8 @@ export default function OperatorIndex() {
 
 	const tagOptions = useMemo(() => (operators ? optionsOf(operators, (operator) => operator.tags) : NO_OPTIONS), [operators]);
 
+	const releaseYearOptions = useMemo(() => (operators ? yearOptions(operators.map((operator) => operator.releaseDate)) : NO_OPTIONS), [operators]);
+
 	// Each axis is an OR within itself and an AND against the others, so picking two classes widens and adding a tag narrows. The name match is
 	// kept rather than thrown away, since `OperatorCard` needs the same range to highlight and would otherwise have to compute it a second time.
 	const { filtered, nameMatches } = useMemo(() => {
@@ -147,6 +158,9 @@ export default function OperatorIndex() {
 			if (tags.length > 0 && !tags.some((tag) => operator.tags.includes(tag))) {
 				return false;
 			}
+			if (years.length > 0 && !years.includes(releaseYear(operator.releaseDate))) {
+				return false;
+			}
 			// `findNameMatch` reports null for an empty query as well as for a miss, so the empty case is answered before asking it.
 			if (needle === "") {
 				return true;
@@ -159,7 +173,7 @@ export default function OperatorIndex() {
 			return true;
 		});
 		return { filtered: matched, nameMatches: matches };
-	}, [operators, rarities, classes, activeSubclasses, faction, positions, tags, query]);
+	}, [operators, rarities, classes, activeSubclasses, faction, positions, tags, years, query]);
 
 	const sorted = useMemo(() => sortOperators(filtered, sortKey, sortDescending), [filtered, sortKey, sortDescending]);
 
@@ -198,6 +212,8 @@ export default function OperatorIndex() {
 
 	const handleToggleTag = useCallback((value?: string | number) => setTags((current) => toggled(current, String(value))), []);
 
+	const handleToggleYear = useCallback((value?: string | number) => setYears((current) => toggled(current, String(value))), []);
+
 	const handleClearFaction = useCallback(() => setFaction(""), []);
 
 	const handleClearQuery = useCallback(() => setQuery(""), []);
@@ -227,6 +243,7 @@ export default function OperatorIndex() {
 		setFaction("");
 		setPositions([]);
 		setTags([]);
+		setYears([]);
 		setQuery("");
 	}, []);
 
@@ -239,6 +256,7 @@ export default function OperatorIndex() {
 			...(faction === "" ? [] : [{ id: "faction", label: faction, onDelete: handleClearFaction }]),
 			...positions.map((position) => ({ id: `position-${position}`, label: position, onDelete: () => handleTogglePosition(position) })),
 			...tags.map((tag) => ({ id: `tag-${tag}`, label: tag, onDelete: () => handleToggleTag(tag) })),
+			...years.map((year) => ({ id: `year-${year}`, label: year, onDelete: () => handleToggleYear(year) })),
 			...(query.trim() === "" ? [] : [{ id: "name", label: `"${query.trim()}"`, onDelete: handleClearQuery }])
 		],
 		[
@@ -248,6 +266,7 @@ export default function OperatorIndex() {
 			faction,
 			positions,
 			tags,
+			years,
 			query,
 			handleToggleRarity,
 			handleToggleClass,
@@ -255,6 +274,7 @@ export default function OperatorIndex() {
 			handleClearFaction,
 			handleTogglePosition,
 			handleToggleTag,
+			handleToggleYear,
 			handleClearQuery
 		]
 	);
@@ -279,6 +299,9 @@ export default function OperatorIndex() {
 				tagOptions={tagOptions}
 				tags={tags}
 				onToggleTag={handleToggleTag}
+				yearOptions={releaseYearOptions}
+				years={years}
+				onToggleYear={handleToggleYear}
 			/>
 		),
 		[
@@ -291,11 +314,14 @@ export default function OperatorIndex() {
 			positions,
 			tagOptions,
 			tags,
+			releaseYearOptions,
+			years,
 			handleToggleRarity,
 			handleToggleClass,
 			handleToggleSubclass,
 			handleTogglePosition,
-			handleToggleTag
+			handleToggleTag,
+			handleToggleYear
 		]
 	);
 

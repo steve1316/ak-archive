@@ -44,6 +44,12 @@ interface OperatorFilterRowsProps {
 	tags: string[];
 	/** Toggles the tag it is called with. */
 	onToggleTag: (value?: string | number) => void;
+	/** Every release year that occurs, oldest first, with "Unknown" last. */
+	yearOptions: string[];
+	/** Release years currently selected. */
+	years: string[];
+	/** Toggles the release year it is called with. */
+	onToggleYear: (value?: string | number) => void;
 }
 
 /** The eight display class names, in the game's own order. Exported so the chip row and the index's class sort read one list rather than two. */
@@ -66,7 +72,7 @@ const RARITIES = [6, 5, 4, 3, 2, 1];
  */
 export default function OperatorFilterRows(props: OperatorFilterRowsProps) {
 	const { rarities, onToggleRarity, classes, onToggleClass, subclassOptions, subclasses, onToggleSubclass } = props;
-	const { factionOptions, faction, onFactionChange, positions, onTogglePosition, tagOptions, tags, onToggleTag } = props;
+	const { factionOptions, faction, onFactionChange, positions, onTogglePosition, tagOptions, tags, onToggleTag, yearOptions, years, onToggleYear } = props;
 
 	// Built once per rarity change rather than per render, since `RarityChipRow` is memoised and a fresh array is a new prop every time. The row
 	// already leads each chip with its own rarity number, so the label is the star rather than that same number printed twice.
@@ -95,6 +101,8 @@ export default function OperatorFilterRows(props: OperatorFilterRowsProps) {
 			<FilterOptionRow options={POSITIONS} selected={positions} onToggle={onTogglePosition} />
 			<ChipRowDivider />
 			<FilterOptionRow options={tagOptions} selected={tags} onToggle={onToggleTag} />
+			<ChipRowDivider />
+			<FilterOptionRow options={yearOptions} selected={years} onToggle={onToggleYear} />
 		</>
 	);
 }

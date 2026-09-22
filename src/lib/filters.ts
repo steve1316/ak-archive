@@ -7,6 +7,9 @@
 /** Compares text so digits order by value, putting "12F" before "THRM-EX", and case is ignored. Built once rather than per comparison. */
 export const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
+/** The year chip for an entry with no known release date. */
+export const UNKNOWN_YEAR = "Unknown";
+
 /**
  * Add a value to a selection, or drop it when it is already selected.
  *
@@ -35,4 +38,25 @@ export function optionsOf<T>(entries: readonly T[], read: (entry: T) => Readonly
 		}
 	}
 	return [...values].sort(COLLATOR.compare);
+}
+
+/**
+ * The year chip an entry falls under.
+ *
+ * @param releaseDate The entry's `YYYY-MM-DD` release day, or null.
+ * @returns The four-digit year, or `UNKNOWN_YEAR`.
+ */
+export function releaseYear(releaseDate: string | null): string {
+	return releaseDate?.slice(0, 4) ?? UNKNOWN_YEAR;
+}
+
+/**
+ * The year chips for a list of release days: every year that occurs, oldest first, with `UNKNOWN_YEAR` last when any day is missing.
+ *
+ * @param dates Every entry's release day, or null.
+ * @returns The chip labels.
+ */
+export function yearOptions(dates: ReadonlyArray<string | null>): string[] {
+	const years = [...new Set(dates.map(releaseYear))];
+	return years.sort((a, b) => (a === UNKNOWN_YEAR ? 1 : b === UNKNOWN_YEAR ? -1 : COLLATOR.compare(a, b)));
 }
