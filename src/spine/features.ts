@@ -56,7 +56,7 @@ const STAGE_ADDS: readonly (readonly Feature[])[] = [
 export const STAGE_FEATURES: ReadonlyMap<number, ReadonlySet<Feature>> = new Map(STAGE_ADDS.map((_, index) => [index + 1, new Set([...ALWAYS_SUPPORTED, ...STAGE_ADDS.slice(0, index + 1).flat()])]));
 
 /** The planned stage the runtime has reached. */
-export const SUPPORTED_STAGE = 3;
+export const SUPPORTED_STAGE = 4;
 
 /** The features the runtime can draw now: the full feature set of `SUPPORTED_STAGE`. */
 export const SUPPORTED: ReadonlySet<Feature> = STAGE_FEATURES.get(SUPPORTED_STAGE)!;

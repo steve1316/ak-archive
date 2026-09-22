@@ -59,16 +59,16 @@ const MIN_SPINE_BACK_RIGS = 907;
 const MIN_SPINE_DORM_RIGS = 918;
 
 /**
- * Floor for operators whose base battle rig the current runtime draws in full: the runtime's supported stage or below. Just under the 363
- * measured when set.
+ * Floor for operators whose base battle rig the current runtime draws in full: the runtime's supported stage or below. Every operator
+ * since path constraints landed: 412 of 412.
  */
-const MIN_SPINE_PLAYABLE_OPERATORS = 360;
+const MIN_SPINE_PLAYABLE_OPERATORS = 412;
 
 /** Enemy rigs at the pinned Ark-Models sha: the count the first full index produced. */
 const MIN_ENEMY_SPINE_RIGS = 1537;
 
-/** Enemy rigs the current runtime draws in full. Just under what the first full index measured. */
-const MIN_ENEMY_SPINE_PLAYABLE = 1468;
+/** Enemy rigs the current runtime draws in full. Every one since path constraints landed: 1537 of 1537. */
+const MIN_ENEMY_SPINE_PLAYABLE = 1537;
 
 /**
  * The runtime's supported stage, and the highest stage it plans for, both read out of `src/spine/features.ts` so this gate never drifts
