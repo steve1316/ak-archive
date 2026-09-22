@@ -25,7 +25,7 @@ const SpineLab = import.meta.env.DEV ? lazy(() => import("./pages/spine_lab/spin
 /** The drawer's destinations. Icons resolve to asset-host paths that 404 until the A3 pipeline publishes the class icons. */
 const NAV_ITEMS: readonly NavItem[] = [
 	{ title: "Home", link: "/", icon: classIconUrl("Guard") },
-	{ title: "Operators", link: "/operators", icon: classIconUrl("Caster") }
+	{ title: "Operator Index", link: "/operators", icon: classIconUrl("Caster") }
 ];
 
 /**

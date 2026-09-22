@@ -71,8 +71,6 @@ export default function Home() {
 	// Stable, so the memoised carousel does not re-render whenever the home page does.
 	const reshuffle = useCallback(() => setCarouselIds(randomOperatorIds(CAROUSEL_SIZE)), []);
 
-	const operatorCount = useMemo(() => searchIndex.length, []);
-
 	// Amiya is the game's lead, so her illustration is the curated art for the one section card rather than an arbitrary pick.
 	const amiyaArt = useMemo(() => illustrationUrl("char_002_amiya"), []);
 
@@ -98,20 +96,18 @@ export default function Home() {
 						<Grow in style={GROW_STYLE} timeout={600}>
 							<Card sx={styles.card}>
 								{/* The artwork links to the section too, with a name for screen readers. */}
-								<CardActionArea component={Link} to="/operators" aria-label="Operators">
-									<CardMedia sx={[styles.cardMedia, AMIYA_CROP_SX]} image={amiyaArt} title="Operators" />
+								<CardActionArea component={Link} to="/operators" aria-label="Operator Index">
+									<CardMedia sx={[styles.cardMedia, AMIYA_CROP_SX]} image={amiyaArt} title="Operator Index" />
 								</CardActionArea>
 								<CardContent sx={styles.cardContent}>
 									<Typography component="h2" variant="h5" gutterBottom>
-										Operators
+										Operator Index
 									</Typography>
-									<Typography color="textSecondary">
-										Browse all {operatorCount} operators: stats, talents, potentials, skins and lore, pulled straight from the game's own data.
-									</Typography>
+									<Typography color="textSecondary">View Index of Operators along with additional information like statistics, skills and chibi animations.</Typography>
 								</CardContent>
 								<CardActions sx={styles.cardButton}>
 									{/* One link styled as a button, rather than a button nested inside a link, with a name for screen readers. */}
-									<Button component={Link} to="/operators" size="small" variant="contained" color="primary" aria-label="Open Operators">
+									<Button component={Link} to="/operators" size="small" variant="contained" color="primary" aria-label="Open Operator Index">
 										<ArrowForwardIcon />
 									</Button>
 								</CardActions>
