@@ -126,8 +126,17 @@ export const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { 
  */
 export const HERO_ROW_SX = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } } as const satisfies SxProps<Theme>;
 
-/** A detail page's second row: stats beside the abilities. Content height - nothing here stretches. */
+/** A detail page's second row: stats beside the abilities. Content height - nothing here stretches. The enemy page stretches it instead. */
 export const STATS_ROW_SX: SxProps<Theme> = { display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "360px minmax(0, 1fr)" } };
+
+/** The enemy page's second row: `STATS_ROW_SX` stretched, so the column beside Stats lines up with it when that column's text is shorter. */
+export const STATS_ROW_STRETCH_SX: SxProps<Theme> = { ...STATS_ROW_SX, alignItems: "stretch" };
+
+/**
+ * The column beside Stats on the enemy page: Abilities at the height its text needs, Handbook taking the rest. When the text is longer than
+ * Stats, the row grows to fit it rather than hiding it behind a scrollbar.
+ */
+export const STATS_SIDE_COLUMN_SX: SxProps<Theme> = { display: "grid", gap: 2, gridTemplateRows: "auto 1fr", minWidth: 0 };
 
 /** A stats card's row: a thin rule under each row but the last. */
 export const STAT_ROW_SX = { py: 0.625, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } } as const satisfies SxProps<Theme>;
