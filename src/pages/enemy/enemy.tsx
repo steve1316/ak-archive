@@ -11,7 +11,7 @@ import type { StageRequest } from "../../components/AnimationsCard.js";
 import RecordBlock from "../../components/RecordBlock.js";
 import { enemyIconUrl, hasEnemyIcon } from "../../lib/assets.js";
 import { loadEnemyGroup } from "../../lib/data.js";
-import { PAGE_SX, SECTION_HEADING_SX, SECTION_SX, STATS_ROW_SX, TIGHT_RADIUS } from "../../lib/layout.js";
+import { HERO_ROW_SX, PAGE_SX, SECTION_HEADING_SX, SECTION_SX, STATS_ROW_SX, TIGHT_RADIUS } from "../../lib/layout.js";
 import { enemyPath, enemySlug, resolveEnemySlug, VARIANT_PARAM } from "../../lib/routes.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Enemy, EnemyDetails } from "../../types/enemy.js";
@@ -21,19 +21,11 @@ import EnemyIdentityBlock from "./EnemyIdentityBlock.js";
 import EnemySpineStage from "./EnemySpineStage.js";
 import EnemyStatsPanel from "./EnemyStatsPanel.js";
 
-/** The icon column's width, the same as the operator page's art card so the two pages line up. */
+/** The icon's width, matching the first track of `HERO_ROW_SX`, which is the operator page's art card. */
 const ICON_WIDTH = 180;
 
-/** The Animations card's width, the same as the operator page's. */
-const ANIMATIONS_WIDTH = 330;
-
-/** Row 1: icon, then identity and record, then Animations. Stacked on a narrow screen. */
-const ROW1_SX: SxProps<Theme> = {
-	mb: 2,
-	display: "grid",
-	gap: { xs: 2, md: 2.75 },
-	gridTemplateColumns: { xs: "minmax(0, 1fr)", md: `${ICON_WIDTH}px minmax(0, 1fr) ${ANIMATIONS_WIDTH}px` }
-};
+/** Row 1: icon, then identity and record, then Animations. The shared row plus the gap to row 2, which this page has no fold grid to set. */
+const ROW1_SX: SxProps<Theme> = { ...HERO_ROW_SX, mb: 2 };
 
 /** The icon. The game draws it on a transparent canvas, so it sits on a card-coloured square. */
 const ICON_SX: SxProps<Theme> = {

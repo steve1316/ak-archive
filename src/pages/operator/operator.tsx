@@ -17,7 +17,7 @@ import type { StageRequest } from "../../components/AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import HandbookSection from "./HandbookSection.js";
 import IdentityBlock from "./IdentityBlock.js";
-import { NAVBAR_HEIGHT, PAGE_SX, PAGE_TOP_PADDING, STATS_ROW_SX } from "../../lib/layout.js";
+import { HERO_ROW_SX, NAVBAR_HEIGHT, PAGE_SX, PAGE_TOP_PADDING, STATS_ROW_SX } from "../../lib/layout.js";
 import RecordBlock from "../../components/RecordBlock.js";
 import SpineStage from "./SpineStage.js";
 import StatsPanel from "./StatsPanel.js";
@@ -38,9 +38,6 @@ const FOLD_SX: SxProps<Theme> = (theme) => ({
 
 /** Space between the fold and the handbook below it, the same as between the two rows above. */
 const HANDBOOK_SX: SxProps<Theme> = { mt: 2 };
-
-/** Row 1: art card, identity and record, Animations. Stacked on a narrow screen. */
-const ROW1_SX: SxProps<Theme> = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } };
 
 /**
  * The default controls for a freshly loaded operator: the last elite phase, that phase's max level, full trust and potential 1.
@@ -199,7 +196,7 @@ export default function Operator() {
 					<>
 						{/* `data-region` marks the fold so its bottom edge can be measured against the viewport when checking the above-the-fold layout. */}
 						<Box sx={FOLD_SX} data-region="fold">
-							<Box sx={ROW1_SX}>
+							<Box sx={HERO_ROW_SX}>
 								<ArtCard name={operator.name} portrait={form?.portrait ?? null} illustration={form?.illustration ?? null} artLink={artLink} />
 								<Box sx={{ minWidth: 0 }}>
 									<IdentityBlock operator={operator} forms={forms} formKey={formKey} onFormChange={handleFormChange} />

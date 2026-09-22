@@ -120,6 +120,12 @@ export const PAGE_TOP_PADDING = 1.75;
 /** A detail page's body: above the fixed backdrop, with the locked design's 14px top and 20px side padding. */
 export const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { xs: 2, md: 2.5 }, pt: PAGE_TOP_PADDING, pb: 3 };
 
+/**
+ * A detail page's first row: a 180px art or icon column, the identity and record beside it, and the 330px Animations card, so the operator and
+ * enemy pages line up. Stacked on a narrow screen. A page that needs its own spacing around the row spreads this and adds it.
+ */
+export const HERO_ROW_SX = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } } as const satisfies SxProps<Theme>;
+
 /** A detail page's second row: stats beside the abilities. Content height - nothing here stretches. */
 export const STATS_ROW_SX: SxProps<Theme> = { display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "360px minmax(0, 1fr)" } };
 
