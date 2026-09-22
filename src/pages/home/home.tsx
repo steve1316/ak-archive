@@ -50,6 +50,18 @@ const ICON_GRID_SX: SxProps<Theme> = {
 /** One icon in the grid, scaled to fit its cell. */
 const GRID_ICON_SX: SxProps<Theme> = { width: "100%", height: "100%", objectFit: "contain", opacity: 0.9 };
 
+/** A home card's mosaic: square art tiled edge to edge across its 16:9 media box, 4 across and 2 down, with no gaps and no glow. */
+const MOSAIC_SX: SxProps<Theme> = { position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gridTemplateRows: "repeat(2, 1fr)" };
+
+/** One mosaic cell, clipping its tile. */
+const MOSAIC_CELL_SX: SxProps<Theme> = { overflow: "hidden", minWidth: 0, minHeight: 0 };
+
+/**
+ * One tile in the mosaic, cropped to fill its cell. Enemy icons fade to transparent over their outer ~10px of 158, which left a dark seam
+ * between tiles, so each is scaled up just enough to push that rim outside its cell.
+ */
+const MOSAIC_TILE_SX: SxProps<Theme> = { width: "100%", height: "100%", objectFit: "cover", display: "block", transform: "scale(1.15)" };
+
 /** Eight of the story's Leaders, shown as the Enemy Index card's art. Fixed ids, so the home page never has to load the enemy list. */
 const FEATURED_ENEMIES = ["enemy_1500_skulsr", "enemy_1502_crowns", "enemy_1503_talula", "enemy_1504_cqbw", "enemy_1505_frstar", "enemy_1506_patrt", "enemy_1507_mephi", "enemy_1508_faust"] as const;
 
@@ -69,6 +81,8 @@ interface SectionCardProps {
 	blurb: string;
 	/** The icons laid out as the card's art, over its 16:9 media box. */
 	icons: readonly string[];
+	/** Whether the icons tile the box edge to edge, for square art such as enemy icons, rather than sit as glyphs over a glow. */
+	mosaic?: boolean;
 }
 
 /**
@@ -77,7 +91,7 @@ interface SectionCardProps {
  * @param props Component props.
  * @returns The card.
  */
-function SectionCard({ to, title, blurb, icons }: SectionCardProps) {
+function SectionCard({ to, title, blurb, icons, mosaic = false }: SectionCardProps) {
 	return (
 		<Grid size={{ xs: 12, sm: 6, md: 4 }}>
 			<Grow in style={GROW_STYLE} timeout={600}>
@@ -85,10 +99,16 @@ function SectionCard({ to, title, blurb, icons }: SectionCardProps) {
 					{/* The artwork links to the section too, with a name for screen readers. */}
 					<CardActionArea component={Link} to={to} aria-label={title}>
 						<Box sx={styles.cardMedia}>
-							<Box sx={ICON_GRID_SX}>
-								{icons.map((url) => (
-									<Box key={url} component="img" src={url} alt="" sx={GRID_ICON_SX} />
-								))}
+							<Box sx={mosaic ? MOSAIC_SX : ICON_GRID_SX}>
+								{icons.map((url) =>
+									mosaic ? (
+										<Box key={url} sx={MOSAIC_CELL_SX}>
+											<Box component="img" src={url} alt="" sx={MOSAIC_TILE_SX} />
+										</Box>
+									) : (
+										<Box key={url} component="img" src={url} alt="" sx={GRID_ICON_SX} />
+									)
+								)}
 							</Box>
 						</Box>
 					</CardActionArea>
@@ -165,7 +185,7 @@ export default function Home() {
 						blurb="View Index of Operators along with additional information like statistics, skills and chibi animations."
 						icons={CLASS_ICON_URLS}
 					/>
-					<SectionCard to="/enemies" title="Enemy Index" blurb="View Index of Enemies along with their handbook grades, stats per level and abilities." icons={ENEMY_ICON_URLS} />
+					<SectionCard to="/enemies" title="Enemy Index" blurb="View Index of Enemies along with their handbook grades, stats per level and abilities." icons={ENEMY_ICON_URLS} mosaic />
 				</Grid>
 			</Container>
 			{/* End of Cards Section */}
