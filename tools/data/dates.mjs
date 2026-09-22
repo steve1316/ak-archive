@@ -14,7 +14,7 @@
 import fs from "node:fs";
 
 import { chapterDay, enemyDates, ID_ALIASES, operatorDates, stageDates } from "./lib/dates.mjs";
-import { asArray } from "./lib/json.mjs";
+import { asArray, sortedObject } from "./lib/json.mjs";
 import { selectOperators } from "./lib/operators.mjs";
 import { loadTable, readLock } from "./lib/upstream.mjs";
 import { cargoQuery, pageWikitext } from "./lib/wiki.mjs";
@@ -24,16 +24,6 @@ const OUT_PATH = "tools/data/release-dates.json";
 
 /** Level files fetched at once. 2,317 files, each cached after its first download. */
 const LEVEL_CONCURRENCY = 8;
-
-/**
- * Copy an object with its keys in sorted order, so the snapshot diffs cleanly between runs.
- *
- * @param {Record<string, string>} record The object.
- * @returns {Record<string, string>} The sorted copy.
- */
-function sortedObject(record) {
-	return Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-}
 
 /**
  * Run an async task over every item with at most `limit` in flight.
@@ -68,7 +58,8 @@ async function loadLevel(levelId, lock) {
 	try {
 		return await loadTable(name, lock);
 	} catch (error) {
-		if (!lock.levelFallback) {
+		// Only a file EN does not have falls back. A network or parse failure must not quietly read CN instead.
+		if (!lock.levelFallback || error.status !== 404) {
 			throw error;
 		}
 		return loadTable(name, lock.levelFallback);

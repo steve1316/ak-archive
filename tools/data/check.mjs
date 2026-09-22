@@ -134,11 +134,14 @@ const DATE_FIXTURES = [
 /** The Originium Slug is in the prologue, which shipped at launch. */
 const ENEMY_DATE_FIXTURES = [{ id: "enemy_1007_slime", date: "2020-01-16" }];
 
-/** Hand-checked range ids. Ch'en the Holungday grows at E1, has a front-row trait area and an S3 that widens her range. */
-const RANGE_FIXTURES = [{ id: "char_1013_chen2", phases: ["2-4", "2-5", "2-5"], trait: "1-3", skill: "skchr_chen2_3", skillLevels: { 0: "2-6", 9: "2-6" } }];
-
-/** Swire's S1 changes range at level 7, so ranges are per level rather than per skill. */
-const SKILL_RANGE_FIXTURES = [{ id: "char_308_swire", skill: "skchr_swire_1", skillLevels: { 0: "x-1", 5: "x-1", 6: "x-2", 9: "x-2" } }];
+/**
+ * Hand-checked range ids. Ch'en the Holungday grows at E1, has a front-row trait area and an S3 that widens her range. Swire's S1 changes range at
+ * level 7, which is why ranges are kept per skill level rather than per skill.
+ */
+const RANGE_FIXTURES = [
+	{ id: "char_1013_chen2", phases: ["2-4", "2-5", "2-5"], trait: "1-3", skill: "skchr_chen2_3", skillLevels: { 0: "2-6", 9: "2-6" } },
+	{ id: "char_308_swire", skill: "skchr_swire_1", skillLevels: { 0: "x-1", 5: "x-1", 6: "x-2", 9: "x-2" } }
+];
 
 /** The handbook's grade scale, best first. */
 const ENEMY_GRADES = ["SS", "S+", "S", "A+", "A", "B+", "B", "C", "D", "E"];
@@ -212,6 +215,40 @@ function eachString(value, where, visit) {
 			eachString(item, `${where}.${key}`, visit);
 		}
 	}
+}
+
+/**
+ * Check every entry's `releaseDate`: present, well formed when set, above a floor of dated entries, and equal to the hand-checked fixtures.
+ *
+ * @param {Array<{id: string, releaseDate?: string | null}>} entries The operators or enemy groups.
+ * @param {string} label What the entries are, for messages.
+ * @param {number} floor The fewest entries that must carry a date.
+ * @param {Array<{id: string, date: string}>} fixtures Hand-checked dates.
+ * @returns {number} How many entries carry a date.
+ */
+function checkDates(entries, label, floor, fixtures) {
+	let dated = 0;
+	for (const entry of entries) {
+		if (entry.releaseDate === undefined) {
+			fail(`${entry.id} has no releaseDate field`);
+		} else if (entry.releaseDate !== null) {
+			dated += 1;
+			if (!DATE_PATTERN.test(entry.releaseDate)) {
+				fail(`${entry.id} has a malformed releaseDate ${entry.releaseDate}`);
+			}
+		}
+	}
+	if (dated < floor) {
+		fail(`${dated} ${label} have a release date, below the floor of ${floor}`);
+	}
+	const byEntryId = new Map(entries.map((entry) => [entry.id, entry]));
+	for (const fixture of fixtures) {
+		const actual = byEntryId.get(fixture.id)?.releaseDate;
+		if (actual !== fixture.date) {
+			fail(`${fixture.id} releaseDate is ${actual}, expected ${fixture.date}`);
+		}
+	}
+	return dated;
 }
 
 // Read each shard's operators, profile side file and details file exactly once. Every check below indexes into these maps instead of
@@ -792,47 +829,8 @@ if (!fs.existsSync(enemySpineIndexPath)) {
 	}
 }
 
-let operatorDates = 0;
-for (const operator of operators) {
-	if (operator.releaseDate === undefined) {
-		fail(`${operator.id} has no releaseDate field`);
-	} else if (operator.releaseDate !== null) {
-		operatorDates += 1;
-		if (!DATE_PATTERN.test(operator.releaseDate)) {
-			fail(`${operator.id} has a malformed releaseDate ${operator.releaseDate}`);
-		}
-	}
-}
-if (operatorDates < MIN_OPERATOR_DATES) {
-	fail(`${operatorDates} operators have a release date, below the floor of ${MIN_OPERATOR_DATES}`);
-}
-for (const fixture of DATE_FIXTURES) {
-	const actual = byId.get(fixture.id)?.releaseDate;
-	if (actual !== fixture.date) {
-		fail(`${fixture.id} releaseDate is ${actual}, expected ${fixture.date}`);
-	}
-}
-
-let enemyDates = 0;
-for (const enemy of enemies) {
-	if (enemy.releaseDate === undefined) {
-		fail(`${enemy.id} has no releaseDate field`);
-	} else if (enemy.releaseDate !== null) {
-		enemyDates += 1;
-		if (!DATE_PATTERN.test(enemy.releaseDate)) {
-			fail(`${enemy.id} has a malformed releaseDate ${enemy.releaseDate}`);
-		}
-	}
-}
-if (enemyDates < MIN_ENEMY_DATES) {
-	fail(`${enemyDates} enemy groups have a release date, below the floor of ${MIN_ENEMY_DATES}`);
-}
-for (const fixture of ENEMY_DATE_FIXTURES) {
-	const actual = enemies.find((enemy) => enemy.id === fixture.id)?.releaseDate;
-	if (actual !== fixture.date) {
-		fail(`${fixture.id} releaseDate is ${actual}, expected ${fixture.date}`);
-	}
-}
+const operatorDates = checkDates(operators, "operators", MIN_OPERATOR_DATES, DATE_FIXTURES);
+const enemyDates = checkDates(enemies, "enemy groups", MIN_ENEMY_DATES, ENEMY_DATE_FIXTURES);
 
 const ranges = read("ranges");
 for (const operator of operators) {
@@ -845,20 +843,16 @@ for (const operator of operators) {
 		fail(`${operator.id} has trait range ${operator.traitRangeId}, which ranges.json does not know`);
 	}
 }
-const skillsById = new Map();
-for (const shard of SHARDS) {
-	for (const [id, entry] of Object.entries(shardDetails.get(shard.key))) {
-		for (const skill of entry.skills) {
-			skillsById.set(`${id}/${skill.id}`, skill);
-			skill.levels.forEach((level, index) => {
-				if (level.rangeId !== null && !ranges[level.rangeId]) {
-					fail(`${id} ${skill.id} level ${index} has range ${level.rangeId}, which ranges.json does not know`);
-				}
-			});
-		}
+for (const [id, entry] of detailsById) {
+	for (const skill of entry.skills) {
+		skill.levels.forEach((level, index) => {
+			if (level.rangeId !== null && !ranges[level.rangeId]) {
+				fail(`${id} ${skill.id} level ${index} has range ${level.rangeId}, which ranges.json does not know`);
+			}
+		});
 	}
 }
-for (const fixture of [...RANGE_FIXTURES, ...SKILL_RANGE_FIXTURES]) {
+for (const fixture of RANGE_FIXTURES) {
 	const operator = byId.get(fixture.id);
 	if (fixture.phases && JSON.stringify(operator?.stats.phases.map((phase) => phase.rangeId)) !== JSON.stringify(fixture.phases)) {
 		fail(`${fixture.id} phase ranges are not ${fixture.phases.join(", ")}`);
@@ -866,7 +860,7 @@ for (const fixture of [...RANGE_FIXTURES, ...SKILL_RANGE_FIXTURES]) {
 	if (fixture.trait && operator?.traitRangeId !== fixture.trait) {
 		fail(`${fixture.id} trait range is ${operator?.traitRangeId}, expected ${fixture.trait}`);
 	}
-	const skill = skillsById.get(`${fixture.id}/${fixture.skill}`);
+	const skill = detailsById.get(fixture.id)?.skills.find((entry) => entry.id === fixture.skill);
 	for (const [index, expected] of Object.entries(fixture.skillLevels)) {
 		if (skill?.levels[Number(index)]?.rangeId !== expected) {
 			fail(`${fixture.id} ${fixture.skill} level ${index} range is ${skill?.levels[Number(index)]?.rangeId}, expected ${expected}`);

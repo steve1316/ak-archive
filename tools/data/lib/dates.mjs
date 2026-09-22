@@ -7,10 +7,10 @@
  */
 
 /** Global's launch day. */
-export const EN_LAUNCH = "2020-01-16";
+const EN_LAUNCH = "2020-01-16";
 
 /** The last main story chapter Global shipped at launch. The wiki's episode pages for these carry no Global date. */
-export const LAST_LAUNCH_CHAPTER = 4;
+const LAST_LAUNCH_CHAPTER = 4;
 
 /** Operators whose wiki name differs from their EN `name`. Keyed by id so the two patch Amiyas, which share the name `Amiya`, resolve apart. */
 export const ID_ALIASES = {
@@ -30,7 +30,7 @@ export const ID_ALIASES = {
  * @param {string | undefined} text The timestamp.
  * @returns {string | null} The `YYYY-MM-DD` day, or null when the text is empty or malformed.
  */
-export function dayOfWikiTime(text) {
+function dayOfWikiTime(text) {
 	return /^\d{4}-\d{2}-\d{2}/.exec(text ?? "")?.[0] ?? null;
 }
 
@@ -40,7 +40,7 @@ export function dayOfWikiTime(text) {
  * @param {number} seconds The timestamp.
  * @returns {string} The `YYYY-MM-DD` day.
  */
-export function dayOfUnix(seconds) {
+function dayOfUnix(seconds) {
 	return new Date(seconds * 1000).toISOString().slice(0, 10);
 }
 
@@ -51,7 +51,7 @@ export function dayOfUnix(seconds) {
  * @param {string | null | undefined} b The other.
  * @returns {string | null} The earlier day, or null when both are missing.
  */
-export function earliest(a, b) {
+function earliest(a, b) {
 	if (!a) {
 		return b ?? null;
 	}

@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { buildEnemyGroup, buildVariant, selectEnemies } from "./lib/enemies.mjs";
+import { sortedObject } from "./lib/json.mjs";
 import { buildOperator, selectOperators } from "./lib/operators.mjs";
 import { buildHandbook } from "./lib/profiles.mjs";
 import { SHARDS, shardFor } from "./lib/shards.mjs";
@@ -157,11 +158,7 @@ async function main() {
 	console.log(`  ${"search-index".padEnd(24)} ${String(searchIndex.length).padStart(3)} entries    ${(indexBytes / 1024).toFixed(0).padStart(5)} KB`);
 
 	// Every range shape once, as [row, col] tiles. Records carry only range ids, so the tiles are not repeated per operator.
-	const ranges = Object.fromEntries(
-		Object.entries(rangeTable)
-			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-			.map(([id, range]) => [id, range.grids.map((grid) => [grid.row, grid.col])])
-	);
+	const ranges = sortedObject(Object.fromEntries(Object.entries(rangeTable).map(([id, range]) => [id, range.grids.map((grid) => [grid.row, grid.col])])));
 	const rangeBytes = writeJson(path.join(OUT_DIR, "ranges.json"), ranges);
 	console.log(`  ${"ranges".padEnd(24)} ${String(Object.keys(ranges).length).padStart(3)} shapes     ${(rangeBytes / 1024).toFixed(0).padStart(5)} KB`);
 

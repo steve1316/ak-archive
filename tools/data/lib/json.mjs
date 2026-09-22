@@ -15,3 +15,13 @@
 export function asArray(value) {
 	return Array.isArray(value) ? value : [];
 }
+
+/**
+ * Copy an object with its keys in sorted order, so generated files diff cleanly between runs.
+ *
+ * @param {Record<string, unknown>} record The object.
+ * @returns {Record<string, unknown>} The sorted copy.
+ */
+export function sortedObject(record) {
+	return Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}

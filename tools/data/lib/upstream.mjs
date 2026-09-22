@@ -39,7 +39,7 @@ export function readLock() {
  * @param {string} name The table's basename, such as `character_table`, or its path under `gamedata/`.
  * @param {{repo: string, server: string, sha: string}} lock The pinned upstream.
  * @returns {Promise<unknown>} The parsed table.
- * @throws When the download fails or the body is not JSON.
+ * @throws When the download fails or the body is not JSON. A failed download's error carries the HTTP `status`.
  */
 export async function loadTable(name, lock) {
 	const cached = path.join(CACHE_DIR, lock.sha, `${name}.json`);
@@ -50,7 +50,7 @@ export async function loadTable(name, lock) {
 	const url = `https://raw.githubusercontent.com/${lock.repo}/${lock.sha}/${lock.server}/gamedata/${tablePath}.json`;
 	const response = await fetch(url);
 	if (!response.ok) {
-		throw new Error(`${name}.json failed to download with HTTP ${response.status} from ${url}`);
+		throw Object.assign(new Error(`${name}.json failed to download with HTTP ${response.status} from ${url}`), { status: response.status });
 	}
 	const body = await response.text();
 	let parsed;
