@@ -46,10 +46,10 @@ const ALWAYS_SUPPORTED: readonly Feature[] = ["events", "point", "boundingBox"];
 
 /** Features each planned stage adds on top of the stage before it. */
 const STAGE_ADDS: readonly (readonly Feature[])[] = [
-	["region", "transformModeNonNormal"],
+	["region", "mesh", "weightedMesh", "linkedMesh", "transformModeNonNormal"],
 	["drawOrder", "twoColor", "blendAdditive", "blendMultiply", "blendScreen"],
-	["mesh", "weightedMesh", "linkedMesh", "deform"],
-	["clipping", "path", "ik", "transformConstraint", "pathConstraint"]
+	["deform", "ik", "transformConstraint", "clipping"],
+	["path", "pathConstraint"]
 ];
 
 /** Each planned stage's full feature set, keyed by stage number from 1: `ALWAYS_SUPPORTED` plus everything stages 1 through it add. */

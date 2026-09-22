@@ -161,7 +161,7 @@ function readOptionalColor(reader: ByteReader): Color | null {
 }
 
 /**
- * Reads the skeleton's bones. Each bone's parent index is below its own index, since the format guarantees parents come first.
+ * Reads the skeleton's bones. A 3.8 file stores each parent as its plain index, not the index plus one the 4.x page describes.
  *
  * @param reader The reader positioned at the bone count.
  * @param nonessential Whether nonessential data was exported, gating each bone's color field.
@@ -172,7 +172,7 @@ function readBones(reader: ByteReader, nonessential: boolean): BoneData[] {
 	const bones: BoneData[] = [];
 	for (let i = 0; i < count; i++) {
 		const name = reader.string() ?? "";
-		const parentIndex = i === 0 ? null : reader.varint(true) - 1;
+		const parentIndex = i === 0 ? null : reader.varint(true);
 		const rotation = reader.float();
 		const boneX = reader.float();
 		const boneY = reader.float();
@@ -906,7 +906,7 @@ function readDeformTimelines(reader: ByteReader, timelines: Timeline[]): void {
 }
 
 /**
- * Reads an animation's draw order keyframes. Each change's offset is a varint+, so a changed slot only ever moves later in the draw order.
+ * Reads an animation's draw order keyframes. Each change's offset is a varint+ whose 32 bits read as a signed int, so a slot can move either way.
  *
  * @param reader The reader positioned at the draw order keyframe count.
  * @param timelines The animation's timeline list, appended to in place when there is at least one keyframe.

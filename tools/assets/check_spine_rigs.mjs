@@ -339,7 +339,7 @@ export function checkLinkedMeshes(data) {
 }
 
 /**
- * Check a parsed skeleton: its linked mesh parents, and every animation's names, key times and references.
+ * Check a parsed skeleton: its bone parents, its linked mesh parents, and every animation's names, key times and references.
  *
  * @param {object} data The parsed skeleton.
  * @param {Record<string, number>} typeCounts Timeline counts by type, added to in place.
@@ -347,6 +347,13 @@ export function checkLinkedMeshes(data) {
  */
 export function checkSkeleton(data, typeCounts) {
 	const problems = checkLinkedMeshes(data);
+	// Only the root has no parent, and every other bone's parent comes before it.
+	data.bones.forEach((bone, index) => {
+		const parent = bone.parentIndex;
+		if (index === 0 ? parent !== null : parent === null || parent < 0 || parent >= index) {
+			problems.push(`bone ${index} "${bone.name}" has parent ${parent}`);
+		}
+	});
 	let repeatingKeys = 0;
 	const slotAttachments = new Map();
 	for (const skin of data.skins) {

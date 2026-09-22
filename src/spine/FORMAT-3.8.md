@@ -63,6 +63,12 @@ The `nonessential` flag really does gate whether `fps`, `images` and `audio` are
 Bones, slots, IK constraints and path constraints match the page's field order and types. Every slot's bone index is in range, and every
 constraint's bone and target indices are in range (a path constraint's target is a slot).
 
+**A bone's parent is its plain index, not the index plus one.** The 4.x page stores `parent index + 1`. A 3.8 file stores the index
+itself, which is always below the bone's own index. Reading it as index plus one still parses every file to its last byte, because the field
+is one varint either way, but it gives 3,468 non-root bones no parent and hangs every other bone off the bone before its real parent. The
+bone names decide it: in `char_172_svrash/base/battle/char_172_svrash.skel` the plain reading puts `F_Belt` under `F_Waist` and `F_Head`
+under `F_Chest`, while the plus-one reading puts `F_Head` under `F_Bird_Tail`. The gate fails any bone whose parent is not in `[0, index)`.
+
 A slot's dark color is a plain 4-byte int that is exactly `-1` when the slot does not use tint black. There is no separate presence flag.
 
 **Transform constraints have a bone list, like IK and path constraints.** Each is a `varint+ bone count`, that many bone indices, then one
@@ -162,8 +168,10 @@ never reaches the keyframe reader, because `readEvents` already throws on it.
 timelines sit on slots with a setup dark color. The first key's light RGB matches the slot's setup color in 15,455 of them, and the dark
 RGB matches the setup dark color in 15,652. The dark alpha byte takes many values (mostly 0), so a renderer should ignore it.
 
-**7. A draw order change's offset is a varint+, so a slot only moves later.** Read as varint+, all 49,102 draw order keys are valid moves:
-slot indices ascending, each target in range and unique. Read as zig-zag varint-, 31,180 of them are not.
+**7. A draw order change's offset is a varint+ whose 32 bits read as a signed int.** Negative offsets are stored as 5-byte varints of their
+two's complement, so a slot can move earlier as well as later: 201,129 changes are negative, such as `F_R_Arm` moving by -14 in
+`char_002_amiya`'s `Attack`. Read this way, all 49,102 draw order keys are valid permutations: slot indices ascending, each target in range
+and unique. Read as zig-zag varint-, 31,180 of them are not.
 
 Two things that are upstream data, not format differences:
 

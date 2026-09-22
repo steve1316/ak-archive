@@ -255,7 +255,7 @@ export interface MeshAttachment {
 	vertices: MeshVertices;
 	/** Number of vertices, counted from the start of `vertices`, that make up the polygon hull. Hull vertices are always listed first. */
 	hullCount: number;
-	/** Vertex indices for the mesh's edges, or null when nonessential data was not exported. */
+	/** The mesh's edges as vertex index x2, or null when nonessential data was not exported. Every stored value is even. */
 	edges: Uint16Array | null;
 	/** Width of the image used by the mesh, or null when nonessential data was not exported. */
 	width: number | null;
