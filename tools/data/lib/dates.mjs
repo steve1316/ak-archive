@@ -110,3 +110,66 @@ export function operatorDates(names, banners, wikiOperators, events) {
 	}
 	return { dates, unmatched, undated };
 }
+
+/**
+ * A main story chapter's Global day, read from its wiki episode page's `|global = YYYY/MM/DD` field.
+ *
+ * @param {number} number The chapter number, 0 for the prologue.
+ * @param {string} wikitext The `Episode NN` page's wikitext, or an empty string.
+ * @returns {string | null} The day, the launch day for a launch chapter with no field, or null when a later chapter has no field.
+ */
+export function chapterDay(number, wikitext) {
+	const match = /\|\s*global\s*=\s*(\d{4})\/(\d{2})\/(\d{2})/.exec(wikitext);
+	if (match) {
+		return `${match[1]}-${match[2]}-${match[3]}`;
+	}
+	return number <= LAST_LAUNCH_CHAPTER ? EN_LAUNCH : null;
+}
+
+/**
+ * Date every stage that can be dated. A main story zone uses its chapter's day, otherwise the zone's event start from `activity_table`.
+ *
+ * Supply, Annihilation and Stationary Security Service zones belong to no event and stay undated.
+ *
+ * @param {Record<string, {zoneId: string}>} stages `stage_table.stages`.
+ * @param {{zoneToActivity?: Record<string, string>, basicInfo?: Record<string, {startTime: number}>}} activityTable `activity_table`.
+ * @param {Map<string, string>} chapters Main story zone id, such as `main_7`, to its Global day.
+ * @returns {Map<string, string>} Stage id to day.
+ */
+export function stageDates(stages, activityTable, chapters) {
+	const days = new Map();
+	for (const [stageId, stage] of Object.entries(stages)) {
+		let day = chapters.get(stage.zoneId) ?? null;
+		if (!day) {
+			const activityId = activityTable.zoneToActivity?.[stage.zoneId];
+			const startTime = activityId ? activityTable.basicInfo?.[activityId]?.startTime : undefined;
+			day = startTime ? dayOfUnix(startTime) : null;
+		}
+		if (day) {
+			days.set(stageId, day);
+		}
+	}
+	return days;
+}
+
+/**
+ * Date every enemy by the earliest dated stage whose level lists it.
+ *
+ * @param {Record<string, {levelId?: string}>} stages `stage_table.stages`.
+ * @param {Map<string, string>} stageDay Stage id to day, from `stageDates`.
+ * @param {Map<string, string[]>} levelEnemies Level id to the enemy ids in its `enemyDbRefs`.
+ * @returns {Record<string, string>} Enemy id to day.
+ */
+export function enemyDates(stages, stageDay, levelEnemies) {
+	const dates = {};
+	for (const [stageId, stage] of Object.entries(stages)) {
+		const day = stageDay.get(stageId);
+		if (!day || !stage.levelId) {
+			continue;
+		}
+		for (const enemyId of levelEnemies.get(stage.levelId) ?? []) {
+			dates[enemyId] = earliest(dates[enemyId], day);
+		}
+	}
+	return dates;
+}
