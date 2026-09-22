@@ -75,7 +75,7 @@ export interface SpineStageProps {
 	urls: RigUrls | null;
 	/** Where the rig index's fetch stands. The missing-rig message only shows once the index is ready. */
 	indexState: RigIndexState;
-	/** The animation to start on when the rig has it. Otherwise the first animation plays. */
+	/** The animation to start on. Matched loosely, and failing that the rig's first animation plays. See `startAnimationIndex`. */
 	startAnimation: string;
 	/** Shown when the index is ready but names no rig for the selection. */
 	missingMessage: string;
@@ -92,6 +92,24 @@ export interface SpineStageProps {
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
+
+/**
+ * Picks which animation a rig starts on. Upstream spells the same animation differently from rig to rig, so the exact name wins, and failing
+ * that the first name that contains it, which catches the prefixed and suffixed spellings such as `Idle_A`, `A_Idle` and `C1_Idle`.
+ *
+ * @param anims The rig's animation names, in index order.
+ * @param wanted The animation to start on, such as `Idle`.
+ * @returns The index to start on, or 0 when the rig names nothing like it.
+ */
+function startAnimationIndex(anims: readonly string[], wanted: string): number {
+	const exact = anims.indexOf(wanted);
+	if (exact !== -1) {
+		return exact;
+	}
+	const needle = wanted.toLowerCase();
+	const loose = anims.findIndex((name) => name.toLowerCase().includes(needle));
+	return loose === -1 ? 0 : loose;
+}
 
 /**
  * Frees a canvas's WebGL context at once rather than waiting for garbage collection, since browsers cap how many can be live.
@@ -251,7 +269,7 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 					setResult({ key: rigKey, load, outcome: "unsupported" });
 					return;
 				}
-				const first = Math.max(0, rig.anims.indexOf(startAnimation));
+				const first = startAnimationIndex(rig.anims, startAnimation);
 				player.play(rig.anims[first] ?? "", true);
 				setAnimIndex(first);
 				setResult({ key: rigKey, load, outcome: "ready" });
