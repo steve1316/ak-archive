@@ -14,7 +14,7 @@ import EnemyFilterRows, { LEVEL_ORDER } from "./EnemyFilterRows.js";
 /** What the results can be ordered by. */
 type SortKey = "handbook" | "name" | "level";
 
-/** How the index can be ordered. Handbook order is the game's own, which groups each faction's enemies together. */
+/** How the index can be ordered. Handbook order is the in-game Enemy Handbook's, which is roughly release order: story enemies, then events. */
 const SORT_OPTIONS: ReadonlyArray<SortOption<SortKey>> = [
 	{ value: "handbook", label: "Handbook" },
 	{ value: "name", label: "Name" },
