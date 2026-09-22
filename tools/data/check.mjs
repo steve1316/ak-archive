@@ -57,11 +57,17 @@ const MIN_SPINE_BATTLE_RIGS = 918;
 const MIN_SPINE_BACK_RIGS = 907;
 const MIN_SPINE_DORM_RIGS = 918;
 
-/** Floor for operators whose base battle rig the current runtime draws in full: stage 3 or below. Just under the 363 measured when set. */
+/**
+ * Floor for operators whose base battle rig the current runtime draws in full: the runtime's supported stage or below. Just under the 363
+ * measured when set.
+ */
 const MIN_SPINE_PLAYABLE_OPERATORS = 360;
 
-/** The highest runtime stage the playable-operator floor counts. */
-const SPINE_PLAYABLE_STAGE = 3;
+/**
+ * The runtime's supported stage, and the highest stage it plans for, both read out of `src/spine/features.ts` so this gate never drifts
+ * from what the runtime actually draws. A regex read rather than an import, since this script is plain Node and that file is TypeScript.
+ */
+const { supported: SPINE_PLAYABLE_STAGE, highest: SPINE_HIGHEST_STAGE } = readSpineStages();
 
 /** The three kinds a Spine rig can be indexed under - the site never plays a fourth. */
 const SPINE_KINDS = ["battle", "back", "dorm"];
@@ -122,6 +128,23 @@ function read(name) {
 		throw new Error(`${file} is missing - run \`pnpm run import\` first`);
 	}
 	return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+/**
+ * Reads `SUPPORTED_STAGE` and the highest stage `STAGE_FEATURES` plans for out of `src/spine/features.ts`. `SUPPORTED_STAGE` is a plain
+ * `export const` number. The highest stage is `STAGE_ADDS.length`, counted from the number of top-level arrays in that constant's literal.
+ *
+ * @returns {{ supported: number, highest: number }} The runtime's supported stage and the highest stage it plans for.
+ */
+function readSpineStages() {
+	const source = fs.readFileSync("src/spine/features.ts", "utf8");
+	const supportedMatch = source.match(/export const SUPPORTED_STAGE = (\d+);/);
+	const addsMatch = source.match(/const STAGE_ADDS: readonly \(readonly Feature\[\]\)\[\] = \[\n([\s\S]*?)\n\];/);
+	if (!supportedMatch || !addsMatch) {
+		throw new Error("could not read the Spine stage numbers out of src/spine/features.ts");
+	}
+	const highest = (addsMatch[1].match(/^\t\[/gm) ?? []).length;
+	return { supported: Number(supportedMatch[1]), highest };
 }
 
 /**
@@ -584,7 +607,7 @@ if (hasSpineIndex) {
 				if (!Array.isArray(rig.anims) || rig.anims.length === 0) {
 					fail(`${operatorId} form ${formKey} kind ${kind} has no animations`);
 				}
-				if (!Number.isInteger(rig.stage) || rig.stage < 1 || rig.stage > 4) {
+				if (!Number.isInteger(rig.stage) || rig.stage < 1 || rig.stage > SPINE_HIGHEST_STAGE) {
 					fail(`${operatorId} form ${formKey} kind ${kind} has a bad stage: ${JSON.stringify(rig.stage)}`);
 				}
 			}

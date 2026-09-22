@@ -25,7 +25,7 @@ export interface StageStatus {
 export interface StageRequest {
 	/** The selected rig kind. */
 	kind: RigKind;
-	/** The selected facing, already set back to `front` when the form has no back rig. */
+	/** The reader's chosen facing. The stage falls back to the battle rig itself when the current form has no back rig. */
 	facing: RigFacing;
 	/** Stable callback the stage calls whenever its status changes. */
 	onStatus: (status: StageStatus) => void;
@@ -109,8 +109,9 @@ export default function AnimationsCard({ interactive, renderStage }: AnimationsC
 	const [kind, setKind] = useState<RigKind>("battle");
 	const [chosenFacing, setChosenFacing] = useState<RigFacing>("front");
 	const [status, setStatus] = useState<StageStatus>(INITIAL_STATUS);
-	// A form without a back rig shows the front one, without forgetting that the reader chose Back for the forms that have it.
-	const facing: RigFacing = status.hasBack ? chosenFacing : "front";
+	// The toggle shows Front whenever the current form has no back rig, without forgetting the reader's choice for forms that do. The stage
+	// itself gets the raw choice below, so a form switch never loads the front rig first only to abort it for the back rig a moment later.
+	const displayFacing: RigFacing = status.hasBack ? chosenFacing : "front";
 
 	const handleKindChange = useCallback((_event: MouseEvent<HTMLElement>, value: RigKind | null) => {
 		if (value !== null) {
@@ -134,14 +135,14 @@ export default function AnimationsCard({ interactive, renderStage }: AnimationsC
 				<ToggleButton value="dorm">Dorm</ToggleButton>
 			</ToggleButtonGroup>
 			{kind === "battle" ? (
-				<ToggleButtonGroup value={facing} exclusive size="small" onChange={handleFacingChange} aria-label="Battle chibi facing" sx={FACING_SX}>
+				<ToggleButtonGroup value={displayFacing} exclusive size="small" onChange={handleFacingChange} aria-label="Battle chibi facing" sx={FACING_SX}>
 					<ToggleButton value="front">Front</ToggleButton>
 					<ToggleButton value="back" disabled={!status.hasBack}>
 						Back
 					</ToggleButton>
 				</ToggleButtonGroup>
 			) : null}
-			<Box sx={STAGE_SX}>{renderStage({ kind, facing, onStatus: setStatus })}</Box>
+			<Box sx={STAGE_SX}>{renderStage({ kind, facing: chosenFacing, onStatus: setStatus })}</Box>
 			{interactive ? (
 				// Both lines keep their height while nothing plays, so the stage does not jump when a chibi loads.
 				<Box sx={status.caption === null ? CAPTION_HIDDEN_SX : CAPTION_SX}>

@@ -17,13 +17,14 @@ import { Alert, Autocomplete, Box, Button, Chip, Container, FormControl, FormCon
 import type { SelectChangeEvent } from "@mui/material";
 import { useSearchParams } from "react-router-dom";
 
-import { spineRigUrls, SPINE_DEV_ROOT } from "../../lib/spine.js";
+import { loadSpineIndex, spineRigUrls, SPINE_DEV_ROOT } from "../../lib/spine.js";
 import { featuresOf, SUPPORTED } from "../../spine/features.js";
 import type { SpinePlayer } from "../../spine/player.js";
 import type { View } from "../../spine/renderer.js";
 import { defaultSkinName, localToWorld } from "../../spine/skeleton.js";
 import type { Skeleton } from "../../spine/skeleton.js";
 import type { Atlas } from "../../spine/types.js";
+import type { SpineForm, SpineIndex } from "../../types/spine.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -54,31 +55,12 @@ const CANVAS_WIDTH = 800;
 /** Drawing area height in CSS pixels. */
 const CANVAS_HEIGHT = 600;
 
-/**
- * URL of the generated Spine rig index, resolved through Vite's asset-URL glob rather than a plain JSON import. The file is 500 KB and
- * only this dev-only page needs it, so it is fetched at runtime instead of typed and bundled like the small shards `lib/data.ts` loads.
- */
-const SPINE_INDEX_URL = Object.values(import.meta.glob<string>("../../data/spine-index.json", { query: "?url", import: "default", eager: true }))[0] ?? "";
-
 /** Sorts operator ids so the Autocomplete lists them in a stable, readable order. */
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Types
-
-/** One rig's staged file basenames and animation names, as `tools/data` writes them into `spine-index.json`. */
-interface SpineRigEntry {
-	/** The rig's animation names, in file order. */
-	anims: string[];
-	/** The atlas file's basename, without the `.atlas` extension. */
-	atlas: string;
-	/** The skel file's basename, without the `.skel` extension. */
-	skel: string;
-}
-
-/** The generated Spine rig index: operator id, then form key, then art kind, to that rig's files. */
-type SpineIndex = Record<string, Record<string, Record<string, SpineRigEntry>>>;
 
 /** The player module, loaded with a dynamic `import()` so the renderer stays out of the lab's first chunk. */
 type PlayerModule = typeof import("../../spine/player.js");
@@ -239,26 +221,28 @@ function PlaybackTimeline({ player, duration, subscribe, onSeek }: PlaybackTimel
 export default function SpineLab() {
 	const [searchParams, setSearchParams] = useSearchParams();
 
-	// The rig index: operator -> form -> kind -> file basenames. Fetched once, since it is 500 KB and every production route must avoid it.
+	// The rig index: operator -> form -> kind -> file basenames. Fetched once and shared with the live card, since it is 500 KB and every
+	// production route must avoid it.
 	const [spineIndex, setSpineIndex] = useState<SpineIndex | null>(null);
 	const [indexError, setIndexError] = useState<string | null>(null);
 
 	useEffect(() => {
-		const controller = new AbortController();
-		fetch(SPINE_INDEX_URL, { signal: controller.signal })
-			.then((response) => {
-				if (!response.ok) {
-					throw new Error(`Fetching the rig index gave ${response.status}`);
+		let active = true;
+		loadSpineIndex().then(
+			(index) => {
+				if (active) {
+					setSpineIndex(index);
 				}
-				return response.json() as Promise<SpineIndex>;
-			})
-			.then((json) => setSpineIndex(json))
-			.catch((error: unknown) => {
-				if (!controller.signal.aborted) {
+			},
+			(error: unknown) => {
+				if (active) {
 					setIndexError(error instanceof Error ? error.message : String(error));
 				}
-			});
-		return () => controller.abort();
+			}
+		);
+		return () => {
+			active = false;
+		};
 	}, []);
 
 	const operatorIds = useMemo(() => (spineIndex ? Object.keys(spineIndex).sort(COLLATOR.compare) : []), [spineIndex]);
@@ -270,7 +254,7 @@ export default function SpineLab() {
 	const kindMap = opEntry?.[selectedForm];
 	const kindKeys = useMemo(() => (kindMap ? Object.keys(kindMap) : []), [kindMap]);
 	const selectedKind = pickOption(searchParams.get(KIND_PARAM), kindKeys);
-	const rigEntry = kindMap?.[selectedKind];
+	const rigEntry = kindMap?.[selectedKind as keyof SpineForm];
 
 	// The player module, fetched once with a dynamic import, and the player built on the WebGL canvas once it arrives.
 	const [playerModule, setPlayerModule] = useState<PlayerModule | null>(null);

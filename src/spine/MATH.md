@@ -414,7 +414,7 @@ vertex positions are keyed and that interpolation between deform keys moves the 
 - **Sizing.** Each slot's `deform` array is made once, when the `Skeleton` is built, at the largest target length any deform timeline
   names for that slot.
 - `computeWorldVertices` is the one place vertices meet bones, with the offsets added only when `deformLength` matches the vertices. The
-  mesh triangles use it.
+  mesh triangles and clip polygons use it.
 
 `check_spine_rigs.mjs --animation` applies each deform key on its own to its target at the key's own time and requires exactly that key's
 offsets. Across the corpus, 2,175,893 keys compare. Of 1,639,020 deform timelines (counted once per animation), 1,166,836 find their

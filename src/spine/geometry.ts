@@ -9,7 +9,7 @@
  * The output lists are pooled per skeleton, so a list is only valid until the next call on the same skeleton.
  */
 
-import { clipTriangle, containsBox, containsTriangle, dropRepeats, isConvex, triangulate, winding } from "./clipping.js";
+import { clipTrianglePartial, containsBox, containsTriangle, dropRepeats, isConvex, triangulate, winding } from "./clipping.js";
 import { DEG_TO_RAD, MAX_LINK_DEPTH, linkedParent } from "./skeleton.js";
 import type { Bone, Skeleton, Slot } from "./skeleton.js";
 import type { Atlas, AtlasRegion, Attachment, BlendMode, ClippingAttachment, Color, LinkedMeshAttachment, MeshAttachment, MeshVertices, RegionAttachment } from "./types.js";
@@ -39,7 +39,7 @@ const MAX_CLIPPED_VERTICES = 65536;
 /** The source triangle being clipped, as x, y, u, v for each of its 3 corners. */
 const clipTri = new Float64Array(12);
 
-/** What `clipTriangle` writes, as x, y, u, v per vertex. It grows with the largest clip piece. */
+/** What `clipTrianglePartial` writes, as x, y, u, v per vertex. It grows with the largest clip piece. */
 let clipOut = new Float64Array(4 * 16);
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -866,7 +866,8 @@ function clipList(clip: ClipState, slotPool: SlotPool, list: TriangleList): bool
 				// Pieces never overlap, so no other piece can hold any of this triangle.
 				break;
 			}
-			const kept = clipTriangle(clipTri, piece, size, clipOut);
+			// This triangle already failed `containsTriangle` above, so the partial-clip routine skips testing it again.
+			const kept = clipTrianglePartial(clipTri, piece, size, clipOut);
 			if (kept < 3 || vertexTotal + kept > MAX_CLIPPED_VERTICES) {
 				continue;
 			}

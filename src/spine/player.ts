@@ -73,9 +73,10 @@ interface LoadedRig {
  * @param box The world box to show.
  * @param width Viewport width.
  * @param height Viewport height.
- * @returns The world rectangle that maps onto the whole viewport.
+ * @param out When given, the view written and returned instead of a new one, so a per-frame caller like `render` allocates nothing.
+ * @returns The world rectangle that maps onto the whole viewport: `out` when given, otherwise a new object.
  */
-export function fitView(box: View, width: number, height: number): View {
+export function fitView(box: View, width: number, height: number, out?: View): View {
 	const spanX = Math.max(box.maxX - box.minX, 1e-6);
 	const spanY = Math.max(box.maxY - box.minY, 1e-6);
 	const usable = 1 - FIT_MARGIN * 2;
@@ -85,7 +86,18 @@ export function fitView(box: View, width: number, height: number): View {
 	const centerY = (box.minY + box.maxY) / 2;
 	const halfWidth = (width * unit) / 2;
 	const halfHeight = (height * unit) / 2;
-	return { minX: centerX - halfWidth, minY: centerY - halfHeight, maxX: centerX + halfWidth, maxY: centerY + halfHeight };
+	const minX = centerX - halfWidth;
+	const minY = centerY - halfHeight;
+	const maxX = centerX + halfWidth;
+	const maxY = centerY + halfHeight;
+	if (out) {
+		out.minX = minX;
+		out.minY = minY;
+		out.maxX = maxX;
+		out.maxY = maxY;
+		return out;
+	}
+	return { minX, minY, maxX, maxY };
 }
 
 /**
@@ -149,6 +161,8 @@ export class SpinePlayer {
 	private loadCount = 0;
 	/** The world rectangle the last `render` showed, or null when nothing was framed. */
 	private lastView: View | null = null;
+	/** Scratch view `render` fits into every frame, reused in place so the frame loop allocates nothing. */
+	private readonly viewScratch: View = { minX: 0, minY: 0, maxX: 1, maxY: 1 };
 	/** The animation `play` chose, or null for the setup pose. */
 	private current: Animation | null = null;
 	/** The time within `current`, in seconds, from 0 to its duration. */
@@ -389,7 +403,7 @@ export class SpinePlayer {
 		}
 		rig.skeleton.updateWorldTransform();
 		const lists = skeletonTriangles(rig.skeleton, rig.atlas, rig.pageSizes);
-		const view = rig.framedBox ? fitView(rig.framedBox, width, height) : null;
+		const view = rig.framedBox ? fitView(rig.framedBox, width, height, this.viewScratch) : null;
 		if (view) {
 			this.applyViewTransform(view, width / ratio);
 		}

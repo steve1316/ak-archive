@@ -269,9 +269,9 @@ export function containsBox(clip: Float32Array, clipCount: number, minX: number,
 }
 
 /**
- * Clips one textured triangle against a convex counterclockwise polygon with Sutherland-Hodgman: the triangle is cut by each edge's line in
- * turn, keeping the part on the inner side. Each kept vertex then gets its UV from its barycentric coordinates in the source triangle. A
- * triangle wholly inside comes back unchanged. The result is convex, so a fan from its first vertex triangulates it.
+ * Clips one textured triangle against a convex counterclockwise polygon with Sutherland-Hodgman, the same as `clipTriangle` but without
+ * first testing whether the triangle already lies wholly inside. `clipList` in `geometry.ts` has already run that test itself before it
+ * decides to call this, so running it again here would test the same triangle twice.
  *
  * @param tri The triangle, as x, y, u, v for each of its 3 corners.
  * @param clip The polygon's vertices, flattened as x0, y0, x1, y1, ..., counterclockwise and convex.
@@ -279,13 +279,7 @@ export function containsBox(clip: Float32Array, clipCount: number, minX: number,
  * @param out The array to write, x, y, u, v per vertex, at least `4 * (3 + clipCount)` long.
  * @returns The number of vertices written, 0 when nothing of the triangle is left or it has no area.
  */
-export function clipTriangle(tri: Float64Array, clip: Float32Array, clipCount: number, out: Float64Array): number {
-	if (containsTriangle(tri, clip, clipCount)) {
-		for (let i = 0; i < 12; i++) {
-			out[i] = tri[i]!;
-		}
-		return 3;
-	}
+export function clipTrianglePartial(tri: Float64Array, clip: Float32Array, clipCount: number, out: Float64Array): number {
 	const x0 = tri[0]!;
 	const y0 = tri[1]!;
 	const e1x = tri[4]! - x0;
@@ -367,4 +361,25 @@ export function clipTriangle(tri: Float64Array, clip: Float32Array, clipCount: n
 		out[i * 4 + 3] = v0 + w1 * dv1 + w2 * dv2;
 	}
 	return count;
+}
+
+/**
+ * Clips one textured triangle against a convex counterclockwise polygon with Sutherland-Hodgman: the triangle is cut by each edge's line in
+ * turn, keeping the part on the inner side. Each kept vertex then gets its UV from its barycentric coordinates in the source triangle. A
+ * triangle wholly inside comes back unchanged. The result is convex, so a fan from its first vertex triangulates it.
+ *
+ * @param tri The triangle, as x, y, u, v for each of its 3 corners.
+ * @param clip The polygon's vertices, flattened as x0, y0, x1, y1, ..., counterclockwise and convex.
+ * @param clipCount The polygon's vertex count.
+ * @param out The array to write, x, y, u, v per vertex, at least `4 * (3 + clipCount)` long.
+ * @returns The number of vertices written, 0 when nothing of the triangle is left or it has no area.
+ */
+export function clipTriangle(tri: Float64Array, clip: Float32Array, clipCount: number, out: Float64Array): number {
+	if (containsTriangle(tri, clip, clipCount)) {
+		for (let i = 0; i < 12; i++) {
+			out[i] = tri[i]!;
+		}
+		return 3;
+	}
+	return clipTrianglePartial(tri, clip, clipCount, out);
 }
