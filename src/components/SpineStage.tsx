@@ -3,7 +3,7 @@
 // Spine stage
 
 /**
- * The live chibi inside the Animations card, for any subject. The caller picks the rig and builds its URLs, and this plays it with the
+ * The live animation inside the Animations card, for any subject. The caller picks the rig and builds its URLs, and this plays it with the
  * runtime in `src/spine/`, falling back to the caller's placeholder when there is no rig, the runtime cannot draw it yet, or it fails to
  * load. One canvas and one WebGL context serve every rig the card shows.
  */
@@ -28,11 +28,11 @@ import type { StageStatus } from "./AnimationsCard.js";
 /** Longest step one frame may take, in seconds, so a stall is not played back as one jump. */
 const MAX_DELTA = 0.1;
 
-/** Shown when the rig or the runtime fails to load. */
-const LOAD_FAILED = "Couldn't load this chibi.";
+/** Shown when the rig or the runtime fails to load. Subject-neutral, since the stage serves operator and enemy pages alike. */
+const LOAD_FAILED = "Couldn't load this animation.";
 
 /** Shown when the rig needs a runtime stage that has not been built yet. */
-const ON_THEIR_WAY = "Chibi animations are on their way.";
+const ON_THEIR_WAY = "This animation isn't supported yet.";
 
 /** The gesture surface over the whole stage. It holds the canvas and takes the clicks, wheel and drags. */
 const SURFACE_SX: SxProps<Theme> = { position: "absolute", inset: 0 };
@@ -79,7 +79,7 @@ export interface SpineStageProps {
 	startAnimation: string;
 	/** Shown when the index is ready but names no rig for the selection. */
 	missingMessage: string;
-	/** Draws the placeholder for a reason no chibi plays. */
+	/** Draws the placeholder for a reason no animation plays. */
 	renderPlaceholder: (message: string) => ReactNode;
 	/** The canvas's accessible name. */
 	canvasLabel: string;
@@ -161,11 +161,11 @@ export function useRigIndex<T>(load: () => Promise<T>, retryKey: string): { inde
 
 /**
  * Plays the given rig. Every animation loops, and a click (not a drag) moves to the next one in index order. The wheel zooms and a drag pans
- * through the player's view, so the chibi stays sharp. The frame loop stops while the stage is off screen or the tab is hidden. Runtime
+ * through the player's view, so the art stays sharp. The frame loop stops while the stage is off screen or the tab is hidden. Runtime
  * errors fall back to the load-failure placeholder rather than escaping the card.
  *
  * @param props Component props.
- * @returns The stage contents: the canvas, and the placeholder when no chibi plays.
+ * @returns The stage contents: the canvas, and the placeholder when no animation plays.
  */
 function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessage, renderPlaceholder, canvasLabel, hasBack, onStatus }: SpineStageProps) {
 	const [playerModule, setPlayerModule] = useState<PlayerModule | null>(null);
@@ -188,7 +188,7 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 	const ready = current?.outcome === "ready";
 	const anims = useMemo(() => rig?.anims ?? [], [rig]);
 
-	// Why no chibi plays, or null while one plays or is still loading.
+	// Why no animation plays, or null while one plays or is still loading.
 	let message: string | null = null;
 	if (indexState === "failed" || playerFailed) {
 		message = LOAD_FAILED;
@@ -419,7 +419,7 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 }
 
 /**
- * The chibi stage, guarded so that a throw the stage's own error handling misses shows the load-failure placeholder in the card instead of
+ * The animation stage, guarded so that a throw the stage's own error handling misses shows the load-failure placeholder in the card instead of
  * taking down the page. The guard resets when `guardKey` changes.
  *
  * @param props Component props.

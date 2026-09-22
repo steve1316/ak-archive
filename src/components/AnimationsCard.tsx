@@ -61,7 +61,7 @@ const CAPTION_HIDDEN_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: 
 /** The status the card starts with, before the stage reports. */
 const INITIAL_STATUS: StageStatus = { hasBack: false, caption: null };
 
-/** The placeholder's class icon, greyed so it reads as absent rather than as content. */
+/** The placeholder's stand-in icon, such as an operator's class icon or an enemy's icon, greyed so it reads as absent rather than as content. */
 const PLACEHOLDER_ICON_SX: SxProps<Theme> = { width: 70, display: "block", mx: "auto", mb: 1.125, opacity: 0.45, filter: "grayscale(1)" };
 
 /** Props for AnimationsCard. */
@@ -76,14 +76,14 @@ interface AnimationsCardProps {
 
 /** Props for StagePlaceholder. */
 interface StagePlaceholderProps {
-	/** The image that stands in for the chibi, such as an operator's class icon or an enemy's icon, or null for none. */
+	/** The image that stands in for the animation, such as an operator's class icon or an enemy's icon, or null for none. */
 	iconUrl: string | null;
-	/** Why no chibi is playing. */
+	/** Why no animation is playing. */
 	message: string;
 }
 
 /**
- * What the stage shows when no chibi plays: a greyed stand-in image and the reason.
+ * What the stage shows when no animation plays: a greyed stand-in image and the reason.
  *
  * @param props Component props.
  * @returns The placeholder.
@@ -148,7 +148,7 @@ export default function AnimationsCard({ interactive, renderStage, battleOnly = 
 			) : null}
 			<Box sx={STAGE_SX}>{renderStage({ kind, facing: chosenFacing, onStatus: setStatus })}</Box>
 			{interactive ? (
-				// The caption keeps its height while nothing plays, so the stage does not jump when a chibi loads.
+				// The caption keeps its height while nothing plays, so the stage does not jump when an animation loads.
 				<Box sx={status.caption === null ? CAPTION_HIDDEN_SX : CAPTION_SX}>
 					<Typography variant="caption" color="text.primary" aria-live="polite">
 						{status.caption ?? "\u00a0"}
