@@ -45,16 +45,23 @@ interface EnemyFilterRowsProps {
 	motions: string[];
 	/** Toggles the movement type it is called with. */
 	onToggleMotion: (value?: string | number) => void;
+	/** Every release year that occurs, oldest first, with "Unknown" last. */
+	yearOptions: string[];
+	/** Release years currently selected. */
+	years: string[];
+	/** Toggles the release year it is called with. */
+	onToggleYear: (value?: string | number) => void;
 }
 
 /**
- * The enemy index's filter chip rows: level, race, attack pattern, damage type and movement.
+ * The enemy index's filter chip rows: level, race, attack pattern, damage type, movement and release year.
  *
  * @param props Component props.
  * @returns The rows.
  */
 export default function EnemyFilterRows(props: EnemyFilterRowsProps) {
 	const { levels, onToggleLevel, raceOptions, races, onToggleRace, attacks, onToggleAttack, damages, onToggleDamage, motions, onToggleMotion } = props;
+	const { yearOptions, years, onToggleYear } = props;
 	return (
 		<>
 			<FilterOptionRow options={LEVEL_ORDER} selected={levels} onToggle={onToggleLevel} />
@@ -66,6 +73,8 @@ export default function EnemyFilterRows(props: EnemyFilterRowsProps) {
 			<FilterOptionRow options={DAMAGES} selected={damages} onToggle={onToggleDamage} />
 			<ChipRowDivider />
 			<FilterOptionRow options={MOTIONS} selected={motions} onToggle={onToggleMotion} />
+			<ChipRowDivider />
+			<FilterOptionRow options={yearOptions} selected={years} onToggle={onToggleYear} />
 		</>
 	);
 }

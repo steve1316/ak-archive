@@ -6,19 +6,20 @@ import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, ScrollToTop, findNam
 import type { ActiveFilter, SortOption } from "archive-kit";
 
 import { loadAllEnemies } from "../../lib/data.js";
-import { COLLATOR, optionsOf, toggled } from "../../lib/filters.js";
+import { COLLATOR, optionsOf, releaseYear, toggled, yearOptions } from "../../lib/filters.js";
 import type { Enemy } from "../../types/enemy.js";
 import EnemyCard from "./EnemyCard.js";
 import EnemyFilterRows, { LEVEL_ORDER } from "./EnemyFilterRows.js";
 
 /** What the results can be ordered by. */
-type SortKey = "handbook" | "name" | "level";
+type SortKey = "handbook" | "name" | "level" | "release";
 
-/** How the index can be ordered. Handbook order is the in-game Enemy Handbook's, which is roughly release order: story enemies, then events. */
+/** How the index can be ordered. Handbook order is the in-game Enemy Handbook's. Release date is the Global debut from the date snapshot. */
 const SORT_OPTIONS: ReadonlyArray<SortOption<SortKey>> = [
-	{ value: "handbook", label: "Handbook" },
+	{ value: "handbook", label: "Handbook order" },
 	{ value: "name", label: "Name" },
-	{ value: "level", label: "Level" }
+	{ value: "level", label: "Level" },
+	{ value: "release", label: "Release date" }
 ];
 
 /** How many cards fit a row at each breakpoint. The square icon cards are shorter than operator portraits, so one more fits across. */
@@ -30,8 +31,8 @@ const PAGE_SIZE = 30;
 /** Where each level sits in the game's own order, so the Level sort matches the chip order. */
 const LEVEL_RANK = new Map(LEVEL_ORDER.map((level, index) => [level, index]));
 
-/** The direction each sort key lands in when it is chosen. Level reads best from Leader down, the other two read forwards. */
-const NATURAL_DESCENDING: Record<SortKey, boolean> = { handbook: false, name: false, level: true };
+/** The direction each sort key lands in when it is chosen. Level and release date read best from the top down, the other two read forwards. */
+const NATURAL_DESCENDING: Record<SortKey, boolean> = { handbook: false, name: false, level: true, release: true };
 
 /**
  * Sort the matching enemies. Ties fall back to handbook order, whichever way the primary key runs.
@@ -48,6 +49,10 @@ function sortEnemies(enemies: Enemy[], key: SortKey, descending: boolean): Enemy
 	}
 	const direction = descending ? -1 : 1;
 	return [...enemies].sort((a, b) => {
+		// Undated enemies sit at the bottom whichever way the release sort runs.
+		if (key === "release" && (a.releaseDate === null) !== (b.releaseDate === null)) {
+			return a.releaseDate === null ? 1 : -1;
+		}
 		let order: number;
 		switch (key) {
 			case "handbook":
@@ -58,6 +63,9 @@ function sortEnemies(enemies: Enemy[], key: SortKey, descending: boolean): Enemy
 				break;
 			case "name":
 				order = COLLATOR.compare(a.name, b.name);
+				break;
+			case "release":
+				order = COLLATOR.compare(a.releaseDate ?? "", b.releaseDate ?? "");
 				break;
 		}
 		return direction * order || a.sortId - b.sortId;
@@ -94,6 +102,7 @@ export default function EnemyIndex() {
 	const [attacks, setAttacks] = useState<string[]>([]);
 	const [damages, setDamages] = useState<string[]>([]);
 	const [motions, setMotions] = useState<string[]>([]);
+	const [years, setYears] = useState<string[]>([]);
 	const [query, setQuery] = useState("");
 	const [sortKey, setSortKey] = useState<SortKey>("handbook");
 	const [sortDescending, setSortDescending] = useState(NATURAL_DESCENDING.handbook);
@@ -112,6 +121,8 @@ export default function EnemyIndex() {
 
 	const raceOptions = useMemo(() => (enemies ? optionsOf(enemies, (enemy) => enemy.races) : []), [enemies]);
 
+	const releaseYearOptions = useMemo(() => (enemies ? yearOptions(enemies.map((enemy) => enemy.releaseDate)) : []), [enemies]);
+
 	// Each axis is an OR within itself and an AND against the others. The head's name match is kept for `EnemyCard` to highlight. A group that
 	// matched only through a variant's name still shows, just without a highlight on the head's name.
 	const { filtered, nameMatches } = useMemo(() => {
@@ -126,7 +137,8 @@ export default function EnemyIndex() {
 				!matchesAxis(races, enemy.races) ||
 				!matchesAxis(attacks, enemy.attacks) ||
 				!matchesAxis(damages, enemy.damages) ||
-				!matchesAxis(motions, enemy.motions)
+				!matchesAxis(motions, enemy.motions) ||
+				!matchesAxis(years, [releaseYear(enemy.releaseDate)])
 			) {
 				return false;
 			}
@@ -141,7 +153,7 @@ export default function EnemyIndex() {
 			return enemy.variants.some((variant) => findNameMatch(variant.name, needle) !== null);
 		});
 		return { filtered: matched, nameMatches: matches };
-	}, [enemies, levels, races, attacks, damages, motions, query]);
+	}, [enemies, levels, races, attacks, damages, motions, years, query]);
 
 	const sorted = useMemo(() => sortEnemies(filtered, sortKey, sortDescending), [filtered, sortKey, sortDescending]);
 
@@ -168,6 +180,8 @@ export default function EnemyIndex() {
 
 	const handleToggleMotion = useCallback((value?: string | number) => setMotions((current) => toggled(current, String(value))), []);
 
+	const handleToggleYear = useCallback((value?: string | number) => setYears((current) => toggled(current, String(value))), []);
+
 	const handleClearQuery = useCallback(() => setQuery(""), []);
 
 	const handleToggleSortDirection = useCallback(() => setSortDescending((descending) => !descending), []);
@@ -193,6 +207,7 @@ export default function EnemyIndex() {
 		setAttacks([]);
 		setDamages([]);
 		setMotions([]);
+		setYears([]);
 		setQuery("");
 	}, []);
 
@@ -204,9 +219,10 @@ export default function EnemyIndex() {
 			...attacks.map((attack) => ({ id: `attack-${attack}`, label: attack, onDelete: () => handleToggleAttack(attack) })),
 			...damages.map((damage) => ({ id: `damage-${damage}`, label: damage, onDelete: () => handleToggleDamage(damage) })),
 			...motions.map((motion) => ({ id: `motion-${motion}`, label: motion, onDelete: () => handleToggleMotion(motion) })),
+			...years.map((year) => ({ id: `year-${year}`, label: year, onDelete: () => handleToggleYear(year) })),
 			...(query.trim() === "" ? [] : [{ id: "name", label: `"${query.trim()}"`, onDelete: handleClearQuery }])
 		],
-		[levels, races, attacks, damages, motions, query, handleToggleLevel, handleToggleRace, handleToggleAttack, handleToggleDamage, handleToggleMotion, handleClearQuery]
+		[levels, races, attacks, damages, motions, years, query, handleToggleLevel, handleToggleRace, handleToggleAttack, handleToggleDamage, handleToggleMotion, handleToggleYear, handleClearQuery]
 	);
 
 	// Built once per filter change rather than per render, so a keystroke in the name search does not re-render every chip.
@@ -224,9 +240,27 @@ export default function EnemyIndex() {
 				onToggleDamage={handleToggleDamage}
 				motions={motions}
 				onToggleMotion={handleToggleMotion}
+				yearOptions={releaseYearOptions}
+				years={years}
+				onToggleYear={handleToggleYear}
 			/>
 		),
-		[levels, raceOptions, races, attacks, damages, motions, handleToggleLevel, handleToggleRace, handleToggleAttack, handleToggleDamage, handleToggleMotion]
+		[
+			levels,
+			raceOptions,
+			races,
+			attacks,
+			damages,
+			motions,
+			releaseYearOptions,
+			years,
+			handleToggleLevel,
+			handleToggleRace,
+			handleToggleAttack,
+			handleToggleDamage,
+			handleToggleMotion,
+			handleToggleYear
+		]
 	);
 
 	return (
