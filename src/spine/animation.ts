@@ -384,10 +384,10 @@ export function loopTime(animation: Animation, time: number, loop: boolean): num
  * Poses a skeleton at a time in an animation, applying its timelines in file order. Each bone timeline writes its bone's local transform
  * from the setup values: rotate, translate and shear add to them, scale multiplies them. Slot timelines set a slot's attachment or replace
  * its colors, and a draw order timeline rewrites the draw order in place. An IK timeline sets its constraint's mix, softness, bend
- * direction, compress and stretch. A transform timeline sets its constraint's four mixes. A deform timeline writes its slot's vertex
- * offsets. A timeline whose first key is after `time` leaves its bone, slot, constraint or draw order alone. Path and event timelines are
- * skipped. Once each timeline and skeleton has been seen, it allocates nothing: the eased fraction lives in a typed array, no hot helper
- * returns a number, and the draw order work arrays are kept per skeleton. Colors and deform offsets are written into the slot's own
+ * direction, compress and stretch. A transform timeline sets its constraint's four mixes. A path timeline sets its constraint's position,
+ * spacing, or rotate and translate mixes. A deform timeline writes its slot's vertex offsets. A timeline whose first key is after `time`
+ * leaves its bone, slot, constraint or draw order alone. Event timelines are skipped. Once each timeline and skeleton has been seen, it
+ * allocates nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work arrays are kept per skeleton. Colors and deform offsets are written into the slot's own
  * objects. Call `updateWorldTransform` after.
  *
  * @param skeleton The skeleton, just reset by `setToSetupPose`.
@@ -538,8 +538,48 @@ export function applyAnimation(skeleton: Skeleton, animation: Animation, time: n
 			case "deform":
 				applyDeform(skeleton, timeline, time);
 				break;
+			case "pathPosition":
+			case "pathSpacing": {
+				const index = keyFraction(timeline.times, timeline.curves, time);
+				if (index < 0) {
+					break;
+				}
+				const fraction = found[FRACTION]!;
+				const values = timeline.values;
+				let value = values[index]!;
+				if (fraction !== 0) {
+					value += (values[index + 1]! - value) * fraction;
+				}
+				const constraint = skeleton.pathConstraints[timeline.constraintIndex]!;
+				if (timeline.type === "pathPosition") {
+					constraint.position = value;
+				} else {
+					constraint.spacing = value;
+				}
+				break;
+			}
+			case "pathMix": {
+				const index = keyFraction(timeline.times, timeline.curves, time);
+				if (index < 0) {
+					break;
+				}
+				// Both mixes blend along the one curve.
+				const fraction = found[FRACTION]!;
+				const rotateMixes = timeline.rotateMixes;
+				const translateMixes = timeline.translateMixes;
+				let rotate = rotateMixes[index]!;
+				let translate = translateMixes[index]!;
+				if (fraction !== 0) {
+					rotate += (rotateMixes[index + 1]! - rotate) * fraction;
+					translate += (translateMixes[index + 1]! - translate) * fraction;
+				}
+				const constraint = skeleton.pathConstraints[timeline.constraintIndex]!;
+				constraint.rotateMix = rotate;
+				constraint.translateMix = translate;
+				break;
+			}
 			default:
-				// Path and event timelines are skipped.
+				// Event timelines are skipped.
 				break;
 		}
 	}

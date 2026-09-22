@@ -1812,6 +1812,44 @@ function checkPathConstraints(skeletonModule) {
 	return runCases("path constraints", cases);
 }
 
+/**
+ * Poses the path constraint toy rig at a time in an animation made of the given timelines, and reads the constrained bones.
+ *
+ * @param {object} modules The loaded `skeleton` and `animation` modules.
+ * @param {object} constraint Constraint overrides, as `pathRig` takes them.
+ * @param {object[]} timelines The animation's timelines.
+ * @param {number} time The time to pose at.
+ * @param {object} [options] Options, as `posedPath` takes them.
+ * @returns {number[]} Each read bone's `placed` values, flattened.
+ */
+function animatedPath(modules, constraint, timelines, time, options = {}) {
+	const skeleton = pathRig(modules.skeleton, constraint, { ...options, timelines });
+	modules.animation.applyAnimation(skeleton, skeleton.data.animations[0], time);
+	skeleton.updateWorldTransform();
+	return (options.read ?? [1, 2, 3]).flatMap((index) => placed(skeleton.bones[index]));
+}
+
+/**
+ * Checks the path position, spacing and mix timelines on the toy rig, and that a key after the time leaves the setup value alone.
+ *
+ * @param {object} modules The loaded `skeleton` and `animation` modules.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkPathTimelines(modules) {
+	const one = { bones: [1], read: [1] };
+	const position = { type: "pathPosition", constraintIndex: 0, times: [0, 1], values: [0, 1], curves: ["linear"] };
+	const spacing = { type: "pathSpacing", constraintIndex: 0, times: [0], values: [5], curves: [] };
+	const mix = { type: "pathMix", constraintIndex: 0, times: [0], rotateMixes: [0], translateMixes: [0.5], curves: [] };
+	const late = { type: "pathPosition", constraintIndex: 0, times: [0.5, 1], values: [1, 1], curves: ["linear"] };
+	const cases = [
+		["position blends between keys", () => [[0, 15, 90], animatedPath(modules, {}, [position], 0.5, one)]],
+		["spacing sets the spacing", () => [[0, 0, 90, 0, 5, 90, 0, 10, 90], animatedPath(modules, { spacingMode: "fixed" }, [spacing], 0)]],
+		["mix sets both mixes", () => [[5, 0, 0], animatedPath(modules, {}, [mix], 0, { ...one, setup: { 1: { x: 10 } } })]],
+		["a key after the time leaves the setup position", () => [[0, 0, 90], animatedPath(modules, {}, [late], 0.25, one)]]
+	];
+	return runCases("path timelines", cases);
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -1861,6 +1899,7 @@ try {
 	try {
 		failures.push(...checkPaths({ skeleton: skeletonModule, paths: await server.ssrLoadModule("/src/spine/paths.ts") }));
 		failures.push(...checkPathConstraints(skeletonModule));
+		failures.push(...checkPathTimelines({ skeleton: skeletonModule, animation: await server.ssrLoadModule("/src/spine/animation.ts") }));
 	} catch (error) {
 		failures.push(`paths: could not run: ${error.message}`);
 	}
