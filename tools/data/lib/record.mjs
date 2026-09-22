@@ -5,7 +5,7 @@
 /**
  * Physical exam grades, weakest first. Read from the data rather than assumed: these are every single-word grade the pinned tables use.
  *
- * The order is the game's. `src/pages/operator/RecordBlock.tsx` draws a bar of `GRADES.length` segments - change one, update the other.
+ * The order is the game's. `src/components/RecordBlock.tsx` draws a bar of `GRADES.length` segments - change one, update the other.
  */
 export const GRADES = ["Feeble", "Flawed", "Normal", "Standard", "Excellent", "Outstanding", "Exceptional"];
 

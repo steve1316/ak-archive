@@ -17,19 +17,13 @@ import type { StageRequest } from "./AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import HandbookSection from "./HandbookSection.js";
 import IdentityBlock from "./IdentityBlock.js";
-import { NAVBAR_HEIGHT } from "../../lib/layout.js";
-import RecordBlock from "./RecordBlock.js";
+import { NAVBAR_HEIGHT, PAGE_SX, PAGE_TOP_PADDING, STATS_ROW_SX } from "../../lib/layout.js";
+import RecordBlock from "../../components/RecordBlock.js";
 import SpineStage from "./SpineStage.js";
 import StatsPanel from "./StatsPanel.js";
 
 /** Controls held before any operator has loaded. Never rendered, since the grid does not appear until the operator is set. */
 const INITIAL_CONTROLS: Controls = { phase: 0, level: 1, trust: true, potential: 1 };
-
-/** The page's top padding, in the theme's spacing units. Shared with `FOLD_SX` below, which subtracts it out to size the fold to the viewport. */
-const PAGE_TOP_PADDING = 1.75;
-
-/** The page body: above the fixed backdrop, with the locked design's 14px top and 20px side padding. */
-const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { xs: 2, md: 2.5 }, pt: PAGE_TOP_PADDING, pb: 3 };
 
 /**
  * Everything above the fold. From `md` up it is at least one screen tall, and the first row takes whatever the second leaves, so slack goes to
@@ -47,9 +41,6 @@ const HANDBOOK_SX: SxProps<Theme> = { mt: 2 };
 
 /** Row 1: art card, identity and record, Animations. Stacked on a narrow screen. */
 const ROW1_SX: SxProps<Theme> = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } };
-
-/** Row 2: stats beside the abilities. Content height - nothing here stretches. */
-const ROW2_SX: SxProps<Theme> = { display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "360px minmax(0, 1fr)" } };
 
 /**
  * The default controls for a freshly loaded operator: the last elite phase, that phase's max level, full trust and potential 1.
@@ -216,7 +207,7 @@ export default function Operator() {
 								</Box>
 								<AnimationsCard key={operator.id} interactive renderStage={renderStage} />
 							</Box>
-							<Box sx={ROW2_SX}>
+							<Box sx={STATS_ROW_SX}>
 								<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
 								<AbilitiesCard operator={operator} controls={controls} />
 							</Box>

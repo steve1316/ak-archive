@@ -5,7 +5,7 @@ import type { SxProps, Theme } from "@mui/material";
 
 import { RankBar } from "archive-kit";
 
-import type { HandbookRecord, RecordField } from "../../types/operator.js";
+import type { HandbookRecord, RecordField } from "../types/operator.js";
 
 /**
  * Steps on the physical exam scale. `tools/data/lib/record.mjs` defines the scale as `GRADES` - change one, update the other.

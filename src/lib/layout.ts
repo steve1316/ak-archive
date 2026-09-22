@@ -113,3 +113,15 @@ export const HERO_SUBTITLE_SX: SxProps<Theme> = { fontSize: 14, fontWeight: 400,
 
 /** The row of choice chips under the name, such as an operator's forms or an enemy's variants. */
 export const HERO_CHIPS_SX: SxProps<Theme> = { flexWrap: "wrap", gap: 0.625, mt: 1.25 };
+
+/** A detail page's top padding, in the theme's spacing units. The operator page's fold subtracts it to size itself to the viewport. */
+export const PAGE_TOP_PADDING = 1.75;
+
+/** A detail page's body: above the fixed backdrop, with the locked design's 14px top and 20px side padding. */
+export const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { xs: 2, md: 2.5 }, pt: PAGE_TOP_PADDING, pb: 3 };
+
+/** A detail page's second row: stats beside the abilities. Content height - nothing here stretches. */
+export const STATS_ROW_SX: SxProps<Theme> = { display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "360px minmax(0, 1fr)" } };
+
+/** A stats card's row: a thin rule under each row but the last. */
+export const STAT_ROW_SX = { py: 0.625, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } } as const satisfies SxProps<Theme>;

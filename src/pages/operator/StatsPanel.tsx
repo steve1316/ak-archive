@@ -8,7 +8,7 @@ import { LevelSlider } from "archive-kit";
 
 import { statsAt } from "../../lib/stats.js";
 import type { Controls, Operator, StatValues, TrustBonus } from "../../types/operator.js";
-import { SECTION_HEADING_SX, SECTION_SX } from "../../lib/layout.js";
+import { SECTION_HEADING_SX, SECTION_SX, STAT_ROW_SX } from "../../lib/layout.js";
 
 /** One single-stat row: its label, the `StatValues` field it reads, and the `TrustBonus` field that marks what full trust adds to it. */
 const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues; trustKey: keyof TrustBonus }> = [
@@ -22,7 +22,7 @@ const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues; trustKey:
 const POTENTIAL_RANKS: ReadonlyArray<number> = [1, 2, 3, 4, 5, 6];
 
 /** One row of the stat list: label on the left, value (and any trust badge) on the right. */
-const ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "baseline", justifyContent: "space-between", py: 0.625, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } };
+const ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "baseline", justifyContent: "space-between", ...STAT_ROW_SX };
 
 /** The stat list itself, above the controls. */
 const ROWS_SX: SxProps<Theme> = { flex: "none" };
