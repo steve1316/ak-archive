@@ -52,14 +52,32 @@ const TABS_SX: SxProps<Theme> = {
 	"& .MuiTab-root": { ...TAB_STRIP_SX["& .MuiTab-root"], minHeight: 40, py: 1 }
 };
 
-/** One potential row: the rank's icon, then what it does. */
-const POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1.25, py: 0.75, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } };
+/**
+ * A small heading over the Talents or Potentials group inside the combined tab. Drawn on a plain element, since a `Typography` variant's
+ * breakpoint font sizes override an `sx` font size.
+ */
+const GROUP_HEADING_SX = { m: 0, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "text.secondary", mb: 1 } satisfies SxProps<Theme>;
+
+/** The Potentials heading, set apart from the talent tiles above it. */
+const POTENTIALS_HEADING_SX: SxProps<Theme> = { ...GROUP_HEADING_SX, mt: 1.75 };
+
+/** The potentials strip: one small tile per rank, five across from `md` up, wrapping on a narrower card. */
+const POTENTIAL_STRIP_SX: SxProps<Theme> = { display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(3, minmax(0, 1fr))", md: "repeat(5, minmax(0, 1fr))" } };
+
+/** One potential tile: its rank, its icon, then what it does, centred. */
+const POTENTIAL_TILE_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 0.75, textAlign: "center" };
+
+/** The potential tile's rank label, such as `P2`. */
+const POTENTIAL_RANK_SX: SxProps<Theme> = { fontSize: 12, fontWeight: 700, color: "text.secondary", lineHeight: 1 };
+
+/** The potential tile's description. */
+const POTENTIAL_TEXT_SX: SxProps<Theme> = { fontSize: 13, lineHeight: 1.4 };
 
 /** The potential icon. */
-const POTENTIAL_ICON_SX: SxProps<Theme> = { width: 34, height: 34, flex: "none" };
+const POTENTIAL_ICON_SX: SxProps<Theme> = { width: 30, height: 30, flex: "none" };
 
 /** Which tab of the Abilities card is open. */
-type AbilityTab = "skills" | "talents" | "potentials";
+type AbilityTab = "skills" | "talents";
 
 /**
  * One talent resolved for display at the page's current controls: either its unlocked candidate - with the base candidate's description kept
@@ -110,9 +128,9 @@ function resolveTalents(operator: OperatorFull, phase: number, level: number, po
 }
 
 /**
- * The operator page's Abilities card: skills, talents and potentials in their own tabs, with a talent value highlighted when it differs
- * from the talent's base candidate and a parenthesised potential delta - such as `(+2%)` in `ATK +7% (+2%)` - always highlighted, since it is
- * upstream's own mark for what the current potential adds.
+ * The operator page's Abilities card: a Skills tab, then one tab with the talents over a strip of potentials. A talent value is highlighted when
+ * it differs from the talent's base candidate, and a parenthesised potential delta - such as `(+2%)` in `ATK +7% (+2%)` - is always highlighted,
+ * since it is upstream's own mark for what the current potential adds.
  *
  * @param props Component props.
  * @returns The card.
@@ -126,10 +144,7 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 		if (operator.skills.length > 0) {
 			list.push({ key: "skills", label: "Skills" });
 		}
-		list.push({ key: "talents", label: "Talents" });
-		if (operator.potentials.length > 0) {
-			list.push({ key: "potentials", label: "Potentials" });
-		}
+		list.push({ key: "talents", label: operator.potentials.length > 0 ? "Talents & Potentials" : "Talents" });
 		return list;
 	}, [operator]);
 	const [tab, setTab] = useState<AbilityTab>("skills");
@@ -165,14 +180,30 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 		</Box>
 	));
 
-	const potentialRows = (
+	const talentsAndPotentials = (
 		<Box>
-			{operator.potentials.map((entry) => (
-				<Box key={entry.rank} sx={POTENTIAL_ROW_SX}>
-					<Box component="img" src={potentialIconUrl(entry.rank)} alt={`Potential ${entry.rank}`} title={`Potential ${entry.rank}`} sx={POTENTIAL_ICON_SX} />
-					<Typography sx={{ fontSize: 14 }}>{entry.description}</Typography>
+			{operator.potentials.length > 0 ? (
+				<Box component="h3" sx={GROUP_HEADING_SX}>
+					Talents
 				</Box>
-			))}
+			) : null}
+			<Box sx={TILES_SX}>{talentTiles}</Box>
+			{operator.potentials.length > 0 ? (
+				<>
+					<Box component="h3" sx={POTENTIALS_HEADING_SX}>
+						Potentials
+					</Box>
+					<Box sx={POTENTIAL_STRIP_SX}>
+						{operator.potentials.map((entry) => (
+							<Box key={entry.rank} sx={POTENTIAL_TILE_SX}>
+								<Box component="span" sx={POTENTIAL_RANK_SX}>{`P${entry.rank}`}</Box>
+								<Box component="img" src={potentialIconUrl(entry.rank)} alt="" sx={POTENTIAL_ICON_SX} />
+								<Box sx={POTENTIAL_TEXT_SX}>{entry.description}</Box>
+							</Box>
+						))}
+					</Box>
+				</>
+			) : null}
 		</Box>
 	);
 
@@ -184,8 +215,7 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 				))}
 			</Tabs>
 			{shown === "skills" ? <SkillsPanel key={operator.id} skills={operator.skills} phase={controls.phase} traitRangeId={operator.traitRangeId} /> : null}
-			{shown === "talents" ? <Box sx={TILES_SX}>{talentTiles}</Box> : null}
-			{shown === "potentials" ? potentialRows : null}
+			{shown === "talents" ? talentsAndPotentials : null}
 		</Paper>
 	);
 }
