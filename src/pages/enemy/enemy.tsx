@@ -6,6 +6,8 @@ import { Navigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ArtPlaceholder, ENEMY_CARD_ASPECT, LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
 
+import AnimationsCard from "../../components/AnimationsCard.js";
+import type { StageRequest } from "../../components/AnimationsCard.js";
 import RecordBlock from "../../components/RecordBlock.js";
 import { enemyIconUrl, hasEnemyIcon } from "../../lib/assets.js";
 import { loadEnemyGroup } from "../../lib/data.js";
@@ -16,13 +18,22 @@ import type { Enemy, EnemyDetails } from "../../types/enemy.js";
 import type { HandbookRecord } from "../../types/operator.js";
 import EnemyAbilitiesCard from "./EnemyAbilitiesCard.js";
 import EnemyIdentityBlock from "./EnemyIdentityBlock.js";
+import EnemySpineStage from "./EnemySpineStage.js";
 import EnemyStatsPanel from "./EnemyStatsPanel.js";
 
 /** The icon column's width, the same as the operator page's art card so the two pages line up. */
 const ICON_WIDTH = 180;
 
-/** Row 1: icon, then identity and record. Stacked on a narrow screen. */
-const ROW1_SX: SxProps<Theme> = { mb: 2, display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: `${ICON_WIDTH}px minmax(0, 1fr)` } };
+/** The Animations card's width, the same as the operator page's. */
+const ANIMATIONS_WIDTH = 330;
+
+/** Row 1: icon, then identity and record, then Animations. Stacked on a narrow screen. */
+const ROW1_SX: SxProps<Theme> = {
+	mb: 2,
+	display: "grid",
+	gap: { xs: 2, md: 2.75 },
+	gridTemplateColumns: { xs: "minmax(0, 1fr)", md: `${ICON_WIDTH}px minmax(0, 1fr) ${ANIMATIONS_WIDTH}px` }
+};
 
 /** The icon. The game draws it on a transparent canvas, so it sits on a card-coloured square. */
 const ICON_SX: SxProps<Theme> = {
@@ -132,6 +143,12 @@ export default function EnemyPage() {
 		[group, setSearchParams]
 	);
 
+	// Draws the Animations card's stage: the selected variant's chibi. Keyed by the variant inside the stage, so a switch loads its own rig.
+	const renderStage = useCallback(
+		({ onStatus }: StageRequest) => (variant ? <EnemySpineStage enemyId={variant.id} iconUrl={hasEnemyIcon(variant.id) ? enemyIconUrl(variant.id) : null} onStatus={onStatus} /> : null),
+		[variant]
+	);
+
 	if (missing) {
 		return <NotFound404 />;
 	}
@@ -167,6 +184,7 @@ export default function EnemyPage() {
 								/>
 								<RecordBlock record={recordOf(details)} affiliation={null} trait={details.description} />
 							</Box>
+							<AnimationsCard key={group.enemy.id} interactive battleOnly renderStage={renderStage} />
 						</Box>
 						<Box sx={STATS_ROW_SX}>
 							<EnemyStatsPanel levels={details.levels} level={shownLevel} onLevelChange={setLevel} />
