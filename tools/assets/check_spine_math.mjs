@@ -2,7 +2,8 @@
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
  * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, `src/spine/animation.ts` curves, key search,
- * bone, slot and draw order timelines, and the `src/spine/renderer.ts` two-color tint and blend factors against hand-worked values.
+ * bone, slot and draw order timelines, IK constraints and IK timelines, and the `src/spine/renderer.ts` two-color tint and blend factors
+ * against hand-worked values.
  * `MATH.md` explains each formula the cases pin down.
  *
  * Usage:
@@ -926,6 +927,137 @@ function checkSlotTimelines(skeletonModule, animationModule) {
 }
 
 /**
+ * Builds a rig for the IK cases and poses it. Bone 0 is the root, the chain bones follow it (each a child of the one before), and the
+ * target is a second root bone placed at a world point. The one IK constraint drives the chain toward the target.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object[]} chain Overrides for the one or two chain bones.
+ * @param {number[]} target The target's world point.
+ * @param {object} constraint Overrides for the IK constraint data.
+ * @param {object} root Overrides for the root bone.
+ * @returns {import("../../src/spine/skeleton.ts").Skeleton} The skeleton, with `updateWorldTransform` run.
+ */
+function ikRig(skeletonModule, chain, target, constraint = {}, root = {}) {
+	const data = skeletonData([root, ...chain, { parentIndex: null, x: target[0], y: target[1] }]);
+	const bones = chain.map((_, index) => index + 1);
+	const ik = { name: "ik", order: 0, skinRequired: false, bones, target: chain.length + 1, mix: 1, softness: 0, bendDirection: 1, compress: false, stretch: false, uniform: false };
+	data.ik = [{ ...ik, ...constraint }];
+	const skeleton = new skeletonModule.Skeleton(data);
+	skeleton.setToSetupPose();
+	skeleton.updateWorldTransform();
+	return skeleton;
+}
+
+/**
+ * Runs the IK cases: one-bone aim, mix, compress, stretch and uniform, two-bone bend, reach, stretch and softness, the page's child Y
+ * rule, an IK timeline on mix, and a second `updateWorldTransform` on the same pose.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkIk(skeletonModule, animationModule) {
+	const rig = (chain, target, constraint, root) => ikRig(skeletonModule, chain, target, constraint, root);
+	const one = (target, constraint, root) => rig([{ length: 10 }], target, constraint, root).bones[1];
+	const two = (target, constraint, parent = {}, child = {}) =>
+		rig(
+			[
+				{ length: 10, ...parent },
+				{ x: 10, length: 10, ...child }
+			],
+			target,
+			constraint
+		);
+	const rotations = (skeleton) => [skeleton.bones[1].appliedRotation, skeleton.bones[2].appliedRotation];
+	const axisLength = (bone) => Math.hypot(bone.a, bone.c);
+	const tip = (skeleton) => localToWorldOf(skeleton.bones[2], 10, 0);
+	const localToWorldOf = (bone, x, y) => skeletonModule.localToWorld(bone, x, y);
+	const world = (skeleton) => skeleton.bones.flatMap((bone) => [bone.a, bone.b, bone.c, bone.d, bone.worldX, bone.worldY]);
+	const mixTimeline = {
+		type: "ik",
+		constraintIndex: 0,
+		times: [0, 1],
+		mixes: [1, 0],
+		softness: [0, 0],
+		bendDirections: [1, 1],
+		compress: [false, false],
+		stretch: [false, false],
+		curves: ["linear"]
+	};
+	const cases = [
+		["one bone aims at the target", () => [90, one([0, 5]).appliedRotation]],
+		["one bone at mix 0.5 turns half way", () => [45, one([0, 5], { mix: 0.5 }).appliedRotation]],
+		["one bone under a parent turned 90 solves in the parent's space", () => [90, one([-5, 0], {}, { rotation: 90 }).appliedRotation]],
+		["one bone keeps its local rotation", () => [0, one([0, 5]).rotation]],
+		["compress scales a bone down to reach a near target", () => [0.4, one([4, 0], { compress: true }).appliedScaleX]],
+		["without compress the scale stays", () => [1, one([4, 0]).appliedScaleX]],
+		[
+			"stretch scales a bone up to reach a far target",
+			() => [
+				[2, 1],
+				[one([20, 0], { stretch: true }).appliedScaleX, one([20, 0], { stretch: true }).appliedScaleY]
+			]
+		],
+		["uniform stretch scales both axes", () => [2, one([20, 0], { stretch: true, uniform: true }).appliedScaleY]],
+		["two bones, positive bend turns the child counterclockwise", () => [[0, 90], rotations(two([10, 10]))]],
+		["two bones, negative bend is the mirror solution", () => [[90, -90], rotations(two([10, 10], { bendDirection: -1 }))]],
+		["two bones, positive bend puts the tip on the target", () => [[10, 10], tip(two([10, 10]))]],
+		["two bones out of reach lie straight toward the target", () => [[0, 0], rotations(two([30, 0]))]],
+		["two bones out of reach keep their scales", () => [[1, 1, 1, 1], [1, 2].flatMap((index) => [two([30, 0]).bones[index].appliedScaleX, two([30, 0]).bones[index].appliedScaleY])]],
+		["two bones out of reach stop at full length", () => [[20, 0], tip(two([30, 0]))]],
+		["two bone stretch makes both bones 1.5 long in the world", () => [[1.5, 1.5], [1, 2].map((index) => axisLength(two([30, 0], { stretch: true }).bones[index]))]],
+		["two bone stretch puts the tip on the target", () => [[30, 0], tip(two([30, 0], { stretch: true }))]],
+		[
+			"two bone stretch scales only the parent's local X",
+			() => [
+				[1.5, 1],
+				[two([30, 0], { stretch: true }).bones[1].appliedScaleX, two([30, 0], { stretch: true }).bones[2].appliedScaleX]
+			]
+		],
+		["softness eases the reach near full length", () => [[18.875, 0], tip(two([19, 0], { softness: 2 }))]],
+		["softness is fully straight a softness past full length", () => [[20, 0], tip(two([23, 0], { softness: 2 }))]],
+		["mix 0 changes nothing", () => [[0, 0], rotations(two([10, 10], { mix: 0 }))]],
+		// The full solves are (90, -90) and (-150, 120), from rotations (0, 0): 30% of each turn.
+		["two bones at mix 0.3, negative bend, blend both rotations", () => [[27, -27], rotations(two([10, 10], { bendDirection: -1, mix: 0.3 }))]],
+		["two bones at mix 0.3, target below, blend both rotations", () => [[-45, 36], rotations(two([0, -10], { mix: 0.3 }))]],
+		// Reach 20 with softness 30 would ease a target at 0.5 to about -0.42. It stops at 0, so the chain folds back to its origin.
+		["softness larger than the reach never folds past the origin", () => [[0, 0], tip(two([0.5, 0], { softness: 30 }))]],
+		["the child keeps its Y under a uniform parent", () => [3, two([10, 10], {}, {}, { y: 3 }).bones[2].appliedY]],
+		["the child's Y is 0 under a nonuniform parent", () => [0, two([10, 10], {}, { scaleY: 2 }, { y: 3 }).bones[2].appliedY]],
+		["the child's Y is 0 with stretch on", () => [0, two([10, 10], { stretch: true }, {}, { y: 3 }).bones[2].appliedY]],
+		["the child keeps its local Y", () => [3, two([10, 10], {}, { scaleY: 2 }, { y: 3 }).bones[2].y]],
+		[
+			"an IK timeline blends the live mix",
+			() => {
+				const skeleton = two([10, 10]);
+				animationModule.applyAnimation(skeleton, { name: "ik", duration: 1, timelines: [mixTimeline] }, 0.5);
+				return [0.5, skeleton.ikConstraints[0].mix];
+			}
+		],
+		[
+			"setToSetupPose restores the data mix",
+			() => {
+				const skeleton = two([10, 10]);
+				animationModule.applyAnimation(skeleton, { name: "ik", duration: 1, timelines: [mixTimeline] }, 0.5);
+				skeleton.setToSetupPose();
+				return [1, skeleton.ikConstraints[0].mix];
+			}
+		],
+		[
+			"updateWorldTransform twice at mix 0.5 gives the same world values",
+			() => {
+				const skeleton = two([10, 10], { mix: 0.5 });
+				const first = world(skeleton);
+				skeleton.updateWorldTransform();
+				const second = world(skeleton);
+				return [true, first.every((value, index) => value === second[index])];
+			}
+		]
+	];
+	return runCases("ik", cases);
+}
+
+/**
  * Runs the drawing cases: the two-color tint of one premultiplied texel, and the blend factors each blend mode draws with.
  *
  * @param {object} rendererModule The loaded `renderer.ts` module.
@@ -971,7 +1103,7 @@ try {
 	}
 	try {
 		const animationModule = await server.ssrLoadModule("/src/spine/animation.ts");
-		failures.push(...checkAnimation(skeletonModule, animationModule), ...checkSlotTimelines(skeletonModule, animationModule));
+		failures.push(...checkAnimation(skeletonModule, animationModule), ...checkSlotTimelines(skeletonModule, animationModule), ...checkIk(skeletonModule, animationModule));
 	} catch (error) {
 		failures.push(`animation: could not run: ${error.message}`);
 	}

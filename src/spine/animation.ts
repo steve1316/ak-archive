@@ -56,18 +56,17 @@ const drawOrderScratch = new WeakMap<Skeleton, DrawOrderScratch>();
 // Curves
 
 /**
- * Eases a time fraction between two keys into a value fraction and writes it to `found[FRACTION]`. A bezier runs from (0, 0) to (1, 1)
- * with x as time and y as value. The parameter whose x equals `t` is found by bisection. A `t` at or past either end gives exactly 0 or 1.
- * The cubic is written out in the loop and the result goes to `found`, so no number is returned across a call that may not be inlined.
+ * Eases the time fraction in `found[FRACTION]` into a value fraction and writes it back there. A bezier runs from (0, 0) to (1, 1) with x
+ * as time and y as value. The parameter whose x equals the time fraction is found by bisection. A fraction at or past either end gives
+ * exactly 0 or 1. The fraction goes in and out through `found`, so no number crosses a call that may not be inlined, where it would be boxed.
  *
  * @param curve The curve from one key to the next.
- * @param t The time fraction between the two keys, 0 to 1.
  */
-function easeInto(curve: Curve, t: number): void {
+function easeInto(curve: Curve): void {
 	if (curve === "linear") {
-		found[FRACTION] = t;
 		return;
 	}
+	const t = found[FRACTION]!;
 	// The ends are exact. A control x outside [0, 1] can make the search land on a far crossing of x = 0 or x = 1.
 	if (curve === "stepped" || t <= 0) {
 		found[FRACTION] = 0;
@@ -104,7 +103,8 @@ function easeInto(curve: Curve, t: number): void {
  * @returns The value fraction. A bezier may overshoot [0, 1].
  */
 export function curveValue(curve: Curve, t: number): number {
-	easeInto(curve, t);
+	found[FRACTION] = t;
+	easeInto(curve);
 	return found[FRACTION]!;
 }
 
@@ -190,7 +190,8 @@ function keyFraction(times: readonly number[], curves: readonly Curve[], time: n
 		return index;
 	}
 	const start = times[index]!;
-	easeInto(curves[index]!, (time - start) / (times[index + 1]! - start));
+	found[FRACTION] = (time - start) / (times[index + 1]! - start);
+	easeInto(curves[index]!);
 	return index;
 }
 
@@ -323,8 +324,9 @@ export function loopTime(animation: Animation, time: number, loop: boolean): num
 /**
  * Poses a skeleton at a time in an animation, applying its timelines in file order. Each bone timeline writes its bone's local transform
  * from the setup values: rotate, translate and shear add to them, scale multiplies them. Slot timelines set a slot's attachment or replace
- * its colors, and a draw order timeline rewrites the draw order in place. A timeline whose first key is after `time` leaves its bone, slot
- * or draw order alone. Constraint, deform and event timelines are skipped. Once each timeline and skeleton has been seen, it allocates
+ * its colors, and a draw order timeline rewrites the draw order in place. An IK timeline sets its constraint's mix, softness, bend
+ * direction, compress and stretch. A timeline whose first key is after `time` leaves its bone, slot, constraint or draw order alone.
+ * Transform, path, deform and event timelines are skipped. Once each timeline and skeleton has been seen, it allocates
  * nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work arrays are kept per skeleton.
  * Colors are written into the slot's own color objects. Call `updateWorldTransform` after.
  *
@@ -422,8 +424,31 @@ export function applyAnimation(skeleton: Skeleton, animation: Animation, time: n
 				}
 				break;
 			}
+			case "ik": {
+				const index = keyFraction(timeline.times, timeline.curves, time);
+				if (index < 0) {
+					break;
+				}
+				// Mix and softness blend along the curve. Bend direction, compress and stretch hold from the key.
+				const fraction = found[FRACTION]!;
+				const mixes = timeline.mixes;
+				const softness = timeline.softness;
+				let mix = mixes[index]!;
+				let soft = softness[index]!;
+				if (fraction !== 0) {
+					mix += (mixes[index + 1]! - mix) * fraction;
+					soft += (softness[index + 1]! - soft) * fraction;
+				}
+				const constraint = skeleton.ikConstraints[timeline.constraintIndex]!;
+				constraint.mix = mix;
+				constraint.softness = soft;
+				constraint.bendDirection = timeline.bendDirections[index]!;
+				constraint.compress = timeline.compress[index]!;
+				constraint.stretch = timeline.stretch[index]!;
+				break;
+			}
 			default:
-				// Constraint, deform and event timelines are skipped.
+				// Transform, path, deform and event timelines are skipped.
 				break;
 		}
 	}

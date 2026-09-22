@@ -19,7 +19,8 @@
  * how many rigs use each feature and how many each planned stage would draw in full. `--geometry` also turns every rig's setup pose into
  * triangles with `src/spine/geometry.ts`: every drawing attachment must give a list with finite positions and indices in range. A UV
  * outside [0, 1] is a warning, since a few meshes reach past their stripped image. The drawn bounds are compared with the skeleton's
- * declared bounds by intersection-over-union. Only an unconstrained rig can fail on it, since constraints are not applied yet. Below 0.5 it
+ * declared bounds by intersection-over-union. A rig with a transform or path constraint is only reported, since those are not applied yet.
+ * An IK-only or unconstrained rig is judged. Below 0.5 it
  * fails unless the drawn box sits inside the declared one, which hidden or other-skin attachments can widen. A rig that declares no bounds,
  * or draws nothing in its setup pose, is counted as unscored. It also checks UV orientation: the packer strips whitespace down to a mesh's
  * hull, so a stripped mesh's hull, mapped to page pixels, should meet every edge of its packed box.
@@ -29,6 +30,12 @@
  * every color channel must be in [0, 1], and the draw order must be a permutation of the slots. Every color and two-color key must also
  * show its own color at its time, and every linear color segment a straight blend a quarter of the way along. It prints the frame time
  * (median and p99 for apply, update and triangles) and how many two-color timelines drive a slot with no dark color.
+ *
+ * `--ik` checks every rig with an IK constraint. In the setup pose, with setup mix 1: a one-bone chain whose target is within
+ * `IK_SETUP_GAP` of its line must solve back to its setup rotation, and a two-bone chain within `IK_LOOSE_GAP` must sit nearer the solution
+ * its bend direction picks than the mirror one. The brief gap-0.5 angle rates are printed too, for information. Then it plays every
+ * animation at `ANIMATION_SAMPLES` times: solved rotations and scales must be finite, and a chain at mix 1 without stretch must point at
+ * its target (one bone), or end on it or on the line to it (two bones). It prints the run time.
  */
 
 import fs from "node:fs";
@@ -47,16 +54,17 @@ const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
 const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation]  (scans <staging>/assets/spine)";
+const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik]  (scans <staging>/assets/spine)";
 
 /** Lowest intersection-over-union between a rig's drawn and declared setup bounds before `--geometry` fails it. */
 const MIN_IOU = 0.5;
 
 /**
- * Whether a rig with an IK, transform or path constraint can fail on IoU. The setup pose here does not apply constraints yet, so those rigs
- * are only reported. A later stage that applies constraints flips this to judge every rig.
+ * Rigs whose declared bounds do not fit their own setup pose, so a low IoU is reported, not failed. Each is listed with its evidence.
+ * `char_4036_forcer_epoque_20` back declares a box 166 x 150 at y 68 to 218, while its setup pose draws 404 x 509 from y -72 to 437. The
+ * IoU is 0.121 with or without IK applied, and its battle twin, which shares the art, scores the same.
  */
-const JUDGE_CONSTRAINED_IOU = false;
+const STALE_DECLARED_BOUNDS = new Set(["char_4036_forcer/epoque_20/back/char_4036_forcer_epoque_20.skel"]);
 
 /** How far, in world units, a drawn box may poke past the declared box and still count as inside it. */
 const CONTAINED_SLACK = 1;
@@ -93,6 +101,30 @@ const COLOR_TOLERANCE = 1e-5;
 
 /** How many failures `--animation` prints per rig before it only counts them. */
 const ANIMATION_PROBLEMS_SHOWN = 3;
+
+/** Setup tip-to-target gap, in world units, under which `--ik` expects a one-bone chain to solve back to its own setup rotation. */
+const IK_SETUP_GAP = 0.01;
+
+/** Setup gap under which `--ik` counts a chain as already reaching its target, the looser bound the two-bone bend test uses. */
+const IK_LOOSE_GAP = 0.5;
+
+/** Largest difference, in degrees, between a solved rotation and the setup rotation that still counts as reproducing it. */
+const IK_ANGLE_TOLERANCE = 0.5;
+
+/** Lowest share of near one-bone chains that must reproduce their setup rotation. */
+const IK_MIN_ONE_BONE = 0.99;
+
+/** Lowest share of two-bone chains whose setup pose must sit nearer the solution their bend direction picks than the mirror one. */
+const IK_MIN_TWO_BONE = 0.95;
+
+/** Fewest degrees the two mirror solutions' child rotations must differ by. A nearly straight chain has two mirrors too close to tell. */
+const IK_MIRROR_SEPARATION = 4;
+
+/** How far, in world units, a solved chain's tip may sit off its target, or off the line to it, and still count as reaching. */
+const IK_REACH_TOLERANCE = 0.01;
+
+/** Two local scales whose sizes differ by more than this make a nonuniform parent, where the two-bone solve is not exact. */
+const IK_UNIFORM_TOLERANCE = 1e-4;
 
 /** The 8-byte signature every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -510,12 +542,13 @@ function checkTriangleList(list) {
  * @param {{ width: number, height: number }[]} pageSizes Each atlas page's real PNG size.
  * @param {object} skeletonModule The loaded `skeleton.ts` module.
  * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @param {string} rigPath The rig's path under the staged spine directory, for `STALE_DECLARED_BOUNDS`.
  * @returns {object} `problems`, every failure found. `uvWarnings`, the slots with a UV outside [0, 1]. `iou`, the bounds IoU, or null when
- *   either box is empty. `verdict` for a low IoU: `"failed"`, `"declaredLarger"` or `"constrained"`, or null when the IoU is fine or unscored.
- *   `lists` and `triangles`, how much was built. `namedSkin`, whether a named skin was set. `constrained`, whether the rig has any IK,
- *   transform or path constraint, which the setup pose here does not apply.
+ *   either box is empty. `verdict` for a low IoU: `"failed"`, `"declaredLarger"`, `"staleBounds"` or `"constrained"`, or null when the IoU is fine or unscored.
+ *   `lists` and `triangles`, how much was built. `namedSkin`, whether a named skin was set. `constrained`, whether the rig has a transform
+ *   or path constraint, which the setup pose here does not apply. `ik`, whether it has an IK constraint, which it does apply.
  */
-function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule) {
+function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule, rigPath) {
 	const skeleton = new skeletonModule.Skeleton(data);
 	const skinName = skeletonModule.defaultSkinName(data);
 	const namedSkin = skinName !== null && skinName !== skeletonModule.DEFAULT_SKIN_NAME;
@@ -547,13 +580,15 @@ function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule
 	const drawn = geometryModule.bounds(lists);
 	const declared = { minX: data.x, minY: data.y, maxX: data.x + data.width, maxY: data.y + data.height };
 	const iou = drawn && data.width > 0 && data.height > 0 ? intersectionOverUnion(drawn, declared) : null;
-	const constrained = data.ik.length + data.transform.length + data.path.length > 0;
+	const constrained = data.transform.length + data.path.length > 0;
 	let verdict = null;
 	if (iou !== null && iou < MIN_IOU) {
-		if (constrained && !JUDGE_CONSTRAINED_IOU) {
+		if (constrained) {
 			verdict = "constrained";
 		} else if (isInside(drawn, declared)) {
 			verdict = "declaredLarger";
+		} else if (STALE_DECLARED_BOUNDS.has(rigPath)) {
+			verdict = "staleBounds";
 		} else {
 			verdict = "failed";
 			problems.push(`bounds IoU ${iou.toFixed(3)} is below ${MIN_IOU}`);
@@ -569,7 +604,8 @@ function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule
 		lists: lists.length,
 		triangles,
 		namedSkin,
-		constrained
+		constrained,
+		ik: data.ik.length > 0
 	};
 }
 
@@ -866,11 +902,16 @@ function printGeometry(geometry) {
 	console.log("");
 	console.log(`Geometry: ${WORST_SHOWN} lowest bounds IoU:`);
 	for (const rig of scored.slice(0, WORST_SHOWN)) {
-		console.log(`  ${rig.iou.toFixed(3)} ${rig.constrained ? "constrained  " : "unconstrained"} ${rig.shown}`);
+		console.log(`  ${rig.iou.toFixed(3)} ${rig.constrained ? "transform/path" : rig.ik ? "IK only       " : "unconstrained "} ${rig.shown}`);
 	}
 	const declaredLarger = geometry.rigs.filter((rig) => rig.verdict === "declaredLarger");
-	console.log(`Geometry: ${declaredLarger.length} unconstrained rigs below IoU ${MIN_IOU} drawn inside a larger declared box (not failed):`);
+	console.log(`Geometry: ${declaredLarger.length} judged rigs below IoU ${MIN_IOU} drawn inside a larger declared box (not failed):`);
 	for (const rig of declaredLarger) {
+		console.log(`  ${rig.iou.toFixed(3)} ${rig.shown}`);
+	}
+	const stale = geometry.rigs.filter((rig) => rig.verdict === "staleBounds");
+	console.log(`Geometry: ${stale.length} judged rigs below IoU ${MIN_IOU} listed in STALE_DECLARED_BOUNDS (not failed):`);
+	for (const rig of stale) {
 		console.log(`  ${rig.iou.toFixed(3)} ${rig.shown}`);
 	}
 	const uvWarned = geometry.rigs.filter((rig) => rig.uvWarnings.length > 0);
@@ -880,11 +921,13 @@ function printGeometry(geometry) {
 		console.log(`  ${rig.shown}: ${rig.uvWarnings.join(", ")}`);
 	}
 	console.log(`Geometry: ${geometry.namedSkinRigs} rigs drawn with their first named skin`);
-	console.log(`Geometry: constrained rigs: ${describeSpread(scored.filter((rig) => rig.constrained).map((rig) => rig.iou))}`);
-	console.log(`Geometry: unconstrained rigs: ${describeSpread(scored.filter((rig) => !rig.constrained).map((rig) => rig.iou))}`);
+	console.log(`Geometry: transform or path constraint rigs (reported only): ${describeSpread(scored.filter((rig) => rig.constrained).map((rig) => rig.iou))}`);
+	console.log(`Geometry: IK-only rigs (judged): ${describeSpread(scored.filter((rig) => !rig.constrained && rig.ik).map((rig) => rig.iou))}`);
+	console.log(`Geometry: unconstrained rigs (judged): ${describeSpread(scored.filter((rig) => !rig.constrained && !rig.ik).map((rig) => rig.iou))}`);
 	const spread = `min ${quantile(sorted, 0).toFixed(3)}, p10 ${quantile(sorted, 0.1).toFixed(3)}, median ${quantile(sorted, 0.5).toFixed(3)}`;
 	console.log(`Geometry: hull fit, ${geometry.hullFit.message}`);
-	const constrainedNote = JUDGE_CONSTRAINED_IOU ? "constrained rigs are judged" : "constrained rigs are reported until constraints are applied";
+	const judged = scored.filter((rig) => !rig.constrained).length;
+	const constrainedNote = `${judged} judged, transform and path constraint rigs reported until those constraints are applied`;
 	console.log(
 		`Geometry: ${geometry.rigs.length} rigs checked, ${scored.length} scored, ${geometry.rigs.length - scored.length} unscored, ` +
 			`${geometry.triangles} triangles drawn, ${geometry.lists} lists built, IoU ${spread}, ${good} rigs with IoU >= ${GOOD_IOU}, ` +
@@ -913,6 +956,262 @@ function judgeHullFit(results) {
 		return `rotate ${rotate} ${describe(group)}${judged ? "" : " not judged"}`;
 	});
 	return { passed, message: `${describe(results)} of stripped meshes meet their packed box, ${groups.join(", ")}` };
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// IK
+
+/**
+ * Wraps an angle difference into [-180, 180).
+ *
+ * @param {number} degrees The difference, in degrees.
+ * @returns {number} The same turn, in [-180, 180).
+ */
+function shortTurn(degrees) {
+	return degrees - 360 * Math.floor((degrees + 180) / 360);
+}
+
+/**
+ * Measures how far a chain's end is from its target in the current pose, in world units. For one bone it is the target's distance from
+ * the bone's X axis line, or infinity when the target is behind the bone. For two bones it is the child's tip to the target.
+ *
+ * @param {object} constraint A live IK constraint, with world transforms up to date.
+ * @returns {number} The gap.
+ */
+function ikGap(constraint) {
+	const { bones, target } = constraint;
+	const last = bones[bones.length - 1];
+	if (bones.length === 1) {
+		const length = Math.hypot(last.a, last.c);
+		const dx = target.worldX - last.worldX;
+		const dy = target.worldY - last.worldY;
+		if (length === 0 || dx * last.a + dy * last.c <= 0) {
+			return Infinity;
+		}
+		return Math.abs(dx * last.c - dy * last.a) / length;
+	}
+	const tipX = last.a * last.data.length + last.worldX;
+	const tipY = last.c * last.data.length + last.worldY;
+	return Math.hypot(tipX - target.worldX, tipY - target.worldY);
+}
+
+/**
+ * Solves one constraint alone on the setup pose and reads the chain's applied rotations.
+ *
+ * @param {object} skeleton The skeleton, just reset to the setup pose.
+ * @param {object} constraint The constraint to solve. Every other constraint is held at mix 0.
+ * @param {number} bendDirection The bend direction to solve with.
+ * @returns {number[]} The applied rotation of each chain bone.
+ */
+function solveAlone(skeleton, constraint, bendDirection) {
+	for (const other of skeleton.ikConstraints) {
+		other.mix = other === constraint ? 1 : 0;
+	}
+	constraint.bendDirection = bendDirection;
+	skeleton.updateWorldTransform();
+	return constraint.bones.map((bone) => bone.appliedRotation);
+}
+
+/**
+ * Runs the setup-pose self-consistency checks on one rig's chains with setup mix 1 and adds to the counts.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} stats The accumulator: `one` and `two` counts, see `printIk`.
+ */
+function checkIkSetup(data, skeletonModule, stats) {
+	const skeleton = new skeletonModule.Skeleton(data);
+	skeleton.setToSetupPose();
+	for (const constraint of skeleton.ikConstraints) {
+		constraint.mix = 0;
+	}
+	skeleton.updateWorldTransform();
+	const gaps = skeleton.ikConstraints.map(ikGap);
+	skeleton.ikConstraints.forEach((constraint, index) => {
+		const gap = gaps[index];
+		if (constraint.data.mix !== 1 || gap >= IK_LOOSE_GAP) {
+			return;
+		}
+		const setup = constraint.bones.map((bone) => bone.rotation);
+		const bend = constraint.data.bendDirection;
+		const solved = solveAlone(skeleton, constraint, bend);
+		const reproduces = solved.every((rotation, bone) => Math.abs(shortTurn(rotation - setup[bone])) < IK_ANGLE_TOLERANCE);
+		const kind = constraint.bones.length === 1 ? stats.one : stats.two;
+		kind.loose++;
+		kind.looseHits += reproduces ? 1 : 0;
+		if (constraint.bones.length === 1) {
+			if (gap < IK_SETUP_GAP) {
+				stats.one.judged++;
+				stats.one.hits += reproduces ? 1 : 0;
+			}
+			return;
+		}
+		const mirror = solveAlone(skeleton, constraint, -bend);
+		if (Math.abs(shortTurn(solved[1] - mirror[1])) < IK_MIRROR_SEPARATION) {
+			stats.two.tooStraight++;
+			return;
+		}
+		const distance = (rotations) => rotations.reduce((sum, rotation, bone) => sum + Math.abs(shortTurn(rotation - setup[bone])), 0);
+		stats.two.judged++;
+		stats.two.hits += distance(solved) < distance(mirror) ? 1 : 0;
+	});
+}
+
+/**
+ * Finds the constraints whose result a later constraint can move: a later one's first bone is an ancestor of, or is, one of this chain's
+ * bones or its target. Their end position is not checked under animation.
+ *
+ * @param {object} skeleton The live skeleton.
+ * @returns {Set<object>} The constraints to leave out of the reach check.
+ */
+function movedLater(skeleton) {
+	const ordered = [...skeleton.ikConstraints].sort((first, second) => first.data.order - second.data.order);
+	const isAncestorOrSelf = (ancestor, bone) => {
+		for (let current = bone; current; current = current.parent) {
+			if (current === ancestor) {
+				return true;
+			}
+		}
+		return false;
+	};
+	const moved = new Set();
+	ordered.forEach((constraint, index) => {
+		const watched = [...constraint.bones, constraint.target];
+		if (ordered.slice(index + 1).some((later) => watched.some((bone) => isAncestorOrSelf(later.bones[0], bone)))) {
+			moved.add(constraint);
+		}
+	});
+	return moved;
+}
+
+/**
+ * Checks one posed chain: finite applied values, and at mix 1 without stretch, that it reaches its target or lies on the line to it.
+ *
+ * @param {object} constraint A live IK constraint, with world transforms up to date.
+ * @param {boolean} checkReach False to check only the finite values.
+ * @param {object} stats The accumulator, whose `reach` counts are updated.
+ * @returns {string | null} A message for the first problem, or null.
+ */
+function checkIkChain(constraint, checkReach, stats) {
+	for (const bone of constraint.bones) {
+		if (![bone.appliedRotation, bone.appliedScaleX, bone.appliedScaleY, bone.a, bone.c, bone.worldX, bone.worldY].every(Number.isFinite)) {
+			return `IK "${constraint.data.name}" bone "${bone.data.name}" has a value that is not finite`;
+		}
+	}
+	if (!checkReach || constraint.mix !== 1 || constraint.stretch) {
+		return null;
+	}
+	const { bones, target } = constraint;
+	const first = bones[0];
+	const dx = target.worldX - first.worldX;
+	const dy = target.worldY - first.worldY;
+	const distance = Math.hypot(dx, dy);
+	if (distance < IK_REACH_TOLERANCE) {
+		return null;
+	}
+	if (bones.length === 1) {
+		stats.reach.checked++;
+		if (ikGap(constraint) > IK_REACH_TOLERANCE) {
+			return `IK "${constraint.data.name}" does not point at its target (off by ${ikGap(constraint).toFixed(4)})`;
+		}
+		return null;
+	}
+	const child = bones[1];
+	const nonuniform = Math.abs(Math.abs(first.appliedScaleX) - Math.abs(first.appliedScaleY)) > IK_UNIFORM_TOLERANCE;
+	if (nonuniform || bones.some((bone) => bone.data.transformMode !== "normal")) {
+		stats.reach.inexact++;
+		return null;
+	}
+	stats.reach.checked++;
+	const tipX = child.a * child.data.length + child.worldX;
+	const tipY = child.c * child.data.length + child.worldY;
+	const offLine = Math.abs((tipX - first.worldX) * dy - (tipY - first.worldY) * dx) / distance;
+	const upper = Math.hypot(child.worldX - first.worldX, child.worldY - first.worldY);
+	const lower = Math.hypot(tipX - child.worldX, tipY - child.worldY);
+	const reachable = constraint.softness === 0 && distance > Math.abs(upper - lower) + IK_REACH_TOLERANCE && distance < upper + lower - IK_REACH_TOLERANCE;
+	const miss = Math.hypot(tipX - target.worldX, tipY - target.worldY);
+	if (offLine > IK_REACH_TOLERANCE || (reachable && miss > IK_REACH_TOLERANCE)) {
+		return `IK "${constraint.data.name}" tip is ${miss.toFixed(4)} from its target and ${offLine.toFixed(4)} off the line to it`;
+	}
+	return null;
+}
+
+/**
+ * Plays every animation of one IK rig and checks every chain at each sample.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} modules The loaded `skeleton.ts` and `animation.ts` modules, as `skeleton` and `animation`.
+ * @param {object} stats The accumulator, see `printIk`.
+ * @returns {string[]} The first `ANIMATION_PROBLEMS_SHOWN` problems, then a count of the rest.
+ */
+function checkIkAnimations(data, modules, stats) {
+	const skeleton = new modules.skeleton.Skeleton(data);
+	const moved = movedLater(skeleton);
+	stats.movedLater += moved.size;
+	const problems = [];
+	let hidden = 0;
+	for (const animation of data.animations) {
+		for (let sample = 0; sample < ANIMATION_SAMPLES; sample++) {
+			const time = (animation.duration * sample) / (ANIMATION_SAMPLES - 1);
+			skeleton.setToSetupPose();
+			modules.animation.applyAnimation(skeleton, animation, time);
+			skeleton.updateWorldTransform();
+			stats.samples++;
+			for (const constraint of skeleton.ikConstraints) {
+				const problem = checkIkChain(constraint, !moved.has(constraint), stats);
+				if (problem === null) {
+					continue;
+				}
+				stats.reach.failed++;
+				if (problems.length < ANIMATION_PROBLEMS_SHOWN) {
+					problems.push(`animation "${animation.name}" at ${time.toFixed(4)}: ${problem}`);
+				} else {
+					hidden++;
+				}
+			}
+		}
+	}
+	if (hidden > 0) {
+		problems.push(`and ${hidden} more failures`);
+	}
+	return problems;
+}
+
+/**
+ * Judges the setup-pose rates against `IK_MIN_ONE_BONE` and `IK_MIN_TWO_BONE`.
+ *
+ * @param {object} stats The accumulator, see `printIk`.
+ * @returns {boolean} True when both rates pass.
+ */
+function ikSetupPasses(stats) {
+	const rate = (kind) => (kind.judged === 0 ? 1 : kind.hits / kind.judged);
+	return rate(stats.one) >= IK_MIN_ONE_BONE && rate(stats.two) >= IK_MIN_TWO_BONE;
+}
+
+/**
+ * Prints the `--ik` summary lines.
+ *
+ * @param {object} stats The accumulator: `one` and `two` setup counts (`judged`, `hits`, `loose`, `looseHits`, and `tooStraight` for two),
+ *   `reach` counts (`checked`, `inexact`, `failed`), `samples`, `movedLater`, `rigs`, `failed` and `seconds`.
+ */
+function printIk(stats) {
+	const percent = (hits, total) => `${hits}/${total} (${total === 0 ? "-" : ((hits / total) * 100).toFixed(1)}%)`;
+	console.log("");
+	console.log(`IK: one-bone chains with setup gap < ${IK_SETUP_GAP} solving to their setup rotation: ${percent(stats.one.hits, stats.one.judged)}, need ${IK_MIN_ONE_BONE * 100}%`);
+	console.log(
+		`IK: two-bone chains with setup gap < ${IK_LOOSE_GAP} nearer their bend's solution than the mirror: ${percent(stats.two.hits, stats.two.judged)}, ` +
+			`need ${IK_MIN_TWO_BONE * 100}% (${stats.two.tooStraight} too straight to tell)`
+	);
+	console.log(
+		`IK: information, setup gap < ${IK_LOOSE_GAP} with every rotation within ${IK_ANGLE_TOLERANCE} degrees: one-bone ${percent(stats.one.looseHits, stats.one.loose)}, ` +
+			`two-bone ${percent(stats.two.looseHits, stats.two.loose)}`
+	);
+	console.log(
+		`IK: ${stats.rigs} rigs, ${stats.samples} animation samples, ${stats.reach.checked} chain samples checked for reach, ${stats.reach.inexact} skipped ` +
+			`(nonuniform parent or non-normal bone), ${stats.movedLater} chains moved by a later constraint, ${stats.reach.failed} chain failures, ` +
+			`${stats.failed} rigs failed, setup rates ${ikSetupPasses(stats) ? "passed" : "FAILED"}, ${stats.seconds.toFixed(1)} s`
+	);
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1049,6 +1348,7 @@ async function main() {
 	const wantSurvey = process.argv.includes("--survey");
 	const wantGeometry = process.argv.includes("--geometry");
 	const wantAnimation = process.argv.includes("--animation");
+	const wantIk = process.argv.includes("--ik");
 
 	const server = await startVite();
 	let survey = null;
@@ -1063,15 +1363,25 @@ async function main() {
 	const atlasByKey = new Map();
 	const pageSizesByKey = new Map();
 	const geometry = { rigs: [], lists: 0, triangles: 0, failed: 0, namedSkinRigs: 0, hullResults: [], hullFit: null };
+	const ik = {
+		one: { judged: 0, hits: 0, loose: 0, looseHits: 0 },
+		two: { judged: 0, hits: 0, loose: 0, looseHits: 0, tooStraight: 0 },
+		reach: { checked: 0, inexact: 0, failed: 0 },
+		samples: 0,
+		movedLater: 0,
+		rigs: 0,
+		failed: 0,
+		seconds: 0
+	};
 	const animation = { rigs: 0, animations: 0, samples: 0, frameMicros: [], twoColorWithoutDark: 0, colorKeys: 0, colorSegments: 0, failed: 0, seconds: 0 };
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
 		const featuresModule = wantSurvey ? await server.ssrLoadModule("/src/spine/features.ts") : null;
 		survey = featuresModule ? createSurvey(featuresModule) : null;
-		const skeletonModule = wantGeometry || wantAnimation ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
+		const skeletonModule = wantGeometry || wantAnimation || wantIk ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
 		const geometryModule = wantGeometry || wantAnimation ? await server.ssrLoadModule("/src/spine/geometry.ts") : null;
-		const animationModule = wantAnimation ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
+		const animationModule = wantAnimation || wantIk ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
 
 		for (const file of atlasFiles) {
 			const shown = shownPath(file);
@@ -1160,8 +1470,8 @@ async function main() {
 				result.problems.push(...checkAttachmentRegions(data, regionNames));
 				const pageSizes = pageSizesByKey.get(pairingKey(file));
 				if (wantGeometry && pageSizes.length === atlas.pages.length) {
-					const rig = checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule);
-					geometry.rigs.push({ shown, iou: rig.iou, constrained: rig.constrained, verdict: rig.verdict, uvWarnings: rig.uvWarnings });
+					const rig = checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule, path.relative(spineDir, file).split(path.sep).join("/"));
+					geometry.rigs.push({ shown, iou: rig.iou, constrained: rig.constrained, ik: rig.ik, verdict: rig.verdict, uvWarnings: rig.uvWarnings });
 					geometry.lists += rig.lists;
 					geometry.triangles += rig.triangles;
 					geometry.namedSkinRigs += rig.namedSkin ? 1 : 0;
@@ -1171,7 +1481,7 @@ async function main() {
 						result.problems.push(...rig.problems.map((problem) => `geometry: ${problem}`));
 					}
 				}
-				if (animationModule && pageSizes.length === atlas.pages.length) {
+				if (wantAnimation && pageSizes.length === atlas.pages.length) {
 					const start = performance.now();
 					const modules = { skeleton: skeletonModule, geometry: geometryModule, animation: animationModule };
 					const problems = checkRigAnimations(data, atlas, pageSizes, modules, animation);
@@ -1184,6 +1494,17 @@ async function main() {
 				}
 			} else {
 				result.problems.push(`no atlas beside this skeleton (expected ${path.basename(pairingKey(file))}.atlas)`);
+			}
+			if (wantIk && data.ik.length > 0) {
+				const start = performance.now();
+				checkIkSetup(data, skeletonModule, ik);
+				const problems = checkIkAnimations(data, { skeleton: skeletonModule, animation: animationModule }, ik);
+				ik.seconds += (performance.now() - start) / 1000;
+				ik.rigs++;
+				if (problems.length > 0) {
+					ik.failed++;
+					result.problems.push(...problems.map((problem) => `ik: ${problem}`));
+				}
 			}
 			if (result.problems.length > 0) {
 				failed++;
@@ -1214,8 +1535,12 @@ async function main() {
 	if (wantAnimation) {
 		printAnimation(animation);
 	}
+	if (wantIk) {
+		printIk(ik);
+	}
 	const hullFailed = wantGeometry && !geometry.hullFit.passed;
-	process.exit(failed > 0 || atlasFailed > 0 || hullFailed ? 1 : 0);
+	const ikFailed = wantIk && !ikSetupPasses(ik);
+	process.exit(failed > 0 || atlasFailed > 0 || hullFailed || ikFailed ? 1 : 0);
 }
 
 // Run only when called as a script, so a scratch check can import `checkSkeleton` without parsing the corpus.

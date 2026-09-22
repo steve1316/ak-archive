@@ -11,7 +11,7 @@ PRTS** until a later comparison covers it.
 
 `tools/assets/check_spine_math.mjs` checks these formulas with small hand-worked cases: each inherit mode, shear on either axis, skeleton
 scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, skin changes, the animation curves,
-key search and bone timelines, and the renderer's two-color tint and blend factors.
+key search and bone timelines, IK constraints and IK timelines, and the renderer's two-color tint and blend factors.
 
 ## Coordinates and angles
 
@@ -41,7 +41,10 @@ lc = sin(r + shX) * sX      ld = sin(r + 90 + shY) * sY
 
 ## World transform
 
-Bones are stored parent first, so one pass in file order computes every world transform.
+Bones are stored parent first, so one pass in file order computes every world transform. The world transform is built from each bone's
+**applied** values, not its local ones. `updateWorldTransform` first copies each bone's local values into its applied ones, then IK changes
+only the applied ones (see "IK constraints"). The local values stay as animation wrote them, so running `updateWorldTransform` twice on the
+same pose gives the same world values, even at an IK mix below 1.
 
 - **Position.** The tools page says rotation, scale and shear are stored in the bone's own axes but translation is stored in the parent's
   axes. So a bone's world origin is always its parent's full transform applied to its local `(x, y)`, whatever it inherits.
@@ -356,7 +359,9 @@ order index", and that a key with no offsets "will set the draw order to the set
 
 `applyAnimation` allocates nothing per call once each timeline and skeleton has been seen. That holds whether or not V8 inlines its
 helpers. The eased fraction is kept in a `Float64Array`, which stores a double in place. A module `let` would box a new number on each
-write. No helper in the hot path returns a number: the bezier search writes its result into that array, and the bone blends are written
+write. The time fraction goes into that array before the curve is eased too, rather than as an argument: when an animation mixes every
+timeline type, V8 runs out of inlining budget, and a fresh double passed to the non-inlined curve helper was boxed once per interpolated
+key. No helper in the hot path returns a number: the bezier search writes its result into that array, and the bone blends are written
 out where they are used. Colors are written into the slot's own color objects. Measured with gc between rounds of 5,000 calls, dusk
 `nian_12` dorm `Special` and SilverAsh base battle `Idle` both settle at 16 to 17 bytes per call, the harness's own floor, with and without
 `--no-concurrent-recompilation`.
@@ -375,6 +380,143 @@ and two-color timeline is also applied on its own. At each key time the slot mus
 linear segment it must show a straight blend of the two keys, so a blend run backwards fails. Keys that share a time, and timelines with
 more than one sorted run, are skipped.
 
+### IK timelines
+
+An IK key holds the constraint's mix, softness, bend direction, compress and stretch. Mix and softness blend along the key's curve like a
+bone value. Bend direction, compress and stretch are on/off values, so they hold from the key until the next. The IK page says each of them
+can be keyed. The page does not say how they blend, so this is this runtime's choice. `setToSetupPose` puts every constraint's values back
+to its data.
+
 ### Not applied yet
 
-Constraint, deform and event timelines are skipped for now.
+Transform, path, deform and event timelines are skipped for now.
+
+## IK constraints
+
+`constraints.ts` solves IK. The IK constraints page (https://esotericsoftware.com/spine-ik-constraints) says what each setting does. The
+maths is plane geometry: aiming a bone at a point, and the law of cosines for a two-bone chain. Where the page leaves a choice open, the
+staged corpus decided it, and the evidence is below.
+
+### Order
+
+After the plain pass over the bones, the constraints run in ascending `order`. Before each solve, the chain's parent and the target have
+up-to-date world transforms. After it, the chain's first bone and all its descendants are recomputed, in parent-first order. The list of
+constraint steps is sorted once when the skeleton is built, so transform and path constraints can join it later.
+
+### The space the solve works in
+
+The target's world position is taken relative to the first bone's world origin. It is then mapped back through the basis that the bone's
+local axes go through, so every angle and length below is in that space:
+
+| First bone's mode | Basis |
+|---|---|
+| `normal`, `noScale`, `noScaleOrReflection` | the parent's world basis, or `S` for the root |
+| `onlyTranslation` | `S` |
+| `noRotationOrReflection` | `S * diag(sx, sy)`, with the parent's axis lengths as in "Inherit modes" |
+
+For the `noScale` modes, cutting an axis back to unit length does not change its direction, so the parent's basis still gives the right
+angles. A scaled, rotated or reflected parent is handled once, by this mapping.
+
+Corpus evidence, over 2,748 rigs (2,685 with IK), for chains with setup mix 1. Each chain is solved alone on its own setup pose.
+
+- **One bone.** 1,940 chains have their target within 0.01 of the bone's line, and all 1,940 solve back to their setup rotation within 0.5
+  degrees. Without the mode-aware basis (the parent's basis for every mode), 22 of them miss, all `noScale` or `noRotationOrReflection`
+  bones, some by over 120 degrees. With world angles instead of the parent's space, 29 of 1,940 match. Past a gap of 0.01 the solve turns
+  the bone by exactly `asin(gap / distance)`, the turn that closes the gap. That held for all 4,388 chains with a gap below 0.5.
+- **Two bones.** See "Bend direction".
+
+### One bone
+
+- The desired rotation points the bone's X axis at the target: `atan2(ty, tx)` minus the angle of the bone's X axis at rotation 0. That
+  angle is `atan2(sin(shearX) * scaleX, cos(shearX) * scaleX)`: the shear, turned by 180 when scale X is negative.
+- The applied rotation is `rotation + (desired - rotation) * mix`, with the difference wrapped into [-180, 180). The page says mixing uses
+  the shortest rotation direction.
+- **Compress** (one bone only, per the page): when the target is closer than the bone's length times `|scaleX|`, scale X is multiplied by
+  `distance / length`. **Stretch**: the same when the target is farther. **Uniform** multiplies scale Y by the same factor. The factor is
+  blended as `1 + (factor - 1) * mix`. A bone with length 0 cannot compress or stretch.
+
+### Two bones
+
+With the page's limits below applied, the parent's local basis is `R(rotation) * diag(sx, sy)`. In the parent's space:
+
+- `a` is the length of `diag(sx, sy) * (child.x, child.y)`, the distance from the parent's origin to the child's, and `phi` is its angle.
+- `b` is the length of `diag(sx, sy) * R(childRotation) * (childScaleX * length, 0)` turned by the child's shear: the child's tip offset.
+  It does not depend on the child's rotation when the parent's scale is uniform.
+- With `d` the distance to the target and `theta` its angle, the law of cosines gives the parent's interior angle
+  `alpha = acos((a^2 + d^2 - b^2) / (2 * a * d))`, with the cosine clamped to [-1, 1].
+- The parent's direction to the child's origin is `theta - bendDirection * alpha`, so the parent's rotation is that minus `phi`.
+- The child aims from its new origin at the target: that offset is turned back by the parent's rotation, divided by `(sx, sy)`, and the
+  child's rotation is its angle minus the angle of the child's own X axis at rotation 0.
+- When `d > a + b`, `alpha` is 0 and the chain lies straight toward the target. When the target is too close to reach (`d < |a - b|`), the
+  chain folds flat along the line to it.
+- Both rotations blend by the mix, the short way round. The child's position is not changed, except by the page's Y rule below.
+
+### Bend direction
+
+The page says that with "Positive" checked, the child turns counterclockwise (positive) relative to the parent. So `bendDirection` 1 takes
+the solution with the parent's direction at `theta - alpha`, in the parent's space.
+
+The corpus agrees. For 4,992 two-bone chains with setup mix 1 whose child's tip is within 0.5 of the target, both mirror solutions were
+solved. When the two differ by at least 4 degrees at the child, 97.4% of setup poses sit nearer this convention's solution than the
+mirror one (4,450 of 4,570). The flipped sign gets 2.6%, and world angles instead of the parent's space get 96.1% (4,286 of 4,458), but they
+also fail the one-bone check above. The other 422 chains are too straight to tell apart. The strict test, with both setup rotations
+reproduced within 0.5 degrees, gives only 56% on the same chains. A near-straight chain turns by degrees to close a gap of a fraction of
+a unit. Some chains are also posed in the opposite bend to their own `bendDirection`, so the mirror solution reproduces both setup rotations
+within 0.5 degrees: 130 of the 4,992 chains with a gap below 0.5, and 84 of the 1,790 with a gap below 0.01.
+
+### Stretch
+
+When stretch is on and the target is past `a + b`, the parent's local scale X is multiplied by `d / (a + b)` (and scale Y when uniform).
+The child is not scaled locally, but it inherits the parent's scale, so both bones grow by that factor in the world and the straight chain
+ends on the target. For example, two bones of length 10 with the target at 30 get the parent's scale X to 1.5, the child's local scale X
+stays 1, and both bones' world X axes are 1.5 long. The page says stretch scales "the bones". This reading keeps the tip on the target.
+Scaling the child locally as well would put it at 37.5. The factor is blended as `1 + (factor - 1) * mix`. **Confirm against PRTS.**
+
+### The page's two-bone limits
+
+The IK page lists these, and the runtime follows them. **Confirm against PRTS**:
+
+- Stretch does nothing when softness is above 0, or when the parent's local scale is nonuniform (`||sx| - |sy|| > 1e-4`).
+- The child's local Y is set to 0 when stretch is on, and when the parent's local scale is nonuniform. 5,613 of the corpus's 8,707
+  two-bone chains have a child setup Y above 0.01 in size. This rule changes 132 of them: 125 with stretch set in the data or keyed on, and 7
+  under a nonuniform parent.
+- The parent's local shear is set to 0. Two chains in the corpus have a parent with shear.
+- These changes go to the applied values, so the animation's own values are untouched.
+
+### Softness
+
+The page says softness slows the bones as the chain straightens. The value is how far short of full reach the slowing starts, and the chain
+is only fully straight once the target is that far past full reach. With `R = a + b` and softness `s > 0`, a target distance `d` past
+`R - s` is eased to
+
+```
+x = d - (R - s)
+d' = R - s + x - x^2 / (4 * s)    for x < 2 * s
+d' = R                            for x >= 2 * s
+```
+
+`d'` meets `d` with the same slope at `R - s`, and reaches `R` with slope 0 at `R + s`. When `s` is larger than `R`, a near target would ease to a
+negative distance and fold the chain backward, so `d'` stops at 0. At 0 the parent points at the target and the child folds back toward
+the parent's origin. In the corpus, softness is at most 0.197 of the reach, so no rig reaches this. The chain solves for `d'` along the line to the
+target. Softness is taken in the parent's space, the same units as `a` and `b`. The quadratic is this runtime's choice, since the page gives
+no formula. **Confirm against PRTS** (267 constraints use softness).
+
+### Allocation
+
+Solving allocates nothing. The target and the basis go through a module `Float64Array`, the short-turn wrap is written out where it is
+used, and no helper in the path returns a number. `Math.hypot` allocates in V8 on every call, so lengths use `Math.sqrt` of a sum of
+squares. That applies in `updateBone` too, where the world basis is also written out in place, since passing the numbers to a helper
+boxed them whenever V8 did not inline it. V8's sampling heap profiler, over 5,000 frames of `setToSetupPose`, `applyAnimation` and
+`updateWorldTransform`, attributes 0 bytes to `updateWorldTransform`, `updateBone` and the solver on Mudrock base battle `Attack` (21 IK
+constraints) and Amiya base battle `Attack`. `applyAnimation` profiles at 0 too, including philae `nian_12` dorm `Special`, which mixes every timeline type.
+
+### Corpus check
+
+`check_spine_rigs.mjs --ik` runs over every rig with IK:
+
+- **Setup pose.** One-bone chains with setup mix 1 and a gap below 0.01 must solve back to their setup rotation within 0.5 degrees, in at
+  least 99% of cases. Two-bone chains with setup mix 1 and a gap below 0.5, whose mirrors differ by at least 4 degrees, must sit nearer
+  their bend's solution in at least 95% of cases. The strict gap-0.5 angle rates are printed for information.
+- **Animation.** Every animation, sampled 8 times. Solved rotations and scales must be finite. A chain at mix 1 without stretch must point
+  at its target (one bone) or end on it or on the line to it (two bones), within 0.01. Chains that a later constraint can move are left out
+  of the reach check, and so are two-bone chains under a nonuniform parent or with a non-normal bone, where the solve is not exact.

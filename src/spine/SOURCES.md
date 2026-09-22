@@ -59,3 +59,14 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
   Photoshop's Linear Dodge, Multiply and Screen. `MATH.md` ("Drawing") derives the two-color formula and the blend factors from these.
 - Any other method or helper name in `src/spine/` (for example `localToWorld`, `slotTriangles`, `fitView`, `refit`, `tintTexel` and `defaultSkinName`)
   is this runtime's own choice. Type names such as `Bone`, `Slot`, `Skin` and `Attachment` are the user guide's own terms.
+
+## 2026-09-22
+
+- https://esotericsoftware.com/spine-ik-constraints - fetched with curl into the plan workspace. Used for what each IK setting does: one or
+  two bones, the target not a descendant of the chain, the child a direct child of the parent, mix blending by the shortest rotation,
+  "Positive" turning the child counterclockwise relative to the parent, compress for one bone only, stretch and uniform scaling, softness
+  easing the chain as it straightens, and the two-bone limits (the child's local Y set to 0 with stretch or a nonuniform parent, the
+  parent's shear set to 0, no stretch with softness or a nonuniform parent). `MATH.md` ("IK constraints") records how each became maths,
+  and the corpus measurements behind the bend direction and the space the solve works in. The page gives no formulas, and none were copied.
+- The staged Arknights rig files again, as the oracle for the IK bend direction and solve space: each chain whose setup pose already
+  reaches its target was solved on its own and compared with its setup rotations.
