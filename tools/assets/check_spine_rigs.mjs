@@ -13,25 +13,26 @@
  * one that runs on real data.
  *
  * Usage:
- *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform]
+ *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping]
  *
  * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--survey` also prints
- * how many rigs use each feature and how many each planned stage would draw in full. `--geometry` also turns every rig's setup pose into
- * triangles with `src/spine/geometry.ts`: every drawing attachment must give a list with finite positions and indices in range. A UV
- * outside [0, 1] is a warning, since a few meshes reach past their stripped image. The drawn bounds are compared with the skeleton's
- * declared bounds by intersection-over-union. A rig with a path constraint is only reported, since those are not applied yet.
- * Every other rig is judged. Below 0.5 it
- * fails unless the drawn box sits inside the declared one, which hidden or other-skin attachments can widen. A rig that declares no bounds,
- * or draws nothing in its setup pose, is counted as unscored. It also checks UV orientation: the packer strips whitespace down to a mesh's
- * hull, so a stripped mesh's hull, mapped to page pixels, should meet every edge of its packed box.
+ * how many rigs use each feature, how many each planned stage would draw in full, how many need exactly that stage, and how many operators
+ * have at least one rig it draws. `--geometry` also turns every rig's setup pose into triangles with `src/spine/geometry.ts`: every drawing
+ * attachment must give a list with finite positions and indices in range. A UV outside [0, 1] is a warning, since a few meshes reach past
+ * their stripped image. Every clipped list is checked with `checkClippedFrame`. The drawn bounds are compared with the skeleton's declared
+ * bounds by intersection-over-union. A rig with a path constraint is only reported, since those are not applied yet. Every other rig is
+ * judged. Below 0.5 it fails unless the drawn box sits inside the declared one, which hidden or other-skin attachments can widen. A rig that
+ * declares no bounds, or draws nothing in its setup pose, is counted as unscored. It also checks UV orientation: the packer strips
+ * whitespace down to a mesh's hull, so a stripped mesh's hull, mapped to page pixels, should meet every edge of its packed box.
  *
  * `--animation` plays every animation of every rig with `src/spine/animation.ts`. Each is sampled at `ANIMATION_SAMPLES` evenly spaced
  * times from 0 to its duration: reset to the setup pose, apply, update and build triangles. Every position, UV and color must be finite,
- * every color channel must be in [0, 1], and the draw order must be a permutation of the slots. Every color and two-color key must also
- * show its own color at its time, and every linear color segment a straight blend a quarter of the way along. Every deform offset must be
- * finite, and each deform key, applied on its own to its target at its own time, must give exactly that key's offsets. It prints the frame
- * time (median and p99 for apply, update and triangles), how many two-color timelines drive a slot with no dark color, and how many deform
- * timelines found their attachment in the slot at some sample and how many never did.
+ * every color channel must be in [0, 1], the draw order must be a permutation of the slots, and every clipped list must pass
+ * `checkClippedFrame`. Every color and two-color key must also show its own color at its time, and every linear color segment a straight
+ * blend a quarter of the way along. Every deform offset must be finite, and each deform key, applied on its own to its target at its own
+ * time, must give exactly that key's offsets. It prints the frame time (median and p99 for apply, update and triangles), how many two-color
+ * timelines drive a slot with no dark color, and how many deform timelines found their attachment in the slot at some sample and how many
+ * never did.
  *
  * `--ik` checks every rig with an IK constraint. In the setup pose, with setup mix 1: a one-bone chain whose target is within
  * `IK_SETUP_GAP` of its line must solve back to its setup rotation, and a two-bone chain within `IK_LOOSE_GAP` must sit nearer the solution
@@ -46,6 +47,11 @@
  * skeleton flipped, at least `TC_MIN_MIRROR` of constrained bones must mirror. Under animation, at `ANIMATION_SAMPLES` times, every
  * constrained bone must be finite, and a world constraint at translate mix 1 must put its bone on the target point, except at a sample
  * where a later constraint that touches it has a mix other than 0. It prints the rates and the run time.
+ *
+ * `--clipping` checks every rig with a clipping attachment. It surveys the clip polygons in their setup pose (weighted or not, winding,
+ * concave, vertex count, and end slots that are the clip slot or come before it). It then builds the setup pose and every animation at
+ * `ANIMATION_SAMPLES` times and checks each frame with `checkClippedFrame`. Each frame is also timed with and without clipping, and the
+ * `CLIP_COSTLIEST_SHOWN` rigs with the most extra time per frame are printed.
  */
 
 import fs from "node:fs";
@@ -64,7 +70,7 @@ const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
 const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform]  (scans <staging>/assets/spine)";
+const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping]  (scans <staging>/assets/spine)";
 
 /** Lowest intersection-over-union between a rig's drawn and declared setup bounds before `--geometry` fails it. */
 const MIN_IOU = 0.5;
@@ -78,17 +84,14 @@ const STALE_DECLARED_BOUNDS = new Set(["char_4036_forcer/epoque_20/back/char_403
 
 /**
  * Rigs first judged once transform constraints were applied, whose IoU is below `MIN_IOU` with every transform constraint off too (within
- * 0.002), so the low IoU does not come from the transform solve. A low IoU is reported, not failed. The slots furthest past the declared
- * box: `char_4064_mlynar` epoque_28 sword `*_Sword_H` (297, beside an unapplied `*_Sword_Cut` clip), `char_4138_narant` weapon chain
- * `F_Weapon_1_*` (up to 784), `char_4055_bgsnow` `C_Weapon_*` (334), `char_2025_shu` nian_11 `F_Tail_*` (371), `char_4141_marcil`
- * back `B_R_Foot` and `B_R_Hand` (303) and battle `C_Bird1` (263), and `char_4177_brigid` `F_Weapon_L` (19, under a declared box that is
- * wider than the drawing).
+ * 0.002), and with clipping on or off (unchanged), so the low IoU comes from neither. A low IoU is reported, not failed. The slots furthest
+ * past the declared box: `char_4138_narant` weapon chain `F_Weapon_1_*` (up to 784), `char_4055_bgsnow` `C_Weapon_*` (334),
+ * `char_2025_shu` nian_11 `F_Tail_*` (371), `char_4141_marcil` back `B_R_Foot` and `B_R_Hand` (303) and battle `C_Bird1` (263), and
+ * `char_4177_brigid` `F_Weapon_L` (19, under a declared box that is wider than the drawing).
  */
 const LOW_WITHOUT_TRANSFORM = new Set([
 	"char_2025_shu/nian_11/back/char_2025_shu_nian_11.skel",
 	"char_4055_bgsnow/base/back/char_4055_bgsnow.skel",
-	"char_4064_mlynar/epoque_28/back/char_4064_mlynar_epoque_28.skel",
-	"char_4064_mlynar/epoque_28/battle/char_4064_mlynar_epoque_28.skel",
 	"char_4138_narant/base/back/char_4138_narant.skel",
 	"char_4138_narant/base/battle/char_4138_narant.skel",
 	"char_4141_marcil/base/back/char_4141_marcil.skel",
@@ -176,6 +179,21 @@ const TC_MIN_MIRROR = 0.99;
 
 /** Largest difference, relative to the value's size (at least 1), between a flipped world value and the mirror of the unflipped one. */
 const TC_MIRROR_TOLERANCE = 1e-6;
+
+/** How far, in world units, a clipped vertex may sit outside its clip polygon. */
+const CLIP_INSIDE_TOLERANCE = 1e-3;
+
+/** How far, in square world units, a clipped slot's area may sit from the independent overlap area, on top of `CLIP_AREA_RELATIVE`. */
+const CLIP_AREA_TOLERANCE = 1e-3;
+
+/** How far, as a fraction of the overlap area, a clipped slot's area may sit from it, on top of `CLIP_AREA_TOLERANCE`. */
+const CLIP_AREA_RELATIVE = 1e-4;
+
+/** How many times `--clipping` builds each sampled frame with and without clipping, keeping the fastest of each. */
+const CLIP_TIMING_REPEATS = 5;
+
+/** How many rigs `--clipping` names as the costliest to clip. */
+const CLIP_COSTLIEST_SHOWN = 3;
 
 /** How far, in world units, a bone at translate mix 1 may sit from its target point under animation. */
 const TC_REACH_TOLERANCE = 0.01;
@@ -600,13 +618,14 @@ function checkTriangleList(list) {
  * @param {object} skeletonModule The loaded `skeleton.ts` module.
  * @param {object} geometryModule The loaded `geometry.ts` module.
  * @param {string} rigPath The rig's path under the staged spine directory, for `STALE_DECLARED_BOUNDS` and `LOW_WITHOUT_TRANSFORM`.
+ * @param {object} clipStats The accumulator `checkClippedFrame` fills.
  * @returns {object} `problems`, every failure found. `uvWarnings`, the slots with a UV outside [0, 1]. `iou`, the bounds IoU, or null when
  *   either box is empty. `verdict` for a low IoU: `"failed"`, `"declaredLarger"`, `"staleBounds"`,
  *   `"lowWithoutTransform"` or `"constrained"`, or null when the IoU is fine or unscored.
  *   `lists` and `triangles`, how much was built. `namedSkin`, whether a named skin was set. `constrained`, whether the rig has a path
  *   constraint, which the setup pose here does not apply. `ik`, whether it has an IK or transform constraint, which it does apply.
  */
-function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule, rigPath) {
+function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule, rigPath, clipStats) {
 	const skeleton = new skeletonModule.Skeleton(data);
 	const skinName = skeletonModule.defaultSkinName(data);
 	const namedSkin = skinName !== null && skinName !== skeletonModule.DEFAULT_SKIN_NAME;
@@ -636,6 +655,10 @@ function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule
 	}
 
 	const drawn = geometryModule.bounds(lists);
+	const clipProblem = checkClippedFrame(skeleton, lists, atlas, pageSizes, geometryModule, clipStats);
+	if (clipProblem) {
+		problems.push(clipProblem);
+	}
 	const declared = { minX: data.x, minY: data.y, maxX: data.x + data.width, maxY: data.y + data.height };
 	const iou = drawn && data.width > 0 && data.height > 0 ? intersectionOverUnion(drawn, declared) : null;
 	const constrained = data.path.length > 0;
@@ -976,6 +999,7 @@ function checkRigAnimations(data, atlas, pageSizes, modules, stats) {
 					const shown = deform.slot.attachment;
 					deform.found ||= shown !== null && deform.target !== undefined && modules.geometry.deformSource(skeleton, deform.slot.index, shown) === deform.target;
 				}
+				problem ??= checkClippedFrame(skeleton, lists, atlas, pageSizes, modules.geometry, stats.clip);
 			} catch (error) {
 				problem = `threw ${error.message}`;
 				seen.fill(0);
@@ -1024,7 +1048,8 @@ function printAnimation(stats) {
 			`p99 ${quantile(sorted, 0.99).toFixed(1)} us, max ${quantile(sorted, 1).toFixed(1)} us, ${stats.twoColorWithoutDark} two-color timelines on slots ` +
 			`without a dark color, ${stats.colorKeys} color keys and ${stats.colorSegments} linear color segments compared, ` +
 			`${stats.deformTimelines} deform timelines (${stats.deformFound} found their attachment at some sample, ${stats.deformNeverFound} never did), ` +
-			`${stats.deformKeys} deform keys compared, ${stats.failed} rigs failed, ` +
+			`${stats.deformKeys} deform keys compared, ${stats.clip.clippedLists} clipped slots checked (${stats.clip.crossedLists} under a self-crossing clip, ${stats.clip.clippedAway} slots clipped to nothing), ` +
+			`${stats.failed} rigs failed, ` +
 			`${stats.seconds.toFixed(1)} s`
 	);
 }
@@ -1099,7 +1124,7 @@ function printGeometry(geometry) {
 		`Geometry: ${geometry.rigs.length} rigs checked, ${scored.length} scored, ${geometry.rigs.length - scored.length} unscored, ` +
 			`${geometry.triangles} triangles drawn, ${geometry.lists} lists built, IoU ${spread}, ${good} rigs with IoU >= ${GOOD_IOU}, ` +
 			`${declaredLarger.length} declared larger, ${uvSlots} UV warnings, ${geometry.failed} failed (${constrainedNote}), ` +
-			`hull fit ${geometry.hullFit.passed ? "passed" : "FAILED"}`
+			`hull fit ${geometry.hullFit.passed ? "passed" : "FAILED"}, ${geometry.clip.clippedLists} clipped slots checked (${geometry.clip.crossedLists} under a self-crossing clip, ${geometry.clip.clippedAway} slots clipped to nothing)`
 	);
 }
 
@@ -1123,6 +1148,464 @@ function judgeHullFit(results) {
 		return `rotate ${rotate} ${describe(group)}${judged ? "" : " not judged"}`;
 	});
 	return { passed, message: `${describe(results)} of stripped meshes meet their packed box, ${groups.join(", ")}` };
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Clipping
+
+/**
+ * Finds which slots a frame clips, by walking the live draw order: a slot showing a clipping attachment starts a clip unless one is active,
+ * and the clip covers every later slot through its end slot. An end slot that is the clip slot, or came earlier, runs to the end.
+ *
+ * @param {object} skeleton The posed skeleton.
+ * @returns {Map<number, object>} The clip slot covering each clipped slot, keyed by the clipped slot's index.
+ */
+function clippedSlots(skeleton) {
+	const covered = new Map();
+	let active = null;
+	let end = -1;
+	for (const slot of skeleton.drawOrder) {
+		const attachment = slot.attachment;
+		if (attachment?.type === "clipping") {
+			if (!active) {
+				active = slot;
+				end = attachment.endSlotIndex === slot.index ? -1 : attachment.endSlotIndex;
+			}
+		} else if (active) {
+			covered.set(slot.index, active);
+		}
+		if (active && slot.index === end) {
+			active = null;
+		}
+	}
+	return covered;
+}
+
+/**
+ * Counts a vertex list's vertices: one per x, y pair, or one per run of bone influences when weighted.
+ *
+ * @param {object} vertices The vertices.
+ * @returns {number} The vertex count.
+ */
+function polygonVertexCount(vertices) {
+	if (!vertices.weighted) {
+		return vertices.values.length / 2;
+	}
+	let count = 0;
+	for (let b = 0; b < vertices.bones.length; b += vertices.bones[b] + 1) {
+		count++;
+	}
+	return count;
+}
+
+/**
+ * Places a clipping attachment's polygon in the world with the slot's deform, through `computeWorldVertices`.
+ *
+ * @param {object} skeleton The posed skeleton.
+ * @param {object} slot The slot showing the attachment.
+ * @param {object} attachment The clipping attachment.
+ * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @returns {Float32Array} The polygon, flattened as x0, y0, x1, y1, ...
+ */
+function worldPolygon(skeleton, slot, attachment, geometryModule) {
+	const polygon = new Float32Array(polygonVertexCount(attachment.vertices) * 2);
+	geometryModule.computeWorldVertices(skeleton, slot, attachment.vertices, polygon);
+	return polygon;
+}
+
+/**
+ * Works out a polygon's signed area with the shoelace formula, independently of the runtime.
+ *
+ * @param {ArrayLike<number>} polygon The vertices, flattened as x0, y0, x1, y1, ...
+ * @returns {number} The area, positive when the vertices run counterclockwise.
+ */
+function shoelace(polygon) {
+	const count = polygon.length / 2;
+	let twice = 0;
+	for (let i = 0, j = count - 1; i < count; j = i++) {
+		twice += polygon[j * 2] * polygon[i * 2 + 1] - polygon[i * 2] * polygon[j * 2 + 1];
+	}
+	return twice / 2;
+}
+
+/**
+ * Checks whether a polygon has corners turning both ways, so it is concave.
+ *
+ * @param {ArrayLike<number>} polygon The vertices, flattened as x0, y0, x1, y1, ...
+ * @returns {boolean} True when some corners turn left and some right.
+ */
+function isConcave(polygon) {
+	const count = polygon.length / 2;
+	let left = false;
+	let right = false;
+	for (let i = 0; i < count; i++) {
+		const [a, b, c] = [i * 2, ((i + 1) % count) * 2, ((i + 2) % count) * 2];
+		const turn = (polygon[b] - polygon[a]) * (polygon[c + 1] - polygon[b + 1]) - (polygon[b + 1] - polygon[a + 1]) * (polygon[c] - polygon[b]);
+		left ||= turn > 0;
+		right ||= turn < 0;
+	}
+	return left && right;
+}
+
+/**
+ * Checks whether any two edges of a polygon that do not share a corner cross each other.
+ *
+ * @param {ArrayLike<number>} polygon The vertices, flattened as x0, y0, x1, y1, ...
+ * @returns {boolean} True when the polygon crosses itself.
+ */
+function selfIntersects(polygon) {
+	const count = polygon.length / 2;
+	const side = (a, b, c) => Math.sign((polygon[b * 2] - polygon[a * 2]) * (polygon[c * 2 + 1] - polygon[a * 2 + 1]) - (polygon[b * 2 + 1] - polygon[a * 2 + 1]) * (polygon[c * 2] - polygon[a * 2]));
+	for (let i = 0; i < count; i++) {
+		const i2 = (i + 1) % count;
+		for (let j = i + 2; j < count; j++) {
+			const j2 = (j + 1) % count;
+			if (j2 === i) {
+				continue;
+			}
+			if (side(i, i2, j) * side(i, i2, j2) < 0 && side(j, j2, i) * side(j, j2, i2) < 0) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/**
+ * Checks a point lies inside a polygon of either winding, or within `CLIP_INSIDE_TOLERANCE` of its boundary.
+ *
+ * @param {ArrayLike<number>} polygon The vertices, flattened as x0, y0, x1, y1, ...
+ * @param {number} x The point's X.
+ * @param {number} y The point's Y.
+ * @returns {boolean} True when the point is inside or near enough.
+ */
+function insideOrNear(polygon, x, y) {
+	const count = polygon.length / 2;
+	let inside = false;
+	for (let i = 0, j = count - 1; i < count; j = i++) {
+		const [xi, yi, xj, yj] = [polygon[i * 2], polygon[i * 2 + 1], polygon[j * 2], polygon[j * 2 + 1]];
+		const lengthSquared = (xj - xi) ** 2 + (yj - yi) ** 2;
+		const along = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((x - xi) * (xj - xi) + (y - yi) * (yj - yi)) / lengthSquared));
+		if (Math.hypot(x - (xi + along * (xj - xi)), y - (yi + along * (yj - yi))) <= CLIP_INSIDE_TOLERANCE) {
+			return true;
+		}
+		if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+/**
+ * Sums the absolute areas of a triangle list's triangles.
+ *
+ * @param {ArrayLike<number>} positions The vertex positions, flattened as x0, y0, x1, y1, ...
+ * @param {ArrayLike<number>} indices The triangle indices, 3 per triangle.
+ * @returns {number} The total area.
+ */
+function listArea(positions, indices) {
+	let area = 0;
+	for (let i = 0; i < indices.length; i += 3) {
+		const [a, b, c] = [indices[i] * 2, indices[i + 1] * 2, indices[i + 2] * 2];
+		area += Math.abs((positions[b] - positions[a]) * (positions[c + 1] - positions[a + 1]) - (positions[c] - positions[a]) * (positions[b + 1] - positions[a + 1])) / 2;
+	}
+	return area;
+}
+
+/**
+ * Works out the area where a polygon and a triangle overlap, independently of the runtime. The polygon, which may be concave, is cut by
+ * each edge of the triangle in turn (Sutherland-Hodgman with the triangle as the convex window). A concave polygon can come out with
+ * zero-width joins between its parts, but those add no area to the shoelace sum.
+ *
+ * @param {ArrayLike<number>} polygon The polygon's vertices, flattened as x0, y0, x1, y1, ..., either winding.
+ * @param {number[]} triangle The triangle's corners as x0, y0, x1, y1, x2, y2, either winding.
+ * @returns {number} The overlap area.
+ */
+function overlapArea(polygon, triangle) {
+	const corners = [
+		[triangle[0], triangle[1]],
+		[triangle[2], triangle[3]],
+		[triangle[4], triangle[5]]
+	];
+	const turn = (corners[1][0] - corners[0][0]) * (corners[2][1] - corners[0][1]) - (corners[1][1] - corners[0][1]) * (corners[2][0] - corners[0][0]);
+	if (turn === 0) {
+		return 0;
+	}
+	if (turn < 0) {
+		corners.reverse();
+	}
+	let points = [];
+	for (let i = 0; i < polygon.length; i += 2) {
+		points.push([polygon[i], polygon[i + 1]]);
+	}
+	for (let e = 0; e < 3 && points.length > 0; e++) {
+		const [ax, ay] = corners[e];
+		const [bx, by] = corners[(e + 1) % 3];
+		const side = ([x, y]) => (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+		const next = [];
+		for (let i = 0; i < points.length; i++) {
+			const current = points[i];
+			const previous = points[(i + points.length - 1) % points.length];
+			const [dc, dp] = [side(current), side(previous)];
+			if (dc >= 0 !== dp >= 0) {
+				const t = dp / (dp - dc);
+				next.push([previous[0] + (current[0] - previous[0]) * t, previous[1] + (current[1] - previous[1]) * t]);
+			}
+			if (dc >= 0) {
+				next.push(current);
+			}
+		}
+		points = next;
+	}
+	return Math.abs(shoelace(points.flat()));
+}
+
+/**
+ * Checks every clipped list of one frame. Each must be finite, and every vertex must be inside its clip polygon (see `insideOrNear`). Its
+ * area must match the independent overlap of the clip polygon with each of the slot's unclipped triangles (see `overlapArea`), within
+ * `CLIP_AREA_TOLERANCE` plus `CLIP_AREA_RELATIVE` of it, so a clip that loses area fails as well as one that keeps too much. A slot clipped
+ * to nothing is held to the same area check. A clip polygon that crosses itself has no clear inside, and the user guide says clipping does
+ * not work correctly with one, so its lists are only counted. The unclipped triangles come from `slotTriangles`, which rewrites that slot's
+ * pooled list, so the frame's lists must not be used afterwards.
+ *
+ * @param {object} skeleton The posed skeleton the lists were built from.
+ * @param {object[]} lists The frame's triangle lists from `skeletonTriangles`.
+ * @param {object} atlas The parsed atlas.
+ * @param {{ width: number, height: number }[]} pageSizes Each atlas page's real PNG size.
+ * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @param {object} stats The accumulator: `clippedLists` counts slots judged, `crossedLists` slots under a self-crossing clip, `clippedAway`
+ *   slots clipped to nothing, `mostVertices` keeps the largest clipped vertex count, and `worstGap` the largest area difference.
+ * @returns {string | null} A message for the first problem, or null when every clipped list is sound.
+ */
+export function checkClippedFrame(skeleton, lists, atlas, pageSizes, geometryModule, stats) {
+	const covered = clippedSlots(skeleton);
+	if (covered.size === 0) {
+		return null;
+	}
+	const polygons = new Map();
+	for (const clipSlot of new Set(covered.values())) {
+		const polygon = worldPolygon(skeleton, clipSlot, clipSlot.attachment, geometryModule);
+		polygons.set(clipSlot, selfIntersects(polygon) ? null : polygon);
+	}
+	const drawnAreas = new Map();
+	for (const list of lists) {
+		const clipSlot = covered.get(list.slotIndex);
+		if (!clipSlot) {
+			continue;
+		}
+		const polygon = polygons.get(clipSlot);
+		const slotName = skeleton.slots[list.slotIndex].data.name;
+		stats.mostVertices = Math.max(stats.mostVertices, list.positions.length / 2);
+		if (!list.positions.every(Number.isFinite) || !list.uvs.every(Number.isFinite)) {
+			return `slot "${slotName}" clipped by "${clipSlot.data.name}": a position or UV is not finite`;
+		}
+		if (!polygon) {
+			continue;
+		}
+		for (let i = 0; i < list.positions.length; i += 2) {
+			if (!insideOrNear(polygon, list.positions[i], list.positions[i + 1])) {
+				return `slot "${slotName}" clipped by "${clipSlot.data.name}": vertex (${list.positions[i]}, ${list.positions[i + 1]}) is outside the clip`;
+			}
+		}
+		drawnAreas.set(list.slotIndex, listArea(list.positions, list.indices));
+	}
+	const drawnSlots = new Set(lists.map((list) => list.slotIndex));
+	for (const [index, clipSlot] of covered) {
+		const slot = skeleton.slots[index];
+		const whole = geometryModule.slotTriangles(skeleton, slot, atlas, pageSizes);
+		if (!whole) {
+			continue;
+		}
+		if (!drawnSlots.has(index)) {
+			stats.clippedAway++;
+		}
+		const polygon = polygons.get(clipSlot);
+		if (!polygon) {
+			stats.crossedLists++;
+			continue;
+		}
+		stats.clippedLists++;
+		let expected = 0;
+		const { positions, indices } = whole;
+		for (let i = 0; i < indices.length; i += 3) {
+			const [a, b, c] = [indices[i] * 2, indices[i + 1] * 2, indices[i + 2] * 2];
+			expected += overlapArea(polygon, [positions[a], positions[a + 1], positions[b], positions[b + 1], positions[c], positions[c + 1]]);
+		}
+		const area = drawnAreas.get(index) ?? 0;
+		stats.worstGap = Math.max(stats.worstGap, Math.abs(area - expected));
+		if (Math.abs(area - expected) > CLIP_AREA_TOLERANCE + CLIP_AREA_RELATIVE * expected) {
+			return `slot "${slot.data.name}" clipped by "${clipSlot.data.name}": area ${area} does not match the overlap ${expected}`;
+		}
+	}
+	return null;
+}
+
+/**
+ * Surveys a rig's clipping attachments in the setup pose, across every skin.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @param {object} stats The accumulator: `clips`, and per `weighted` and `unweighted` group the `count`, `clockwise`, `counterclockwise`,
+ *   `flat` and `concave` counts, `sizes` by vertex count range, and `endSelf` and `endBefore` example lists.
+ * @param {string} shown The rig's printed path.
+ * @returns {number} How many slots hold a clipping attachment in some skin.
+ */
+function surveyClips(data, skeletonModule, geometryModule, stats, shown) {
+	const skeleton = new skeletonModule.Skeleton(data);
+	skeleton.setSkin(skeletonModule.defaultSkinName(data));
+	skeleton.setToSetupPose();
+	skeleton.updateWorldTransform();
+	const place = new Map(skeleton.drawOrder.map((slot, index) => [slot.index, index]));
+	const clipSlots = new Set();
+	for (const skin of data.skins) {
+		for (const [slotIndex, attachments] of skin.attachments) {
+			for (const attachment of attachments.values()) {
+				if (attachment.type !== "clipping") {
+					continue;
+				}
+				clipSlots.add(slotIndex);
+				const slot = skeleton.slots[slotIndex];
+				const shownAttachment = slot.attachment;
+				slot.attachment = attachment;
+				const polygon = worldPolygon(skeleton, slot, attachment, geometryModule);
+				slot.attachment = shownAttachment;
+				const group = stats[attachment.vertices.weighted ? "weighted" : "unweighted"];
+				const area = shoelace(polygon);
+				stats.clips++;
+				group.count++;
+				group[area > 0 ? "counterclockwise" : area < 0 ? "clockwise" : "flat"]++;
+				group.concave += isConcave(polygon) ? 1 : 0;
+				const count = polygon.length / 2;
+				const range = count <= 4 ? "3-4" : count <= 8 ? "5-8" : count <= 16 ? "9-16" : count <= 32 ? "17-32" : "33+";
+				stats.sizes[range] = (stats.sizes[range] ?? 0) + 1;
+				const name = `${shown} "${data.slots[slotIndex].name}"`;
+				if (attachment.endSlotIndex === slotIndex) {
+					stats.endSelf.push(name);
+				} else if (place.get(attachment.endSlotIndex) < place.get(slotIndex)) {
+					stats.endBefore.push(`${name} ends at "${data.slots[attachment.endSlotIndex].name}"`);
+				}
+			}
+		}
+	}
+	return clipSlots.size;
+}
+
+/**
+ * Builds one frame's triangles with clipping, then without it (each slot on its own through `slotTriangles`), `CLIP_TIMING_REPEATS` times
+ * each, and gives the fastest of each.
+ *
+ * @param {object} skeleton The posed skeleton.
+ * @param {object} atlas The parsed atlas.
+ * @param {{ width: number, height: number }[]} pageSizes Each atlas page's real PNG size.
+ * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @returns {{ clipped: number, unclipped: number }} The fastest build times, in microseconds.
+ */
+function timeClipping(skeleton, atlas, pageSizes, geometryModule) {
+	let clipped = Infinity;
+	let unclipped = Infinity;
+	for (let repeat = 0; repeat < CLIP_TIMING_REPEATS; repeat++) {
+		let start = process.hrtime.bigint();
+		geometryModule.skeletonTriangles(skeleton, atlas, pageSizes);
+		clipped = Math.min(clipped, Number(process.hrtime.bigint() - start) / 1000);
+		start = process.hrtime.bigint();
+		for (const slot of skeleton.drawOrder) {
+			geometryModule.slotTriangles(skeleton, slot, atlas, pageSizes);
+		}
+		unclipped = Math.min(unclipped, Number(process.hrtime.bigint() - start) / 1000);
+	}
+	return { clipped, unclipped };
+}
+
+/**
+ * Checks one rig's clipping: surveys its clip polygons, then builds the setup pose and every animation at `ANIMATION_SAMPLES` times, times
+ * each frame with and without clipping, and checks it with `checkClippedFrame`. A throw counts as a failed frame.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} atlas The parsed atlas beside it.
+ * @param {{ width: number, height: number }[]} pageSizes Each atlas page's real PNG size.
+ * @param {object} modules The loaded `skeleton.ts`, `geometry.ts` and `animation.ts` modules, as `skeleton`, `geometry` and `animation`.
+ * @param {object} stats The accumulator `surveyClips` and `checkClippedFrame` fill, plus `frames` and `costs`, one entry per rig with its
+ *   extra time per frame.
+ * @param {string} shown The rig's printed path.
+ * @returns {string[]} The first `ANIMATION_PROBLEMS_SHOWN` problems, then a count of the rest.
+ */
+function checkRigClipping(data, atlas, pageSizes, modules, stats, shown) {
+	const clipSlots = surveyClips(data, modules.skeleton, modules.geometry, stats, shown);
+	const skeleton = new modules.skeleton.Skeleton(data);
+	skeleton.setSkin(modules.skeleton.defaultSkinName(data));
+	const problems = [];
+	let hidden = 0;
+	let extra = 0;
+	let frames = 0;
+	const poses = [{ name: "setup pose", animation: null, time: 0 }];
+	for (const animation of data.animations) {
+		for (let sample = 0; sample < ANIMATION_SAMPLES; sample++) {
+			poses.push({ name: `animation "${animation.name}"`, animation, time: (animation.duration * sample) / (ANIMATION_SAMPLES - 1) });
+		}
+	}
+	for (const { name, animation, time } of poses) {
+		let problem;
+		try {
+			skeleton.setToSetupPose();
+			if (animation) {
+				modules.animation.applyAnimation(skeleton, animation, time);
+			}
+			skeleton.updateWorldTransform();
+			const cost = timeClipping(skeleton, atlas, pageSizes, modules.geometry);
+			extra += cost.clipped - cost.unclipped;
+			frames++;
+			const lists = modules.geometry.skeletonTriangles(skeleton, atlas, pageSizes);
+			problem = checkClippedFrame(skeleton, lists, atlas, pageSizes, modules.geometry, stats);
+		} catch (error) {
+			problem = `threw ${error.message}`;
+		}
+		if (problem !== null) {
+			if (problems.length < ANIMATION_PROBLEMS_SHOWN) {
+				problems.push(`${name} at ${time.toFixed(4)}: ${problem}`);
+			} else {
+				hidden++;
+			}
+		}
+	}
+	stats.frames += frames;
+	stats.costs.push({ shown, extraMicros: extra / frames, clipSlots });
+	if (hidden > 0) {
+		problems.push(`and ${hidden} more failures`);
+	}
+	return problems;
+}
+
+/**
+ * Prints the `--clipping` report: the clip polygon survey, the costliest rigs to clip, then one summary line.
+ *
+ * @param {object} stats The accumulator `checkRigClipping` filled, plus `rigs` and `failed` counts and `seconds` of wall time.
+ */
+function printClipping(stats) {
+	const group = (name) => {
+		const counts = stats[name];
+		return `${name} ${counts.count} (${counts.counterclockwise} counterclockwise, ${counts.clockwise} clockwise, ${counts.flat} flat, ${counts.concave} concave)`;
+	};
+	const sizes = ["3-4", "5-8", "9-16", "17-32", "33+"].map((range) => `${range}: ${stats.sizes[range] ?? 0}`).join(", ");
+	console.log("");
+	console.log(`Clipping: ${stats.clips} clipping attachments in the setup pose, ${group("unweighted")}, ${group("weighted")}; vertex counts ${sizes}`);
+	console.log(`Clipping: ${stats.endSelf.length} end at their own slot, so they clip to the end of the draw order:`);
+	for (const name of stats.endSelf) {
+		console.log(`  ${name}`);
+	}
+	console.log(`Clipping: ${stats.endBefore.length} end at a slot earlier in the setup draw order, so they clip to the end:`);
+	for (const name of stats.endBefore) {
+		console.log(`  ${name}`);
+	}
+	console.log(`Clipping: ${CLIP_COSTLIEST_SHOWN} rigs with the most extra time per frame:`);
+	for (const cost of [...stats.costs].sort((a, b) => b.extraMicros - a.extraMicros).slice(0, CLIP_COSTLIEST_SHOWN)) {
+		console.log(`  +${cost.extraMicros.toFixed(1)} us ${cost.shown} (${cost.clipSlots} clip slots)`);
+	}
+	console.log(
+		`Clipping: ${stats.rigs} rigs, ${stats.frames} frames, ${stats.clippedLists} clipped slots checked, ${stats.crossedLists} under a self-crossing clip (not judged), ${stats.clippedAway} slots clipped to nothing, ` +
+			`largest clipped list ${stats.mostVertices} vertices, largest area gap ${stats.worstGap.toExponential(2)}, ${stats.failed} rigs failed, ${stats.seconds.toFixed(1)} s`
+	);
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1777,8 +2260,9 @@ function isFullySupported(features, supported) {
  *
  * @param {{ FEATURES: readonly string[], STAGE_FEATURES: ReadonlyMap<number, ReadonlySet<string>> }} featuresModule The loaded
  *   `features.ts`, which owns the feature list and the planned stage sets.
- * @returns {object} The accumulator: the feature list and stage sets, per-feature usage counts by kind, per-stage rig counts, a rig total,
- *   and each operator's base battle rig features, keyed by operator id.
+ * @returns {object} The accumulator: the feature list and stage sets, per-feature usage counts by kind, per-stage rig counts (cumulative and
+ *   by the lowest stage each rig needs), a rig total, each operator's base battle rig features keyed by operator id, and each operator's
+ *   lowest stage over all its rigs.
  */
 function createSurvey(featuresModule) {
 	const { FEATURES, STAGE_FEATURES } = featuresModule;
@@ -1787,8 +2271,10 @@ function createSurvey(featuresModule) {
 		stageFeatures: STAGE_FEATURES,
 		featureKindCounts: new Map(FEATURES.map((feature) => [feature, { battle: 0, back: 0, dorm: 0 }])),
 		rigStageCounts: new Map([...STAGE_FEATURES.keys()].map((stage) => [stage, 0])),
+		rigNeedCounts: new Map([...STAGE_FEATURES.keys()].map((stage) => [stage, 0])),
 		rigsSurveyed: 0,
-		operatorBaseBattleFeatures: new Map()
+		operatorBaseBattleFeatures: new Map(),
+		operatorLowestStage: new Map()
 	};
 }
 
@@ -1799,9 +2285,12 @@ function createSurvey(featuresModule) {
  * @param {object} survey The accumulator from `createSurvey`.
  * @param {{ operatorId: string, formKey: string, kind: string }} rigPath The rig's identity.
  * @param {Set<string>} features The rig's features, from `featuresOf`.
+ * @param {number} stage The lowest stage that draws the rig in full, from `rigStage`.
  */
-function recordRig(survey, rigPath, features) {
+function recordRig(survey, rigPath, features, stage) {
 	survey.rigsSurveyed++;
+	survey.rigNeedCounts.set(stage, (survey.rigNeedCounts.get(stage) ?? 0) + 1);
+	survey.operatorLowestStage.set(rigPath.operatorId, Math.min(stage, survey.operatorLowestStage.get(rigPath.operatorId) ?? Infinity));
 	for (const feature of features) {
 		survey.featureKindCounts.get(feature)[rigPath.kind]++;
 	}
@@ -1817,7 +2306,7 @@ function recordRig(survey, rigPath, features) {
 
 /**
  * Prints the `--survey` report: per-feature usage by kind, then how many operators (by base battle rig) and rigs each stage's planned
- * feature set would fully support.
+ * feature set would fully support, how many rigs need exactly that stage, and how many operators have at least one rig it draws.
  *
  * @param {object} survey The filled accumulator from `createSurvey`.
  */
@@ -1835,7 +2324,11 @@ function printSurvey(survey) {
 	console.log(`Stage coverage (${survey.rigsSurveyed} rigs surveyed, ${operatorFeatures.length} operators with a base battle rig):`);
 	for (const [stage, supported] of survey.stageFeatures) {
 		const operatorCount = operatorFeatures.filter((features) => isFullySupported(features, supported)).length;
-		console.log(`  Stage ${stage}: ${operatorCount}/${operatorFeatures.length} operators, ${survey.rigStageCounts.get(stage)}/${survey.rigsSurveyed} rigs`);
+		const anyRig = [...survey.operatorLowestStage.values()].filter((lowest) => lowest <= stage).length;
+		console.log(
+			`  Stage ${stage}: ${operatorCount}/${operatorFeatures.length} operators, ${survey.rigStageCounts.get(stage)}/${survey.rigsSurveyed} rigs, ` +
+				`${survey.rigNeedCounts.get(stage)} rigs need exactly this stage, ${anyRig}/${survey.operatorLowestStage.size} operators have at least one rig it draws`
+		);
 	}
 }
 
@@ -1870,6 +2363,7 @@ async function main() {
 	const wantAnimation = process.argv.includes("--animation");
 	const wantIk = process.argv.includes("--ik");
 	const wantTransform = process.argv.includes("--transform");
+	const wantClipping = process.argv.includes("--clipping");
 
 	const server = await startVite();
 	let survey = null;
@@ -1883,7 +2377,16 @@ async function main() {
 	const typeCounts = {};
 	const atlasByKey = new Map();
 	const pageSizesByKey = new Map();
-	const geometry = { rigs: [], lists: 0, triangles: 0, failed: 0, namedSkinRigs: 0, hullResults: [], hullFit: null };
+	const geometry = {
+		rigs: [],
+		lists: 0,
+		triangles: 0,
+		failed: 0,
+		namedSkinRigs: 0,
+		hullResults: [],
+		hullFit: null,
+		clip: { clippedLists: 0, crossedLists: 0, clippedAway: 0, mostVertices: 0, worstGap: 0 }
+	};
 	const ik = {
 		one: { judged: 0, hits: 0, loose: 0, looseHits: 0 },
 		two: { judged: 0, hits: 0, loose: 0, looseHits: 0, tooStraight: 0 },
@@ -1916,6 +2419,25 @@ async function main() {
 		deformFound: 0,
 		deformNeverFound: 0,
 		deformKeys: 0,
+		clip: { clippedLists: 0, crossedLists: 0, clippedAway: 0, mostVertices: 0, worstGap: 0 },
+		failed: 0,
+		seconds: 0
+	};
+	const clipping = {
+		clips: 0,
+		unweighted: { count: 0, counterclockwise: 0, clockwise: 0, flat: 0, concave: 0 },
+		weighted: { count: 0, counterclockwise: 0, clockwise: 0, flat: 0, concave: 0 },
+		sizes: {},
+		endSelf: [],
+		endBefore: [],
+		clippedLists: 0,
+		crossedLists: 0,
+		clippedAway: 0,
+		worstGap: 0,
+		mostVertices: 0,
+		frames: 0,
+		costs: [],
+		rigs: 0,
 		failed: 0,
 		seconds: 0
 	};
@@ -1924,9 +2446,9 @@ async function main() {
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
 		const featuresModule = wantSurvey ? await server.ssrLoadModule("/src/spine/features.ts") : null;
 		survey = featuresModule ? createSurvey(featuresModule) : null;
-		const skeletonModule = wantGeometry || wantAnimation || wantIk || wantTransform ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
-		const geometryModule = wantGeometry || wantAnimation ? await server.ssrLoadModule("/src/spine/geometry.ts") : null;
-		const animationModule = wantAnimation || wantIk || wantTransform ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
+		const skeletonModule = wantGeometry || wantAnimation || wantIk || wantTransform || wantClipping ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
+		const geometryModule = wantGeometry || wantAnimation || wantClipping ? await server.ssrLoadModule("/src/spine/geometry.ts") : null;
+		const animationModule = wantAnimation || wantIk || wantTransform || wantClipping ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
 
 		for (const file of atlasFiles) {
 			const shown = shownPath(file);
@@ -2001,7 +2523,7 @@ async function main() {
 			if (survey) {
 				const rigPath = parseRigPath(file, spineDir);
 				if (rigPath) {
-					recordRig(survey, rigPath, featuresModule.featuresOf(data));
+					recordRig(survey, rigPath, featuresModule.featuresOf(data), featuresModule.rigStage(data));
 				}
 			}
 			const atlas = atlasByKey.get(pairingKey(file));
@@ -2015,7 +2537,7 @@ async function main() {
 				result.problems.push(...checkAttachmentRegions(data, regionNames));
 				const pageSizes = pageSizesByKey.get(pairingKey(file));
 				if (wantGeometry && pageSizes.length === atlas.pages.length) {
-					const rig = checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule, path.relative(spineDir, file).split(path.sep).join("/"));
+					const rig = checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule, path.relative(spineDir, file).split(path.sep).join("/"), geometry.clip);
 					geometry.rigs.push({ shown, iou: rig.iou, constrained: rig.constrained, ik: rig.ik, verdict: rig.verdict, uvWarnings: rig.uvWarnings });
 					geometry.lists += rig.lists;
 					geometry.triangles += rig.triangles;
@@ -2035,6 +2557,18 @@ async function main() {
 					if (problems.length > 0) {
 						animation.failed++;
 						result.problems.push(...problems.map((problem) => `animation: ${problem}`));
+					}
+				}
+				const hasClip = data.skins.some((skin) => [...skin.attachments.values()].some((attachments) => [...attachments.values()].some((attachment) => attachment.type === "clipping")));
+				if (wantClipping && hasClip && pageSizes.length === atlas.pages.length) {
+					const start = performance.now();
+					const modules = { skeleton: skeletonModule, geometry: geometryModule, animation: animationModule };
+					const problems = checkRigClipping(data, atlas, pageSizes, modules, clipping, shown);
+					clipping.seconds += (performance.now() - start) / 1000;
+					clipping.rigs++;
+					if (problems.length > 0) {
+						clipping.failed++;
+						result.problems.push(...problems.map((problem) => `clipping: ${problem}`));
 					}
 				}
 			} else {
@@ -2097,6 +2631,9 @@ async function main() {
 	}
 	if (wantTransform) {
 		printTransform(transform);
+	}
+	if (wantClipping) {
+		printClipping(clipping);
 	}
 	const hullFailed = wantGeometry && !geometry.hullFit.passed;
 	const ikFailed = wantIk && !ikSetupPasses(ik);

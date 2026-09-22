@@ -84,3 +84,11 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
   formulas, and none were copied.
 - The staged Arknights rig files again, as the oracle for the transform constraint offsets: each setup bone at mix 1 was compared with
   each reading of the offsets.
+- https://esotericsoftware.com/spine-clipping - fetched with curl into the plan workspace. Used for what clipping does. A clipping attachment
+  is a polygon that clips region and mesh attachments. It clips every slot in the draw order from its own slot through the end slot,
+  inclusive, and a new clip's end slot is its own slot, which clips everything above it. Keying the draw order changes what is clipped,
+  and hiding the attachment turns clipping off. Two visible clips may not clip overlapping slots. Clip vertices can be weighted and keyed.
+  A self-intersecting polygon does not clip correctly, and the runtime first breaks a polygon into convex pieces. `MATH.md` ("Clipping")
+  records the rules taken from these. The page gives no formulas, and none were copied. Sutherland-Hodgman clipping, ear clipping and
+  barycentric UVs are textbook geometry, written from first principles.
+- The staged Arknights rig files again, as the oracle for the clip windings, concave clips and end slots that `MATH.md` counts.

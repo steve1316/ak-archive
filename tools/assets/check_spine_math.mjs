@@ -2,8 +2,8 @@
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
  * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, `src/spine/animation.ts` curves, key search,
- * bone, slot and draw order timelines, IK constraints and IK timelines, transform constraints and their timelines, deform timelines, and
- * the `src/spine/renderer.ts` two-color tint and blend factors against hand-worked values.
+ * bone, slot and draw order timelines, IK constraints and IK timelines, transform constraints and their timelines, deform timelines,
+ * `src/spine/clipping.ts` polygon clipping, and the `src/spine/renderer.ts` two-color tint and blend factors against hand-worked values.
  * `MATH.md` explains each formula the cases pin down.
  *
  * Usage:
@@ -1406,6 +1406,181 @@ function checkDeform(modules) {
 }
 
 /**
+ * Sums the absolute areas of a list of triangles.
+ *
+ * @param {ArrayLike<number>} positions The vertex positions, flattened as x0, y0, x1, y1, ...
+ * @param {ArrayLike<number>} indices The triangle indices, 3 per triangle.
+ * @returns {number} The total area.
+ */
+function trianglesArea(positions, indices) {
+	let area = 0;
+	for (let i = 0; i < indices.length; i += 3) {
+		const [a, b, c] = [indices[i] * 2, indices[i + 1] * 2, indices[i + 2] * 2];
+		area += Math.abs((positions[b] - positions[a]) * (positions[c + 1] - positions[a + 1]) - (positions[c] - positions[a]) * (positions[b + 1] - positions[a + 1])) / 2;
+	}
+	return area;
+}
+
+/**
+ * Checks a point lies inside a polygon or within `TOLERANCE` of its boundary.
+ *
+ * @param {number[]} polygon The polygon's vertices, flattened as x0, y0, x1, y1, ...
+ * @param {number} x The point's X.
+ * @param {number} y The point's Y.
+ * @returns {boolean} True when the point is inside or on the boundary.
+ */
+function insidePolygon(polygon, x, y) {
+	const count = polygon.length / 2;
+	let inside = false;
+	for (let i = 0, j = count - 1; i < count; j = i++) {
+		const [xi, yi, xj, yj] = [polygon[i * 2], polygon[i * 2 + 1], polygon[j * 2], polygon[j * 2 + 1]];
+		const length = Math.hypot(xj - xi, yj - yi);
+		const along = length === 0 ? 0 : Math.max(0, Math.min(1, ((x - xi) * (xj - xi) + (y - yi) * (yj - yi)) / (length * length)));
+		if (Math.hypot(x - (xi + along * (xj - xi)), y - (yi + along * (yj - yi))) <= TOLERANCE) {
+			return true;
+		}
+		if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+/**
+ * Builds a clipping rig: one slot per entry, each on the root bone at the origin, in draw order by slot index. It then poses the rig and
+ * builds its triangles. An entry is `{ clip: vertices, end }` for a clipping attachment, `{ mesh: vertices }` for a one-triangle mesh on
+ * region I, or null for an empty slot.
+ *
+ * @param {object} modules The loaded `skeleton.ts`, `geometry.ts` and `animation.ts` modules, as `skeleton`, `geometry` and `animation`.
+ * @param {(object | null)[]} entries The slots, in slot index order.
+ * @param {object[]} timelines An animation's timelines to apply at time 0, or none.
+ * @returns {Map<number, { positions: number[], indices: number[] }>} Each drawn slot's triangles, copied, keyed by slot index. A slot
+ *   missing from it drew nothing.
+ */
+function clipRig(modules, entries, timelines = []) {
+	const attachments = new Map();
+	entries.forEach((entry, index) => {
+		if (entry?.clip) {
+			attachments.set(index, new Map([["C", { type: "clipping", name: "C", endSlotIndex: entry.end, vertices: { weighted: false, values: new Float32Array(entry.clip) }, color: null }]]));
+		} else if (entry?.mesh) {
+			attachments.set(index, new Map([["M", { ...MESH_L, name: "M", path: "I", vertices: { weighted: false, values: new Float32Array(entry.mesh) } }]]));
+		}
+	});
+	const slots = entries.map((entry, index) => slotData(`slot${index}`, entry?.clip ? "C" : entry?.mesh ? "M" : null));
+	const data = skeletonData([{}], slots, [{ name: "default", attachments }]);
+	const animation = { name: "clip", duration: 1, timelines };
+	data.animations = [animation];
+	const skeleton = new modules.skeleton.Skeleton(data);
+	skeleton.setToSetupPose();
+	modules.animation.applyAnimation(skeleton, animation, 0);
+	skeleton.updateWorldTransform();
+	const drawn = new Map();
+	for (const list of modules.geometry.skeletonTriangles(skeleton, GEOMETRY_ATLAS, [GEOMETRY_PAGE])) {
+		drawn.set(list.slotIndex, { positions: [...list.positions], indices: [...list.indices] });
+	}
+	return drawn;
+}
+
+/**
+ * Runs the clipping cases: the polygon helpers, one triangle against a square, a clockwise square, triangles inside and outside, a
+ * concave clip, where clipping starts and ends in the draw order, and a deformed clip.
+ *
+ * @param {object} modules The loaded `skeleton.ts`, `geometry.ts`, `animation.ts` and `clipping.ts` modules, as `skeleton`, `geometry`,
+ *   `animation` and `clipping`.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkClipping(modules) {
+	const { signedArea, isConvex, triangulate, clipTriangle, dropRepeats } = modules.clipping;
+	const square = [0, 0, 10, 0, 10, 10, 0, 10];
+	const clockwise = [0, 0, 0, 10, 10, 10, 10, 0];
+	const shape = [0, 0, 20, 0, 20, 10, 10, 10, 10, 20, 0, 20];
+	const corner = [5, 5, 15, 5, 5, 15];
+	const clip = (tri, polygon) => {
+		const out = new Float64Array(4 * (3 + polygon.length / 2));
+		const count = clipTriangle(Float64Array.from(tri), Float32Array.from(polygon), polygon.length / 2, out);
+		return [...out.subarray(0, count * 4)];
+	};
+	const uvAt = (vertices, x, y) => {
+		for (let i = 0; i < vertices.length; i += 4) {
+			if (Math.abs(vertices[i] - x) <= TOLERANCE && Math.abs(vertices[i + 1] - y) <= TOLERANCE) {
+				return [vertices[i + 2], vertices[i + 3]];
+			}
+		}
+		return null;
+	};
+	const fanArea = (vertices) => {
+		const positions = vertices.filter((_, index) => index % 4 < 2);
+		const indices = [];
+		for (let i = 1; i + 1 < positions.length / 2; i++) {
+			indices.push(0, i, i + 1);
+		}
+		return trianglesArea(positions, indices);
+	};
+	const basic = () => clip([5, 5, 0, 0, 15, 5, 1, 0, 5, 15, 0, 1], square);
+	const triangulated = (polygon) => {
+		const out = new Uint16Array(3 * (polygon.length / 2 - 2));
+		const count = triangulate(Float32Array.from(polygon), polygon.length / 2, out);
+		return [count, trianglesArea(polygon, out.subarray(0, count * 3))];
+	};
+	const areas = (drawn, indices) => indices.map((index) => (drawn.has(index) ? trianglesArea(drawn.get(index).positions, drawn.get(index).indices) : 0));
+	const corners = (count) => Array.from({ length: count }, () => ({ mesh: corner }));
+	const cut = (polygon) => {
+		const list = clipRig(modules, [{ clip: polygon, end: 1 }, { mesh: corner }]).get(1);
+		return [trianglesArea(list.positions, list.indices), list.indices.length];
+	};
+	const concave = () => clipRig(modules, [{ clip: shape, end: 1 }, { mesh: [-100, -100, 100, -100, 0, 100] }]).get(1);
+	// The clip's vertices 1 and 2, its right edge, move 5 to the left at time 0.
+	const narrowing = { type: "deform", skinIndex: 0, slotIndex: 0, attachmentName: "C", times: [0], starts: [2], values: [[-5, 0, -5, 0]], curves: [] };
+	const cases = [
+		["signedArea of a counterclockwise square", () => [100, signedArea(Float32Array.from(square), 4)]],
+		["signedArea of a clockwise square", () => [-100, signedArea(Float32Array.from(clockwise), 4)]],
+		["dropRepeats removes a repeated vertex and a last vertex repeating the first", () => [4, dropRepeats(Float32Array.from([0, 0, 10, 0, 10, 0, 10, 10, 0, 10, 0, 0]), 6)]],
+		["isConvex of a square", () => [true, isConvex(Float32Array.from(square), 4)]],
+		["isConvex of the L shape", () => [false, isConvex(Float32Array.from(shape), 6)]],
+		["triangulate the L shape into 4 triangles covering its area", () => [[4, 300], triangulated(shape)]],
+		["a triangle over a square corner keeps 4 vertices", () => [4, basic().length / 4]],
+		["a triangle over a square corner keeps area 25", () => [25, fanArea(basic())]],
+		["a new vertex at (10, 5) gets UV (0.5, 0)", () => [[0.5, 0], uvAt(basic(), 10, 5)]],
+		["a new vertex at (10, 10) gets UV (0.5, 0.5)", () => [[0.5, 0.5], uvAt(basic(), 10, 10)]],
+		["a new vertex at (5, 10) gets UV (0, 0.5)", () => [[0, 0.5], uvAt(basic(), 5, 10)]],
+		["a triangle inside the square comes back unchanged", () => [[1, 1, 0, 0, 3, 1, 1, 0, 1, 3, 0, 1], clip([1, 1, 0, 0, 3, 1, 1, 0, 1, 3, 0, 1], square)]],
+		["a triangle outside the square gives nothing", () => [0, clip([20, 20, 0, 0, 30, 20, 1, 0, 20, 30, 0, 1], square).length]],
+		["a counterclockwise clip slot cuts the mesh to area 25 in 2 triangles", () => [[25, 6], cut(square)]],
+		["a clockwise clip slot cuts the mesh to area 25 in 2 triangles", () => [[25, 6], cut(clockwise)]],
+		["a concave clip keeps area 300 of a covering triangle", () => [300, trianglesArea(concave().positions, concave().indices)]],
+		[
+			"every vertex a concave clip keeps is inside it",
+			() => {
+				const { positions } = concave();
+				const outside = [];
+				for (let i = 0; i < positions.length; i += 2) {
+					if (!insidePolygon(shape, positions[i], positions[i + 1])) {
+						outside.push(positions[i], positions[i + 1]);
+					}
+				}
+				return [[], outside];
+			}
+		],
+		[
+			"a concave clip with its concave corner repeated keeps area 300",
+			() => [300, areas(clipRig(modules, [{ clip: [0, 0, 20, 0, 20, 10, 10, 10, 10, 10, 10, 20, 0, 20], end: 1 }, { mesh: [-100, -100, 100, -100, 0, 100] }]), [1])[0]]
+		],
+		["a mesh wholly outside the clip is left out", () => [false, clipRig(modules, [{ clip: square, end: 1 }, { mesh: [20, 20, 30, 20, 20, 30] }]).has(1)]],
+		["clipping runs through the end slot and stops after it", () => [[25, 25, 50], areas(clipRig(modules, [{ clip: square, end: 2 }, ...corners(3)]), [1, 2, 3])]],
+		["an end slot equal to the clip slot clips to the end of the draw order", () => [[25, 25, 25], areas(clipRig(modules, [{ clip: square, end: 0 }, ...corners(3)]), [1, 2, 3])]],
+		["an end slot earlier in the draw order clips to the end", () => [[50, 25, 25], areas(clipRig(modules, [{ mesh: corner }, { clip: square, end: 0 }, ...corners(2)]), [0, 2, 3])]],
+		["an empty clip slot clips nothing", () => [[50, 50], areas(clipRig(modules, [null, ...corners(2)]), [1, 2])]],
+		[
+			"a clip slot inside an active clip is ignored",
+			() => [[25, 25, 50], areas(clipRig(modules, [{ clip: square, end: 3 }, { mesh: corner }, { clip: [0, 0, 1, 0, 1, 1, 0, 1], end: 4 }, { mesh: corner }, { mesh: corner }]), [1, 3, 4])]
+		],
+		["an undeformed clip keeps area 100 of a larger triangle", () => [100, areas(clipRig(modules, [{ clip: square, end: 1 }, { mesh: [0, 0, 20, 0, 0, 20] }]), [1])[0]]],
+		["a deform key narrows the clip to area 50", () => [50, areas(clipRig(modules, [{ clip: square, end: 1 }, { mesh: [0, 0, 20, 0, 0, 20] }], [narrowing]), [1])[0]]]
+	];
+	return runCases("clipping", cases);
+}
+
+/**
  * Runs the drawing cases: the two-color tint of one premultiplied texel, and the blend factors each blend mode draws with.
  *
  * @param {object} rendererModule The loaded `renderer.ts` module.
@@ -1468,6 +1643,17 @@ try {
 		failures.push(...checkDeform({ skeleton: skeletonModule, geometry: geometryModule, animation: animationModule }));
 	} catch (error) {
 		failures.push(`deform: could not run: ${error.message}`);
+	}
+	try {
+		const modules = {
+			skeleton: skeletonModule,
+			geometry: await server.ssrLoadModule("/src/spine/geometry.ts"),
+			animation: await server.ssrLoadModule("/src/spine/animation.ts"),
+			clipping: await server.ssrLoadModule("/src/spine/clipping.ts")
+		};
+		failures.push(...checkClipping(modules));
+	} catch (error) {
+		failures.push(`clipping: could not run: ${error.message}`);
 	}
 	try {
 		const rendererModule = await server.ssrLoadModule("/src/spine/renderer.ts");

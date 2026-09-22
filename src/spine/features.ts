@@ -55,8 +55,11 @@ const STAGE_ADDS: readonly (readonly Feature[])[] = [
 /** Each planned stage's full feature set, keyed by stage number from 1: `ALWAYS_SUPPORTED` plus everything stages 1 through it add. */
 export const STAGE_FEATURES: ReadonlyMap<number, ReadonlySet<Feature>> = new Map(STAGE_ADDS.map((_, index) => [index + 1, new Set([...ALWAYS_SUPPORTED, ...STAGE_ADDS.slice(0, index + 1).flat()])]));
 
-/** The features the runtime can draw now: stage 2's set (meshes, draw order, two-color tint, blend modes), IK, transform constraints and deform. */
-export const SUPPORTED: ReadonlySet<Feature> = new Set<Feature>([...(STAGE_FEATURES.get(2) ?? []), "ik", "transformConstraint", "deform"]);
+/** The planned stage the runtime has reached. */
+export const SUPPORTED_STAGE = 3;
+
+/** The features the runtime can draw now: the full feature set of `SUPPORTED_STAGE`. */
+export const SUPPORTED: ReadonlySet<Feature> = STAGE_FEATURES.get(SUPPORTED_STAGE)!;
 
 /**
  * Finds every feature a skeleton uses.
@@ -167,4 +170,20 @@ export function isSupported(data: SkeletonData): boolean {
 		}
 	}
 	return true;
+}
+
+/**
+ * Finds the lowest planned stage whose feature set covers everything a skeleton uses.
+ *
+ * @param data The parsed skeleton.
+ * @returns The stage number, from 1, or `Infinity` when no planned stage covers the skeleton.
+ */
+export function rigStage(data: SkeletonData): number {
+	const features = [...featuresOf(data)];
+	for (const [stage, supported] of STAGE_FEATURES) {
+		if (features.every((feature) => supported.has(feature))) {
+			return stage;
+		}
+	}
+	return Infinity;
 }

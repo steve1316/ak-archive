@@ -11,8 +11,8 @@ PRTS** until a later comparison covers it.
 
 `tools/assets/check_spine_math.mjs` checks these formulas with small hand-worked cases: each inherit mode, shear on either axis, skeleton
 scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, skin changes, the animation curves,
-key search and bone timelines, IK constraints and IK timelines, transform constraints and their timelines, and the renderer's two-color
-tint and blend factors.
+key search and bone timelines, IK constraints and IK timelines, transform constraints and their timelines, clipping, and the renderer's
+two-color tint and blend factors.
 
 ## Coordinates and angles
 
@@ -132,7 +132,7 @@ the next `skeletonTriangles` or `slotTriangles` call on the same skeleton. A cal
 lists share one index array, mesh lists use the mesh's own triangles, and UVs come from a per-attachment cache, so nothing in a list may be
 changed. The region lookup, the resolved mesh and the page UVs are worked out once per attachment, and again only when the atlas object,
 the page-size array, the skeleton data or the slot differ. The atlas and page-size array are compared by identity, so a caller must pass
-new ones rather than change them in place.
+new ones rather than change them in place. A clipped slot's list points at its own pooled arrays instead (see "Clipping").
 
 ### Finding the region
 
@@ -686,3 +686,116 @@ Executor base battle `Attack_A` (22 transform constraints and 22 transform timel
 - **Animation.** Every animation, sampled 8 times. Constrained bones must be finite, and a world constraint at translate mix 1 must put
   each bone on its target point within 0.01. A sample is skipped when a later constraint that touches the bone, the target or one of
   their ancestors is active at it: an IK constraint with a mix other than 0, or a transform constraint with any mix other than 0.
+
+## Clipping
+
+`skeletonTriangles` cuts slots down to clipping attachments' polygons. `clipping.ts` holds the polygon maths, which is textbook geometry
+with no Spine in it, and `geometry.ts` decides what gets clipped. The clipping page of the user guide
+(https://esotericsoftware.com/spine-clipping) says what clipping does. It gives no formulas.
+
+### When clipping starts and ends
+
+The page says clipping applies to every slot in the draw order from the clipping attachment's slot through its end slot, inclusive. It
+also says a new clip's end slot is its own slot, and that this clips everything above it in the draw order.
+
+- The walk goes through the live draw order, so draw order timelines change what is clipped, as the page says they can.
+- A slot whose current attachment is a clipping attachment starts clipping. Every later slot is clipped until the walk has drawn the slot
+  whose index is `endSlotIndex`, and clipping stops after it.
+- **An end slot equal to the clip slot clips to the end of the draw order.** This is the page's own default, so it is not a guess. 10
+  clips in the corpus do it, and only 2 of them are ever shown at a sampled time. Wildmn's epoque_16 dorm `Front`, at slot 0, holds every
+  vertex of the 94 slots above it at every sample, so it clips nothing away. Aroma's epoque_54 dorm `F_Weapon_Bb` cuts 16 vertices of two
+  bubbles in the setup pose, and none at any sampled animation time.
+- **An end slot that came earlier in the draw order never arrives,** so clipping runs to the end. 2 clips in the corpus do this.
+  **Confirm against PRTS.**
+- **A clip slot inside an active clip is ignored.** The page says two visible clips may not clip overlapping slots, so the rig never
+  relies on nesting. The first clip keeps going, and the ignored slot's index still ends it if it is the end slot.
+- Hiding the clipping attachment turns clipping off, as the page says, because the walk only starts on a slot showing one.
+
+### The clip polygon
+
+- Its world vertices come from `computeWorldVertices`, with the slot's deform, so bones, weights and deform keys all move it. The page
+  says clip vertices can be weighted and keyed. 750 of the 1,482 clipping attachments are weighted, and 1,467 have deform timelines.
+- A vertex that repeats the one before it is dropped, and so is a last vertex that repeats the first. A repeated vertex makes a
+  zero-length edge, and every corner turn that uses it measures 0. So a concave polygon whose only concave corner is the repeated one
+  would pass the convexity test and lose area.
+- It is turned counterclockwise when its signed area (the shoelace sum) is negative. Both windings occur: in the setup pose, 331 unweighted
+  clips run counterclockwise and 401 clockwise, and 280 weighted clips run counterclockwise and 470 clockwise.
+- A convex polygon, where no two corners turn opposite ways, clips as one piece.
+- A concave polygon is split into triangles by ear clipping, and each triangle is a convex piece. The page says the runtime first breaks a
+  clip into convex polygons. Merging triangles into larger convex pieces would be faster, and is not done. In the setup pose 75 unweighted
+  and 73 weighted clips are concave.
+- A polygon with fewer than 3 vertices, or zero area, has no pieces, so it clips everything away.
+- **A polygon that crosses itself** has no clear inside. The page says clipping does not work correctly then. Ear clipping still ends,
+  because when no ear is left it cuts the next corner anyway, and a flat or clockwise triangle is dropped. What that draws is not checked.
+  In the corpus it happens under animation, for example Bobb kitchen_4's eye clip `F_R_Eye_Root`, which folds over as the eye closes.
+  **Confirm against PRTS.**
+
+### Ear clipping
+
+For a simple counterclockwise polygon: a corner is an ear when it turns counterclockwise (the cross product of the edges into and out of
+it is positive), and no other remaining vertex lies inside or on the triangle it makes with its two neighbours. A vertex at the same point
+as one of the three corners does not block it. Cut the first ear off, and repeat until 3 vertices are left. A simple polygon always has
+an ear, so this gives `n - 2` triangles that cover it exactly, with no overlap.
+
+### Clipping one triangle
+
+Sutherland-Hodgman against one convex counterclockwise piece. For each piece edge `a -> b`, a point `p` is inside when
+`cross(b - a, p - a) >= 0`. Walk the polygon so far, with each vertex and the one before it:
+
+- If the two lie strictly on opposite sides of the edge's line, add the crossing point, at `t = d_prev / (d_prev - d_cur)` along the edge,
+  where `d` is each vertex's cross product.
+- If the vertex is inside, add it.
+
+A vertex exactly on the line is never added twice, because a crossing is only added when the sides strictly differ. After the last edge,
+fewer than 3 vertices means nothing is left. The result is the triangle's intersection with a convex piece, so it is convex and a fan from
+its first vertex triangulates it.
+
+Each output vertex's UV comes from its barycentric coordinates in the source triangle `p0, p1, p2`. Solving `p - p0 = w1 (p1 - p0) +
+w2 (p2 - p0)` by Cramer's rule gives `w1` and `w2`, and the UV is `uv0 + w1 (uv1 - uv0) + w2 (uv2 - uv0)`. The texture is mapped
+affinely across a triangle, so this is exactly the UV the unclipped triangle shows at that point. A source triangle with no area has no
+coordinates and draws nothing, so it gives nothing.
+
+A triangle wholly inside a piece, all 3 corners inside every edge, is kept as it is. It reuses the source vertices, so a mesh inside its
+clip keeps its shared vertices. Since pieces never overlap, such a triangle is not tested against the other pieces. A triangle whose
+bounding box misses a piece's box skips that piece.
+
+### Output
+
+A clipped slot's list gets the slot's own pooled positions, UVs and indices. Each is a view of a backing array that doubles when it runs
+out, and the views are kept by length, so once a slot has seen its lengths nothing is allocated. The shared UV cache is never written.
+Color, dark color, blend mode and page stay as they were. A slot clipped to nothing is left out of the lists. Indices are 16-bit, so a
+clipped list stops at 65,536 vertices. The largest in the corpus has 859. `slotTriangles` builds one slot on its own and never clips.
+
+### Allocation and cost
+
+The clip state, the scratch triangle and each slot's clipped arrays are pooled, and the helpers in `clipping.ts` keep their scratch at
+module level. The winding comes back as a small integer from `winding`, which does its own shoelace sum rather than call `signedArea`. Otherwise the
+area's number return is boxed whenever V8 does not inline it, which the heap profiler showed as 16 bytes per frame on Wildmn. The harness that
+measured deform reads 15.9 bytes per frame on Executor base battle `Attack_A` (4 clipped lists) and on Wildmn epoque_16 dorm `Interact`
+(every slot clipped), which is the harness floor, so clipping allocates nothing.
+
+A slot whose bounding box is inside a convex clip is kept as it is. This makes Wildmn's `Front`, which covers the whole rig, cost 9 us per
+frame instead of 81. The costliest rigs to clip, from `--clipping`, are Ela base dorm (+51 us per frame), Ela base battle (+45 us) and
+Skadi iteration_2 dorm (+45 us). Measured on its own, Ela base dorm's frame is about 180 us unclipped, so clipping adds about a third.
+Executor base battle adds about 30 us, 10% of its frame.
+
+### Corpus check
+
+`check_spine_rigs.mjs --clipping` runs over the 752 rigs with a clipping attachment. It prints the polygon survey above, then builds the
+setup pose and every animation at 8 samples, 58,688 frames. For each frame it walks the draw order again on its own and checks every
+clipped slot. Its list must be finite, and every vertex must be inside its clip polygon or within 0.001 of its edge. Its area must also
+match an independent overlap area within 0.001 plus 1e-4 of it, so lost area fails as well as extra area. The gate's own small
+Sutherland-Hodgman routine cuts the clip polygon by each of the slot's unclipped triangles, which are always convex, and sums the shoelace
+areas. A slot clipped to nothing is held to the same check. 232,349 clipped slots pass, with the largest area gap 0.00525.
+11,622 slots sit under a clip polygon that crosses itself, and are counted but not judged. Treating every polygon as convex fails 384
+rigs on the area check.
+`--geometry` and `--animation` run the same check on their own frames.
+
+Once clipping is on, Mlynar's epoque_28 back and battle rigs go from IoU 0.490 and 0.500 against their declared bounds to 0.934 and
+0.995, because their sword clips now cut the blade. The other 7 rigs on the gate's list of low-IoU rigs score the same with clipping on.
+
+The maths gate pins the rules with a 10 x 10 square and a triangle over its corner: the kept square is `[5, 10] x [5, 10]` with area 25 in
+2 triangles, and the new corners get UVs `(0.5, 0)`, `(0.5, 0.5)` and `(0, 0.5)`. It also checks the same square given clockwise, the L
+shape `(0,0) (20,0) (20,10) (10,10) (10,20) (0,20)` inside a large triangle (area 300, every vertex inside the L), where clipping starts
+and ends, and a deform key that narrows the clip. Dropping the counterclockwise turn fails the clockwise case, and treating every polygon
+as convex fails the L case.
