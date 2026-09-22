@@ -33,7 +33,10 @@ export function readLock() {
 /**
  * Fetch one game table at the pinned commit, reusing the cached copy when there is one.
  *
- * @param {string} name The table's basename, such as `character_table`.
+ * A bare name is read from `gamedata/excel/`. A name with a slash is a path under `gamedata/` instead, which is how the enemy stats in
+ * `levels/enemydata/enemy_database` are reached.
+ *
+ * @param {string} name The table's basename, such as `character_table`, or its path under `gamedata/`.
  * @param {{repo: string, server: string, sha: string}} lock The pinned upstream.
  * @returns {Promise<unknown>} The parsed table.
  * @throws When the download fails or the body is not JSON.
@@ -43,7 +46,8 @@ export async function loadTable(name, lock) {
 	if (fs.existsSync(cached)) {
 		return JSON.parse(fs.readFileSync(cached, "utf8"));
 	}
-	const url = `https://raw.githubusercontent.com/${lock.repo}/${lock.sha}/${lock.server}/gamedata/excel/${name}.json`;
+	const tablePath = name.includes("/") ? name : `excel/${name}`;
+	const url = `https://raw.githubusercontent.com/${lock.repo}/${lock.sha}/${lock.server}/gamedata/${tablePath}.json`;
 	const response = await fetch(url);
 	if (!response.ok) {
 		throw new Error(`${name}.json failed to download with HTTP ${response.status} from ${url}`);
