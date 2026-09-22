@@ -61,6 +61,8 @@ interface LoadedRig {
 	textures: WebGLTexture[];
 	/** The world box every `render` fits to the canvas, set by `refit`, or null when the pose drew nothing then. */
 	framedBox: View | null;
+	/** Each animation's framing once worked out, keyed by name and whether it loops, so replaying an animation does not sample it again. */
+	boxes: Map<string, View | null>;
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -118,12 +120,39 @@ function animationBox(rig: LoadedRig, animation: Animation, loop: boolean): View
 		skeleton.setToSetupPose();
 		applyAnimation(skeleton, animation, samples > 1 ? (animation.duration * i) / (loop ? samples : samples - 1) : 0);
 		skeleton.updateWorldTransform();
-		const pose = bounds(skeletonTriangles(skeleton, rig.atlas, rig.pageSizes));
-		if (pose) {
-			box = box ? { minX: Math.min(box.minX, pose.minX), minY: Math.min(box.minY, pose.minY), maxX: Math.max(box.maxX, pose.maxX), maxY: Math.max(box.maxY, pose.maxY) } : pose;
-		}
+		box = unionView(box, bounds(skeletonTriangles(skeleton, rig.atlas, rig.pageSizes)));
 	}
 	return box;
+}
+
+/**
+ * An animation's framing, sampled once per rig and reused after that.
+ *
+ * @param rig The loaded rig.
+ * @param animation The animation.
+ * @param loop True when the animation will loop.
+ * @returns The box `animationBox` gives.
+ */
+function cachedAnimationBox(rig: LoadedRig, animation: Animation, loop: boolean): View | null {
+	const key = `${animation.name}|${loop}`;
+	if (!rig.boxes.has(key)) {
+		rig.boxes.set(key, animationBox(rig, animation, loop));
+	}
+	return rig.boxes.get(key) ?? null;
+}
+
+/**
+ * The smallest box holding both boxes.
+ *
+ * @param a The first box, or null for none.
+ * @param b The second box, or null for none.
+ * @returns The union, or whichever box exists, or null when neither does.
+ */
+function unionView(a: View | null, b: View | null): View | null {
+	if (!a || !b) {
+		return a ?? b;
+	}
+	return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY) };
 }
 
 /**
@@ -163,8 +192,12 @@ export class SpinePlayer {
 	private lastView: View | null = null;
 	/** Scratch view `render` fits into every frame, reused in place so the frame loop allocates nothing. */
 	private readonly viewScratch: View = { minX: 0, minY: 0, maxX: 1, maxY: 1 };
-	/** The animation `play` chose, or null for the setup pose. */
+	/** The animation playing now: `play`'s choice, or the current step of `playSequence`'s run. Null for the setup pose. */
 	private current: Animation | null = null;
+	/** The animations `playSequence` plays in order, looping the whole run. One animation after `play`. */
+	private sequence: Animation[] = [];
+	/** Which of `sequence` is playing. */
+	private step = 0;
 	/** The time within `current`, in seconds, from 0 to its duration. */
 	private currentTime = 0;
 	/** True while `update` does not advance the time. */
@@ -239,19 +272,31 @@ export class SpinePlayer {
 	 * @param loop True to wrap round at the end, false to stop on the last frame. Defaults to true.
 	 */
 	play(name: string, loop = true): void {
-		const rig = this.rig;
-		if (!rig) {
-			throw new Error("No rig is loaded");
+		const rig = this.requireRig();
+		const animation = this.findAnimation(rig, name);
+		this.startSequence([animation], loop);
+		rig.framedBox = cachedAnimationBox(rig, animation, loop);
+		this.pose();
+	}
+
+	/**
+	 * Plays several animations one after another and loops the whole run, such as a skill's wind-up, middle and wind-down. The framing is the
+	 * union of every step's framing, so the drawing does not jump between steps. Playback is resumed if it was paused.
+	 *
+	 * @param names The animations' names, in order. A name may repeat.
+	 */
+	playSequence(names: readonly string[]): void {
+		const rig = this.requireRig();
+		const animations = names.map((name) => this.findAnimation(rig, name));
+		if (animations.length === 0) {
+			throw new Error("A sequence needs at least one animation");
 		}
-		const animation = rig.skeleton.data.animations.find((candidate) => candidate.name === name);
-		if (!animation) {
-			throw new Error(`The rig has no animation named ${name}`);
+		this.startSequence(animations, true);
+		let box: View | null = null;
+		for (const animation of new Set(animations)) {
+			box = unionView(box, cachedAnimationBox(rig, animation, animations.length === 1));
 		}
-		this.current = animation;
-		this.loop = loop;
-		this.currentTime = 0;
-		this.isPaused = false;
-		rig.framedBox = animationBox(rig, animation, loop);
+		rig.framedBox = box;
 		this.pose();
 	}
 
@@ -263,7 +308,11 @@ export class SpinePlayer {
 	update(delta: number): void {
 		const animation = this.current;
 		if (animation && !this.isPaused) {
-			this.currentTime = loopTime(animation, this.currentTime + delta * this.speed, this.loop);
+			if (this.sequence.length > 1) {
+				this.advanceSequence(delta * this.speed);
+			} else {
+				this.currentTime = loopTime(animation, this.currentTime + delta * this.speed, this.loop);
+			}
 		}
 		this.pose();
 	}
@@ -293,6 +342,66 @@ export class SpinePlayer {
 		}
 		this.currentTime = loopTime(animation, time, false);
 		this.pose();
+	}
+
+	/**
+	 * The loaded rig, or a throw when none is.
+	 *
+	 * @returns The rig.
+	 */
+	private requireRig(): LoadedRig {
+		if (!this.rig) {
+			throw new Error("No rig is loaded");
+		}
+		return this.rig;
+	}
+
+	/**
+	 * One of the rig's animations by name.
+	 *
+	 * @param rig The loaded rig.
+	 * @param name The animation's name.
+	 * @returns The animation.
+	 */
+	private findAnimation(rig: LoadedRig, name: string): Animation {
+		const animation = rig.skeleton.data.animations.find((candidate) => candidate.name === name);
+		if (!animation) {
+			throw new Error(`The rig has no animation named ${name}`);
+		}
+		return animation;
+	}
+
+	/**
+	 * Starts a run of animations from the first frame of its first step.
+	 *
+	 * @param animations The run, at least one animation.
+	 * @param loop Whether a single animation wraps round. A run of several always loops as a whole.
+	 */
+	private startSequence(animations: Animation[], loop: boolean): void {
+		this.sequence = animations;
+		this.step = 0;
+		this.current = animations[0] ?? null;
+		this.loop = loop;
+		this.currentTime = 0;
+		this.isPaused = false;
+	}
+
+	/**
+	 * Moves through a run of several animations by `elapsed` seconds, carrying the leftover time into the next step and wrapping to the first
+	 * step after the last. A step with no length is passed straight through, and a run where every step has no length stays put.
+	 *
+	 * @param elapsed Seconds of animation to advance.
+	 */
+	private advanceSequence(elapsed: number): void {
+		let time = this.currentTime + elapsed;
+		let passed = 0;
+		while (this.current && time >= this.current.duration && passed < this.sequence.length) {
+			time -= this.current.duration;
+			this.step = (this.step + 1) % this.sequence.length;
+			this.current = this.sequence[this.step] ?? this.current;
+			passed = this.current.duration > 0 ? 0 : passed + 1;
+		}
+		this.currentTime = this.current ? Math.min(time, this.current.duration) : 0;
 	}
 
 	/**
@@ -328,7 +437,8 @@ export class SpinePlayer {
 				skeleton,
 				pageSizes: images.map((image) => ({ width: image.width, height: image.height })),
 				textures: images.map((image) => this.renderer.upload(image)),
-				framedBox: null
+				framedBox: null,
+				boxes: new Map()
 			};
 			this.setSkin(null);
 			this.setToSetupPose();
