@@ -11,15 +11,17 @@ That staged tree is already in published layout - `spine/<id>/<key>/<kind>/` - s
 script. Splitting it that way keeps this script free of a skeleton parser, and lets the animation names be refreshed without
 re-walking the tree.
 
+`--enemies` indexes `spine-enemies/<enemyId>/` instead, flat, into `enemy-spine-index.json`.
+
 Usage:
-    python3 -u tools/assets/build_spine_index.py [--staging PATH]
+    python3 -u tools/assets/build_spine_index.py [--staging PATH] [--enemies]
 """
 
 import argparse
 import json
 import os
 
-from build_manifest import DATA_DIR, load_operator_ids
+from build_manifest import DATA_DIR, load_enemy_ids, load_operator_ids
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -29,6 +31,7 @@ from build_manifest import DATA_DIR, load_operator_ids
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_STAGING_DIR = os.path.join(TOOLS_DIR, ".staging")
 INDEX_PATH = os.path.join(DATA_DIR, "spine-index.json")
+ENEMY_INDEX_PATH = os.path.join(DATA_DIR, "enemy-spine-index.json")
 
 # Must match the field names on `SpineForm` in src/types/spine.ts. Kept in sync by hand since this script deliberately does not import
 # spine_names.py (see the module docstring).
@@ -100,20 +103,59 @@ def build_index(staging_dir, operator_ids):
     return index
 
 
+def build_enemy_index(staging_dir, enemy_ids):
+    """
+    Walk the staged enemy rigs and assemble their index. An enemy has one battle rig and no forms, so the index is flat.
+
+    Args:
+        staging_dir: Root of the staged tree.
+        enemy_ids: Every known enemy variant id.
+
+    Returns:
+        A dict keyed by enemy id, sorted, each value a `read_rig` entry. Enemies whose folder lacks a skeleton or an atlas are left out.
+    """
+    root = os.path.join(staging_dir, "assets", "spine-enemies")
+    index = {}
+    if not os.path.isdir(root):
+        return index
+    for enemy_id in sorted(os.listdir(root)):
+        if enemy_id not in enemy_ids:
+            continue
+        rig = read_rig(os.path.join(root, enemy_id))
+        if rig is not None:
+            index[enemy_id] = rig
+    return index
+
+
+def write_index(path, index):
+    """
+    Write an index compact, on one line, with keys sorted, matching every sibling file under `src/data/`.
+
+    Args:
+        path: The file to write.
+        index: The index.
+    """
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(index, handle, separators=(",", ":"), sort_keys=True)
+        handle.write("\n")
+
+
 def main():
     """Parse arguments, walk the staged tree, write the index, and print the counts."""
     parser = argparse.ArgumentParser(description="Walk the staged Spine tree and write the index the site reads.")
     parser.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
+    parser.add_argument("--enemies", action="store_true", help="Index the enemy rigs into enemy-spine-index.json instead of the operator rigs.")
     args = parser.parse_args()
 
+    if args.enemies:
+        index = build_enemy_index(args.staging, load_enemy_ids())
+        write_index(ENEMY_INDEX_PATH, index)
+        print(f"enemies   {len(index)}")
+        return 0
+
     index = build_index(args.staging, load_operator_ids())
-
-    # Compact, one line, matching every sibling file under `src/data/`.
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(INDEX_PATH, "w", encoding="utf-8") as handle:
-        json.dump(index, handle, separators=(",", ":"), sort_keys=True)
-        handle.write("\n")
-
+    write_index(INDEX_PATH, index)
     forms = sum(len(entry) for entry in index.values())
     rigs = sum(len(form) for entry in index.values() for form in entry.values())
     print(f"operators {len(index)}")
