@@ -163,17 +163,17 @@ export function loadAllEnemies(): Promise<Enemy[]> {
 }
 
 /**
- * Load the group holding one enemy variant, with every variant's details.
+ * Load one enemy group, with every variant's details.
  *
  * The details are split into one file per level, named from the group head's level, so this finds the group first and then fetches only that
  * group's file.
  *
- * @param id Any variant's upstream id, head or not.
- * @returns The group and its variants' details by id, or undefined when no group holds that id.
+ * @param matches Picks the group, such as `enemyGroupMatcher`'s test for a page's route parameter.
+ * @returns The group and its variants' details by id, or undefined when no group matches.
  */
-export async function loadEnemyGroup(id: string): Promise<{ enemy: Enemy; details: Record<string, EnemyDetails> } | undefined> {
+export async function loadEnemyGroup(matches: (enemy: Enemy) => boolean): Promise<{ enemy: Enemy; details: Record<string, EnemyDetails> } | undefined> {
 	const enemies = await loadAllEnemies();
-	const enemy = enemies.find((entry) => entry.variants.some((variant) => variant.id === id));
+	const enemy = enemies.find(matches);
 	if (!enemy) {
 		return undefined;
 	}

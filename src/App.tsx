@@ -8,8 +8,8 @@ import type { NavItem, SearchOption } from "archive-kit";
 
 import { glyphIconUrl } from "./lib/icons.js";
 import { loadEnemySearchIndex, searchIndex } from "./lib/data.js";
-import { enemyPath, operatorPath } from "./lib/routes.js";
-import CanonicalOperatorRoute from "./components/CanonicalOperatorRoute.js";
+import { canonicalEnemyPath, canonicalOperatorPath, enemyPath, operatorPath } from "./lib/routes.js";
+import CanonicalRoute from "./components/CanonicalRoute.js";
 import NotFound404 from "./not_found_404.js";
 import Home from "./pages/home/home.js";
 import Operator from "./pages/operator/operator.js";
@@ -25,6 +25,14 @@ const EnemyPage = lazy(() => import("./pages/enemy/enemy.js"));
 
 /** The dev-only Spine rig lab. Guarded here too, not just at the route, so a production build's tree-shaking drops the import entirely. */
 const SpineLab = import.meta.env.DEV ? lazy(() => import("./pages/spine_lab/spine_lab.js")) : null;
+
+/**
+ * The canonical address for an operator's art viewer.
+ *
+ * @param param The route's `:id` parameter.
+ * @returns The canonical route, or undefined for an unknown operator.
+ */
+const canonicalOperatorArtPath = (param: string | undefined) => canonicalOperatorPath(param, "/art");
 
 /** Path data of MUI's `Home` icon, the house the kit's top bar shows, so the drawer's Home entry matches it. */
 const HOME_GLYPH = "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z";
@@ -86,19 +94,19 @@ export default function App() {
 						<Route
 							path="/operator/:id/art"
 							element={
-								<CanonicalOperatorRoute suffix="/art">
+								<CanonicalRoute canonicalPath={canonicalOperatorArtPath}>
 									<Suspense>
 										<OperatorArt />
 									</Suspense>
-								</CanonicalOperatorRoute>
+								</CanonicalRoute>
 							}
 						/>
 						<Route
 							path="/operator/:id"
 							element={
-								<CanonicalOperatorRoute>
+								<CanonicalRoute canonicalPath={canonicalOperatorPath}>
 									<Operator />
-								</CanonicalOperatorRoute>
+								</CanonicalRoute>
 							}
 						/>
 						{import.meta.env.DEV && SpineLab ? (
@@ -122,9 +130,11 @@ export default function App() {
 						<Route
 							path="/enemy/:id"
 							element={
-								<Suspense>
-									<EnemyPage />
-								</Suspense>
+								<CanonicalRoute canonicalPath={canonicalEnemyPath}>
+									<Suspense>
+										<EnemyPage />
+									</Suspense>
+								</CanonicalRoute>
 							}
 						/>
 						<Route path="/404" element={<NotFound404 />} />

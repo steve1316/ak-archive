@@ -2,30 +2,29 @@ import type { ReactNode } from "react";
 
 import { Navigate, useLocation, useParams } from "react-router-dom";
 
-import { operatorNumber, operatorPath, resolveOperatorParam } from "../lib/routes.js";
-
-/** Props for CanonicalOperatorRoute. */
-interface CanonicalOperatorRouteProps {
-	/** The path under the operator, such as `"/art"`, or empty for the operator page itself. */
-	suffix?: string;
-	/** The page to render once the address is already in its short form. */
+/** Props for CanonicalRoute. */
+interface CanonicalRouteProps {
+	/** Maps the route's `:id` parameter to the page's canonical path, or undefined when it names nothing, which the page shows as a 404. */
+	canonicalPath: (param: string | undefined) => string | undefined;
+	/** The page to render once the address is already canonical. */
 	children: ReactNode;
 }
 
 /**
- * Keeps an operator's address in its short form. A full id such as `char_456_ash`, or a number with leading zeros, is replaced with `/operator/456`,
- * carrying the query string across so a `?skin=` link keeps its form.
+ * Keeps a detail page's address in its canonical short form, such as `/operator/456` for `char_456_ash` or `/enemy/1007` for `/enemy/01007`.
+ * The query string is carried across, so a `?skin=` or `?variant=` link keeps its selection. It runs before the page mounts, so a redirect
+ * never loads the page twice.
  *
  * @param props Component props.
- * @returns A redirect, or `children` when the address is already short.
+ * @returns A redirect, or `children` when the address is already canonical.
  */
-export default function CanonicalOperatorRoute({ suffix = "", children }: CanonicalOperatorRouteProps) {
-	const { id: param } = useParams();
+export default function CanonicalRoute({ canonicalPath, children }: CanonicalRouteProps) {
+	const { id } = useParams();
 	const location = useLocation();
-	const id = resolveOperatorParam(param);
+	const target = canonicalPath(id);
 
-	if (id !== undefined && param !== operatorNumber(id)) {
-		return <Navigate to={`${operatorPath(id, suffix)}${location.search}`} replace />;
+	if (target !== undefined && target !== location.pathname) {
+		return <Navigate to={`${target}${location.search}`} replace />;
 	}
 	return children;
 }

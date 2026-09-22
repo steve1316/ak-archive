@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Box, Paper, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
-import { Navigate, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 
 import { ArtPlaceholder, ENEMY_CARD_ASPECT, LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
 
@@ -11,8 +11,8 @@ import type { StageRequest } from "../../components/AnimationsCard.js";
 import RecordBlock from "../../components/RecordBlock.js";
 import { enemyIconUrl, hasEnemyIcon } from "../../lib/assets.js";
 import { loadEnemyGroup } from "../../lib/data.js";
-import { HERO_ROW_SX, PAGE_SX, SECTION_HEADING_SX, SECTION_SX, STATS_ROW_SX, TIGHT_RADIUS } from "../../lib/layout.js";
-import { enemyPath, enemySlug, resolveEnemySlug, VARIANT_PARAM } from "../../lib/routes.js";
+import { HERO_ROW_SX, PAGE_SX, SECTION_HEADING_SX, SECTION_SX, STATS_ROW_STRETCH_SX, STATS_SIDE_COLUMN_SX, TIGHT_RADIUS } from "../../lib/layout.js";
+import { enemyNumber, VARIANT_PARAM, variantFromKey, variantKey } from "../../lib/routes.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Enemy, EnemyDetails } from "../../types/enemy.js";
 import type { HandbookRecord } from "../../types/operator.js";
@@ -60,14 +60,14 @@ function recordOf(details: EnemyDetails): HandbookRecord {
 /**
  * The enemy detail page: the same two rows as the operator page, then the handbook's lore.
  *
- * A group's variants share one page. The selected variant lives in the query string as `?variant=`, as the operator page keeps its form in
- * `?skin=`, and switching replaces the history entry. A link straight to a variant's own id, such as `/enemy/1007_slime_2`, is sent to its
- * group's page with that variant selected.
+ * A group's page is `/enemy/<number>`, the head's number, such as `/enemy/1007`. The selected variant lives in the query string by the number
+ * its id adds, such as `?variant=2` for Originium Slug α, as the operator page keeps its form in `?skin=`, and switching replaces the history
+ * entry. `CanonicalRoute` has already put the address in that short form before this page mounts.
  *
  * @returns The page.
  */
 export default function EnemyPage() {
-	const id = resolveEnemySlug(useParams().id);
+	const param = useParams().id;
 	const [searchParams, setSearchParams] = useSearchParams();
 
 	const [group, setGroup] = useState<{ enemy: Enemy; details: Record<string, EnemyDetails> } | null>(null);
@@ -78,7 +78,7 @@ export default function EnemyPage() {
 	const [level, setLevel] = useState(0);
 
 	useEffect(() => {
-		if (!id) {
+		if (!param) {
 			setMissing(true);
 			return;
 		}
@@ -86,7 +86,7 @@ export default function EnemyPage() {
 		setGroup(null);
 		setMissing(false);
 		setError(false);
-		loadEnemyGroup(id).then(
+		loadEnemyGroup((enemy) => enemyNumber(enemy.id) === param).then(
 			(loaded) => {
 				if (!active) {
 					return;
@@ -106,10 +106,10 @@ export default function EnemyPage() {
 		return () => {
 			active = false;
 		};
-	}, [id, attempt]);
+	}, [param, attempt]);
 
 	// The selected variant: the query string's, when it names one of this group's, otherwise the head, which the importer always lists first.
-	const requested = resolveEnemySlug(searchParams.get(VARIANT_PARAM));
+	const requested = group ? variantFromKey(group.enemy.id, searchParams.get(VARIANT_PARAM)) : undefined;
 	const variant = group?.enemy.variants.find((entry) => entry.id === requested) ?? group?.enemy.variants[0];
 	const details = variant ? group?.details[variant.id] : undefined;
 	// A level past the new variant's last falls back to level 0 in this same render, rather than an effect that resets it after paint.
@@ -122,10 +122,11 @@ export default function EnemyPage() {
 			setSearchParams(
 				(current) => {
 					const params = new URLSearchParams(current);
-					if (next === group?.enemy.id) {
+					const key = group ? variantKey(group.enemy.id, next) : null;
+					if (key === null) {
 						params.delete(VARIANT_PARAM);
 					} else {
-						params.set(VARIANT_PARAM, enemySlug(next));
+						params.set(VARIANT_PARAM, key);
 					}
 					return params;
 				},
@@ -143,10 +144,6 @@ export default function EnemyPage() {
 
 	if (missing) {
 		return <NotFound404 />;
-	}
-	// A variant's own id opens its group's page with it selected.
-	if (group && id && id !== group.enemy.id) {
-		return <Navigate to={enemyPath(group.enemy.id, id)} replace />;
 	}
 
 	return (
@@ -178,19 +175,19 @@ export default function EnemyPage() {
 							</Box>
 							<AnimationsCard key={group.enemy.id} interactive battleOnly renderStage={renderStage} />
 						</Box>
-						<Box sx={STATS_ROW_SX}>
+						<Box sx={STATS_ROW_STRETCH_SX}>
 							<EnemyStatsPanel levels={details.levels} level={shownLevel} onLevelChange={setLevel} />
-							<EnemyAbilitiesCard abilities={details.abilities} />
-						</Box>
-						<Box sx={{ mt: 2 }}>
-							<Paper variant="outlined" sx={SECTION_SX}>
-								<Typography variant="h6" component="h2" sx={SECTION_HEADING_SX}>
-									Handbook
-								</Typography>
-								<Typography component="p" sx={LORE_SX}>
-									{details.lore}
-								</Typography>
-							</Paper>
+							<Box sx={STATS_SIDE_COLUMN_SX}>
+								<EnemyAbilitiesCard abilities={details.abilities} />
+								<Paper variant="outlined" sx={SECTION_SX}>
+									<Typography variant="h6" component="h2" sx={SECTION_HEADING_SX}>
+										Handbook
+									</Typography>
+									<Typography component="p" sx={LORE_SX}>
+										{details.lore}
+									</Typography>
+								</Paper>
+							</Box>
 						</Box>
 					</>
 				) : (
