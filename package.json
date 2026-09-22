@@ -12,7 +12,8 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"import": "node tools/data/import.mjs",
-		"check": "node tools/data/check.mjs"
+		"check": "node tools/data/check.mjs",
+		"data:dates": "node tools/data/dates.mjs"
 	},
 	"dependencies": {
 		"@emotion/react": "^11.14.0",
