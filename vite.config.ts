@@ -19,10 +19,13 @@ const BASE = process.env.VITE_BASE ?? "/ak-archive/";
 const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Where the offline pipeline stages Spine rig files for local development, as `.skel`, `.atlas` and `.png` per operator, form and kind. Never
- * bundled: the dev-only rig lab reads it through the middleware below.
+ * The dev routes that serve staged Spine rigs straight from the offline pipeline's staging folder: operator rigs under `__spine/` and enemy
+ * rigs under `__spine-enemies/`. Never bundled.
  */
-const SPINE_STAGING_ROOT = path.join(REPO_ROOT, "tools/assets/.staging/assets/spine");
+const SPINE_STAGING_ROUTES: ReadonlyArray<{ prefix: string; root: string }> = [
+	{ prefix: "__spine/", root: path.join(REPO_ROOT, "tools/assets/.staging/assets/spine") },
+	{ prefix: "__spine-enemies/", root: path.join(REPO_ROOT, "tools/assets/.staging/assets/spine-enemies") }
+];
 
 /** Content type served for each staged Spine file extension. */
 const SPINE_CONTENT_TYPES: Record<string, string> = {
@@ -32,14 +35,15 @@ const SPINE_CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
- * Resolves one staged Spine file under `SPINE_STAGING_ROOT` and writes it to the response. Answers 403 for a path that resolves outside
- * the staging folder and 404 for one that does not exist.
+ * Resolves one staged Spine file under `root` and writes it to the response. Answers 403 for a path that resolves outside the staging
+ * folder and 404 for one that does not exist.
  *
- * @param rawPath The request path after the `__spine/` prefix, still URL-encoded and possibly carrying a query string.
+ * @param root The staging folder this route serves.
+ * @param rawPath The request path after the route's prefix, still URL-encoded and possibly carrying a query string.
  * @param res The response to write to.
  * @param headOnly True for a HEAD request, which gets the same status and headers but no body.
  */
-async function serveStagedSpineFile(rawPath: string, res: ServerResponse, headOnly: boolean): Promise<void> {
+async function serveStagedSpineFile(root: string, rawPath: string, res: ServerResponse, headOnly: boolean): Promise<void> {
 	let relative: string;
 	try {
 		relative = decodeURIComponent(rawPath.split("?")[0] ?? "");
@@ -48,8 +52,8 @@ async function serveStagedSpineFile(rawPath: string, res: ServerResponse, headOn
 		res.end("Bad request");
 		return;
 	}
-	const resolved = path.resolve(SPINE_STAGING_ROOT, relative);
-	if (resolved !== SPINE_STAGING_ROOT && !resolved.startsWith(SPINE_STAGING_ROOT + path.sep)) {
+	const resolved = path.resolve(root, relative);
+	if (resolved !== root && !resolved.startsWith(root + path.sep)) {
 		res.statusCode = 403;
 		res.end("Forbidden");
 		return;
@@ -65,8 +69,9 @@ async function serveStagedSpineFile(rawPath: string, res: ServerResponse, headOn
 }
 
 /**
- * Dev-only middleware serving staged Spine rig files under `<base>__spine/`, straight from the offline pipeline's staging folder. The
- * `apply: "serve"` guard keeps this out of `vite build` entirely, so a production build never touches the staging folder.
+ * Dev-only middleware serving staged Spine rig files under `<base>__spine/` and `<base>__spine-enemies/`, straight from the offline
+ * pipeline's staging folder. The `apply: "serve"` guard keeps this out of `vite build` entirely, so a production build never touches the
+ * staging folder.
  *
  * @returns The Vite plugin.
  */
@@ -75,14 +80,14 @@ function spineStagingPlugin(): Plugin {
 		name: "spine-staging",
 		apply: "serve",
 		configureServer(server) {
-			const prefix = `${server.config.base}__spine/`;
 			server.middlewares.use((req, res, next) => {
 				const method = req.method ?? "";
-				if (!req.url || (method !== "GET" && method !== "HEAD") || !req.url.startsWith(prefix)) {
+				const route = req.url && (method === "GET" || method === "HEAD") ? SPINE_STAGING_ROUTES.find((entry) => req.url?.startsWith(`${server.config.base}${entry.prefix}`)) : undefined;
+				if (!route || !req.url) {
 					next();
 					return;
 				}
-				void serveStagedSpineFile(req.url.slice(prefix.length), res, method === "HEAD");
+				void serveStagedSpineFile(route.root, req.url.slice(`${server.config.base}${route.prefix}`.length), res, method === "HEAD");
 			});
 		}
 	};

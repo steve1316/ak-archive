@@ -36,3 +36,6 @@ export type SpineEntry = Record<string, SpineForm>;
 
 /** The generated `spine-index.json`, keyed by operator id. */
 export type SpineIndex = Record<string, SpineEntry>;
+
+/** The generated `enemy-spine-index.json`, keyed by enemy variant id. An enemy has one battle rig and no forms. */
+export type EnemySpineIndex = Record<string, SpineRig>;
