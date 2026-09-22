@@ -13,7 +13,7 @@
  * one that runs on real data.
  *
  * Usage:
- *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry]
+ *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation]
  *
  * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--survey` also prints
  * how many rigs use each feature and how many each planned stage would draw in full. `--geometry` also turns every rig's setup pose into
@@ -23,6 +23,12 @@
  * fails unless the drawn box sits inside the declared one, which hidden or other-skin attachments can widen. A rig that declares no bounds,
  * or draws nothing in its setup pose, is counted as unscored. It also checks UV orientation: the packer strips whitespace down to a mesh's
  * hull, so a stripped mesh's hull, mapped to page pixels, should meet every edge of its packed box.
+ *
+ * `--animation` plays every animation of every rig with `src/spine/animation.ts`. Each is sampled at `ANIMATION_SAMPLES` evenly spaced
+ * times from 0 to its duration: reset to the setup pose, apply, update and build triangles. Every position, UV and color must be finite,
+ * every color channel must be in [0, 1], and the draw order must be a permutation of the slots. Every color and two-color key must also
+ * show its own color at its time, and every linear color segment a straight blend a quarter of the way along. It prints the frame time
+ * (median and p99 for apply, update and triangles) and how many two-color timelines drive a slot with no dark color.
  */
 
 import fs from "node:fs";
@@ -41,7 +47,7 @@ const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
 const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry]  (scans <staging>/assets/spine)";
+const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation]  (scans <staging>/assets/spine)";
 
 /** Lowest intersection-over-union between a rig's drawn and declared setup bounds before `--geometry` fails it. */
 const MIN_IOU = 0.5;
@@ -78,6 +84,15 @@ const DEFORMABLE_TYPES = new Set(["mesh", "linkedmesh", "boundingbox", "path", "
 
 /** Attachment types that draw from an atlas region, keyed by their `path` (or their own name when `path` is null). */
 const REGION_LIKE_TYPES = new Set(["region", "mesh", "linkedmesh"]);
+
+/** How many evenly spaced times `--animation` samples in each animation, the first at 0 and the last at its duration. */
+const ANIMATION_SAMPLES = 8;
+
+/** Largest difference `--animation` allows between a sampled color channel and the key or blend it should equal. */
+const COLOR_TOLERANCE = 1e-5;
+
+/** How many failures `--animation` prints per rig before it only counts them. */
+const ANIMATION_PROBLEMS_SHOWN = 3;
 
 /** The 8-byte signature every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -614,6 +629,209 @@ function checkHullFits(data, skeleton, atlas, pageSizes, geometryModule) {
 }
 
 /**
+ * Checks one color is finite with every channel in [0, 1].
+ *
+ * @param {{ r: number, g: number, b: number, a: number }} color The color.
+ * @returns {boolean} True when the color is sound.
+ */
+function isUnitColor(color) {
+	return [color.r, color.g, color.b, color.a].every((channel) => channel >= 0 && channel <= 1);
+}
+
+/**
+ * Checks a posed skeleton and its triangle lists after one animation sample.
+ *
+ * @param {object} skeleton The live skeleton, posed.
+ * @param {object[]} lists The triangle lists built for it.
+ * @param {Uint8Array} seen Scratch with one entry per slot, all 0. It is left all 0.
+ * @returns {string | null} A message for the first problem, or null when the frame is sound.
+ */
+function checkAnimationFrame(skeleton, lists, seen) {
+	const { slots, drawOrder } = skeleton;
+	let problem = drawOrder.length === slots.length ? null : `draw order has ${drawOrder.length} slots, not ${slots.length}`;
+	for (let i = 0; i < drawOrder.length && problem === null; i++) {
+		const slot = drawOrder[i];
+		if (!slot || slots[slot.index] !== slot || seen[slot.index] === 1) {
+			problem = `draw order is not a permutation of the slots (place ${i})`;
+		} else {
+			seen[slot.index] = 1;
+		}
+	}
+	seen.fill(0);
+	for (let i = 0; i < slots.length && problem === null; i++) {
+		const slot = slots[i];
+		if (!isUnitColor(slot.color) || (slot.darkColor && !isUnitColor(slot.darkColor))) {
+			problem = `slot "${slot.data.name}" has a color channel outside [0, 1]`;
+		}
+	}
+	for (let i = 0; i < lists.length && problem === null; i++) {
+		const list = lists[i];
+		const listProblem = checkTriangleList(list);
+		if (listProblem) {
+			problem = `slot "${slots[list.slotIndex].data.name}": ${listProblem}`;
+		} else if (!isUnitColor(list.color) || (list.darkColor && !isUnitColor(list.darkColor))) {
+			problem = `slot "${slots[list.slotIndex].data.name}": a triangle color channel is outside [0, 1]`;
+		}
+	}
+	return problem;
+}
+
+/**
+ * Checks two colors match within `COLOR_TOLERANCE`. The expected color is clamped to [0, 1] first, as the runtime clamps.
+ *
+ * @param {{ r: number, g: number, b: number, a: number }} expected The color the slot should hold.
+ * @param {{ r: number, g: number, b: number, a: number }} actual The slot's color.
+ * @param {boolean} withAlpha True to compare alpha too.
+ * @returns {boolean} True when every compared channel matches.
+ */
+function colorMatches(expected, actual, withAlpha) {
+	const channels = withAlpha ? ["r", "g", "b", "a"] : ["r", "g", "b"];
+	return channels.every((channel) => Math.abs(Math.min(1, Math.max(0, expected[channel])) - actual[channel]) <= COLOR_TOLERANCE);
+}
+
+/**
+ * Blends two colors in a straight line, independently of the runtime.
+ *
+ * @param {{ r: number, g: number, b: number, a: number }} from The color at fraction 0.
+ * @param {{ r: number, g: number, b: number, a: number }} to The color at fraction 1.
+ * @param {number} fraction How far from `from` toward `to`.
+ * @returns {{ r: number, g: number, b: number, a: number }} The blended color.
+ */
+function lerpColor(from, to, fraction) {
+	const at = (channel) => from[channel] + (to[channel] - from[channel]) * fraction;
+	return { r: at("r"), g: at("g"), b: at("b"), a: at("a") };
+}
+
+/**
+ * Checks the color and two-color timelines of one animation against their keys, so a blend run backwards cannot pass. Each timeline is
+ * applied on its own. At every key time the slot must hold that key's color, and a quarter of the way along every linear segment it must
+ * hold a straight blend of the two keys. The dark color's alpha is not compared, since it is unused. Keys are compared only in timelines
+ * with one sorted run, and only when no other key shares their time, because otherwise another key wins at that time.
+ *
+ * @param {object} skeleton The live skeleton. Its slot colors are left changed.
+ * @param {object} animation The animation.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @param {object} stats The accumulator. `colorKeys` and `colorSegments` count what was compared.
+ * @returns {string | null} A message for the first mismatch, or null when every compared color matches.
+ */
+function checkColorKeys(skeleton, animation, animationModule, stats) {
+	for (const timeline of animation.timelines) {
+		if (timeline.type !== "color" && timeline.type !== "twoColor") {
+			continue;
+		}
+		const { times, curves } = timeline;
+		if (times.some((time, index) => index > 0 && time < times[index - 1])) {
+			continue;
+		}
+		const slot = skeleton.slots[timeline.slotIndex];
+		const lights = timeline.type === "color" ? timeline.colors : timeline.lights;
+		const darks = timeline.type === "twoColor" && slot.darkColor ? timeline.darks : null;
+		const alone = { name: animation.name, duration: animation.duration, timelines: [timeline] };
+		const holds = (time, light, dark) => {
+			animationModule.applyAnimation(skeleton, alone, time);
+			return colorMatches(light, slot.color, true) && (!dark || colorMatches(dark, slot.darkColor, false));
+		};
+		for (let index = 0; index < times.length; index++) {
+			const time = times[index];
+			if (times[index - 1] !== time && times[index + 1] !== time) {
+				stats.colorKeys++;
+				if (!holds(time, lights[index], darks?.[index])) {
+					return `slot "${slot.data.name}" ${timeline.type} key ${index} at ${time}: color does not equal the key`;
+				}
+			}
+			const next = times[index + 1];
+			if (index + 1 < times.length && next > time && curves[index] === "linear") {
+				stats.colorSegments++;
+				const dark = darks ? lerpColor(darks[index], darks[index + 1], 0.25) : null;
+				if (!holds(time + (next - time) * 0.25, lerpColor(lights[index], lights[index + 1], 0.25), dark)) {
+					return `slot "${slot.data.name}" ${timeline.type} key ${index}: color a quarter of the way to the next key is not a straight blend`;
+				}
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * Plays every animation of one rig at `ANIMATION_SAMPLES` times and checks each frame. The rig shows the skin `defaultSkinName` picks.
+ * Only the apply, update and triangle building are timed. A throw counts as a failed sample. Each animation's color keys are then checked
+ * with `checkColorKeys`.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} atlas The parsed atlas beside it.
+ * @param {{ width: number, height: number }[]} pageSizes Each atlas page's real PNG size.
+ * @param {object} modules The loaded `skeleton.ts`, `geometry.ts` and `animation.ts` modules, as `skeleton`, `geometry` and `animation`.
+ * @param {object} stats The accumulator: `animations` and `samples` counts, `frameMicros` (one time per sample), `twoColorWithoutDark`, and
+ *   the `colorKeys` and `colorSegments` that `checkColorKeys` counts.
+ * @returns {string[]} The first `ANIMATION_PROBLEMS_SHOWN` problems, then a count of the rest.
+ */
+function checkRigAnimations(data, atlas, pageSizes, modules, stats) {
+	const skeleton = new modules.skeleton.Skeleton(data);
+	skeleton.setSkin(modules.skeleton.defaultSkinName(data));
+	const seen = new Uint8Array(skeleton.slots.length);
+	const problems = [];
+	let hidden = 0;
+	const report = (message) => {
+		if (problems.length < ANIMATION_PROBLEMS_SHOWN) {
+			problems.push(message);
+		} else {
+			hidden++;
+		}
+	};
+	for (const animation of data.animations) {
+		stats.animations++;
+		for (const timeline of animation.timelines) {
+			if (timeline.type === "twoColor" && data.slots[timeline.slotIndex].darkColor === null) {
+				stats.twoColorWithoutDark++;
+			}
+		}
+		for (let sample = 0; sample < ANIMATION_SAMPLES; sample++) {
+			const time = (animation.duration * sample) / (ANIMATION_SAMPLES - 1);
+			stats.samples++;
+			let problem;
+			try {
+				const start = process.hrtime.bigint();
+				skeleton.setToSetupPose();
+				modules.animation.applyAnimation(skeleton, animation, time);
+				skeleton.updateWorldTransform();
+				const lists = modules.geometry.skeletonTriangles(skeleton, atlas, pageSizes);
+				stats.frameMicros.push(Number(process.hrtime.bigint() - start) / 1000);
+				problem = checkAnimationFrame(skeleton, lists, seen);
+			} catch (error) {
+				problem = `threw ${error.message}`;
+				seen.fill(0);
+			}
+			if (problem !== null) {
+				report(`animation "${animation.name}" at ${time.toFixed(4)}: ${problem}`);
+			}
+		}
+		const colorProblem = checkColorKeys(skeleton, animation, modules.animation, stats);
+		if (colorProblem !== null) {
+			report(`animation "${animation.name}": ${colorProblem}`);
+		}
+	}
+	if (hidden > 0) {
+		problems.push(`and ${hidden} more failures`);
+	}
+	return problems;
+}
+
+/**
+ * Prints the `--animation` summary line.
+ *
+ * @param {object} stats The accumulator `checkRigAnimations` filled, plus `rigs` and `failed` counts and `seconds` of wall time.
+ */
+function printAnimation(stats) {
+	const sorted = Float64Array.from(stats.frameMicros).sort();
+	console.log(
+		`Animation: ${stats.rigs} rigs, ${stats.animations} animations, ${stats.samples} samples, frame median ${quantile(sorted, 0.5).toFixed(1)} us, ` +
+			`p99 ${quantile(sorted, 0.99).toFixed(1)} us, max ${quantile(sorted, 1).toFixed(1)} us, ${stats.twoColorWithoutDark} two-color timelines on slots ` +
+			`without a dark color, ${stats.colorKeys} color keys and ${stats.colorSegments} linear color segments compared, ${stats.failed} rigs failed, ` +
+			`${stats.seconds.toFixed(1)} s`
+	);
+}
+
+/**
  * Picks the value at a fraction of the way through a sorted list.
  *
  * @param {number[]} sorted The values, ascending.
@@ -830,6 +1048,7 @@ async function main() {
 	}
 	const wantSurvey = process.argv.includes("--survey");
 	const wantGeometry = process.argv.includes("--geometry");
+	const wantAnimation = process.argv.includes("--animation");
 
 	const server = await startVite();
 	let survey = null;
@@ -844,13 +1063,15 @@ async function main() {
 	const atlasByKey = new Map();
 	const pageSizesByKey = new Map();
 	const geometry = { rigs: [], lists: 0, triangles: 0, failed: 0, namedSkinRigs: 0, hullResults: [], hullFit: null };
+	const animation = { rigs: 0, animations: 0, samples: 0, frameMicros: [], twoColorWithoutDark: 0, colorKeys: 0, colorSegments: 0, failed: 0, seconds: 0 };
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
 		const featuresModule = wantSurvey ? await server.ssrLoadModule("/src/spine/features.ts") : null;
 		survey = featuresModule ? createSurvey(featuresModule) : null;
-		const skeletonModule = wantGeometry ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
-		const geometryModule = wantGeometry ? await server.ssrLoadModule("/src/spine/geometry.ts") : null;
+		const skeletonModule = wantGeometry || wantAnimation ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
+		const geometryModule = wantGeometry || wantAnimation ? await server.ssrLoadModule("/src/spine/geometry.ts") : null;
+		const animationModule = wantAnimation ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
 
 		for (const file of atlasFiles) {
 			const shown = shownPath(file);
@@ -938,7 +1159,7 @@ async function main() {
 				}
 				result.problems.push(...checkAttachmentRegions(data, regionNames));
 				const pageSizes = pageSizesByKey.get(pairingKey(file));
-				if (geometryModule && pageSizes.length === atlas.pages.length) {
+				if (wantGeometry && pageSizes.length === atlas.pages.length) {
 					const rig = checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule);
 					geometry.rigs.push({ shown, iou: rig.iou, constrained: rig.constrained, verdict: rig.verdict, uvWarnings: rig.uvWarnings });
 					geometry.lists += rig.lists;
@@ -948,6 +1169,17 @@ async function main() {
 					if (rig.problems.length > 0) {
 						geometry.failed++;
 						result.problems.push(...rig.problems.map((problem) => `geometry: ${problem}`));
+					}
+				}
+				if (animationModule && pageSizes.length === atlas.pages.length) {
+					const start = performance.now();
+					const modules = { skeleton: skeletonModule, geometry: geometryModule, animation: animationModule };
+					const problems = checkRigAnimations(data, atlas, pageSizes, modules, animation);
+					animation.seconds += (performance.now() - start) / 1000;
+					animation.rigs++;
+					if (problems.length > 0) {
+						animation.failed++;
+						result.problems.push(...problems.map((problem) => `animation: ${problem}`));
 					}
 				}
 			} else {
@@ -978,6 +1210,9 @@ async function main() {
 	if (wantGeometry) {
 		geometry.hullFit = judgeHullFit(geometry.hullResults);
 		printGeometry(geometry);
+	}
+	if (wantAnimation) {
+		printAnimation(animation);
 	}
 	const hullFailed = wantGeometry && !geometry.hullFit.passed;
 	process.exit(failed > 0 || atlasFailed > 0 || hullFailed ? 1 : 0);

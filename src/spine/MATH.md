@@ -228,9 +228,12 @@ null when the slot has none. The renderer ignores the dark color for now and dra
 
 ## Animation
 
-`animation.ts` samples an animation at a time and writes each bone's local transform. The JSON format page's "Bone timelines" section
-describes each key's value (https://esotericsoftware.com/spine-json-format). The binary format stores the same values. The maths gate pins
-every rule below with a case.
+`animation.ts` samples an animation at a time and writes each bone's local transform, each slot's attachment and colors, and the draw order.
+The JSON format page's bone timeline, slot timeline and draw order sections describe each key's value
+(https://esotericsoftware.com/spine-json-format). The binary format stores the same values. The maths gate pins every rule below with a case.
+
+A frame is: `setToSetupPose`, then `applyAnimation` applying every timeline in file order, then `updateWorldTransform`. When two timelines
+write the same value, the later one wins.
 
 ### Curves
 
@@ -259,7 +262,7 @@ Each key's curve runs from that key to the next, so a timeline with `n` keys has
 - **Before the first key** the timeline does not apply, and the bone keeps its setup value. 24,500 timelines in the corpus start after
   0. The page is silent. **Confirm against PRTS.**
 - **After the last key** of a run, that key's value holds.
-- The run starts are worked out once per key-time array and cached, so `applyAnimation` allocates nothing per call.
+- The run starts are worked out once per key-time array and cached.
 
 ### Bone timelines
 
@@ -290,6 +293,65 @@ Each timeline writes its bone's local value from the setup value, so sampling tw
 `loopTime` maps a play time onto the animation: `time mod duration` when looping, `min(time, duration)` when not, and 0 when the duration
 is 0. 2,773 of 23,190 staged animations have duration 0. `Animation.duration` is the largest key time, since the binary format stores none.
 
+### Slot timelines
+
+| Timeline | Page says | Rule here |
+|---|---|---|
+| attachment | the key names "the attachment to set for the slot", with no curve attribute | `setAttachment(slot, name)`, always stepped |
+| color | the key holds "the color to set for the slot", with a curve | the blended key color replaces `slot.color` |
+| twoColor | the key holds "the light color" and "the dark color" to set, with a curve | light replaces `slot.color`, dark replaces `slot.darkColor` |
+
+- **Attachment is stepped.** The page gives attachment keys no curve, so a key holds until the next. A null name (984,530 of 3,039,474
+  keys in the corpus) clears the slot. The page does not mention a null name. A name that neither the active skin nor the default skin
+  has also clears it, as `setAttachment` does.
+- **Color replaces.** "The color to set" reads as a replace, not a multiply of the setup color. Channels blend one by one along the curve,
+  the same way bone values do, and are written into the slot's own color objects in place.
+- **Channels are clamped to [0, 1].** The page says a slot curve's y runs "from 0 to 1", but 62 of 104,118 color and two-color beziers in
+  the corpus have a control y outside it, and 26 of those take a channel outside [0, 1], by up to 0.023 (chyue's battle `Skill_3`, slot 8
+  alpha). A color channel past either end has no meaning, so it is clamped. The page is silent on this, so it is this runtime's choice.
+- **The dark alpha is unused.** Two-color keys write only the dark RGB. The dark alpha keeps the setup value (see `FORMAT-3.8.md`, point 6).
+- **Two-color on a slot with no dark color** writes the light color and ignores the dark keys. The page is silent. The corpus has none:
+  the `--animation` gate counts 0 of 16,646 two-color timelines on such a slot.
+- **Before the first key** the setup attachment or color stays, as for bones. Attachment and color timelines are where the sorted runs of
+  keys occur, and the key search rule above covers them.
+
+### Draw order
+
+The page says each key lists slots with "the number of draw order entries to shift the specified slot relative to its setup pose draw
+order index", and that a key with no offsets "will set the draw order to the setup pose draw order". Offsets are signed (see
+`FORMAT-3.8.md`, point 7).
+
+- Draw order keys are always stepped. The page gives them no curve. Before the first key the setup order stays.
+- A key with no changes (12,859 of 49,102 keys in the corpus) writes the setup order.
+- Otherwise each changed slot goes to place `slotIndex + offset`. The unchanged slots then fill the free places from the front, in their
+  setup order. The page is silent on how the unchanged slots fill in, so this is this runtime's choice. **Confirm against PRTS.**
+- A key that moves a slot twice, out of range, or onto a taken place would not give a permutation. It writes the setup order instead. The
+  corpus has no such key.
+- The order is written into `skeleton.drawOrder` in place, with work arrays kept per skeleton.
+
+### Allocation
+
+`applyAnimation` allocates nothing per call once each timeline and skeleton has been seen. That holds whether or not V8 inlines its
+helpers. The eased fraction is kept in a `Float64Array`, which stores a double in place. A module `let` would box a new number on each
+write. No helper in the hot path returns a number: the bezier search writes its result into that array, and the bone blends are written
+out where they are used. Colors are written into the slot's own color objects. Measured with gc between rounds of 5,000 calls, dusk
+`nian_12` dorm `Special` and SilverAsh base battle `Idle` both settle at 16 to 17 bytes per call, the harness's own floor, with and without
+`--no-concurrent-recompilation`.
+
+| Slots | Changes | Order |
+|---|---|---|
+| 4 | slot 3, offset -2 | 0, 3, 1, 2 |
+| 4 | slot 0, offset 2 | 1, 2, 0, 3 |
+| 4 | none | 0, 1, 2, 3 |
+
+### Corpus check
+
+`check_spine_rigs.mjs --animation` samples every animation of every staged rig at 8 evenly spaced times from 0 to its duration. Each frame
+must have finite positions, UVs and colors, every color channel in [0, 1], and a draw order that is a permutation of the slots. Each color
+and two-color timeline is also applied on its own. At each key time the slot must show that key's color. A quarter of the way along each
+linear segment it must show a straight blend of the two keys, so a blend run backwards fails. Keys that share a time, and timelines with
+more than one sorted run, are skipped.
+
 ### Not applied yet
 
-Slot and draw order timelines are skipped for now, and so are constraint, deform and event timelines.
+Constraint, deform and event timelines are skipped for now.

@@ -51,6 +51,8 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
 - https://esotericsoftware.com/spine-json-format - read again for animation: the "Bone timelines" section, which gives each rotate,
   translate, scale and shear key as a value relative to the setup pose with its default when omitted, and the slot and deform sections'
   curve text, where a bezier's X is the fraction of time between two keys and its Y the fraction of the difference between their values.
+  Also its "Slot timelines" section (attachment, color and twoColor keys, each a value "to set" for the slot) and its "Draw order timeline"
+  section (signed offsets from the setup pose draw order index, and a key without offsets restoring the setup order).
   `MATH.md` ("Animation") records each rule and the corpus measurements that back the ones the page leaves open.
 - Any other method or helper name in `src/spine/` (for example `localToWorld`, `slotTriangles`, `fitView`, `refit` and `defaultSkinName`)
   is this runtime's own choice. Type names such as `Bone`, `Slot`, `Skin` and `Attachment` are the user guide's own terms.

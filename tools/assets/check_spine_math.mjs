@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
- * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, and `src/spine/animation.ts` curves, key search
- * and bone timelines against hand-worked values. `MATH.md` explains each formula the cases pin down.
+ * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, and `src/spine/animation.ts` curves, key search,
+ * bone, slot and draw order timelines against hand-worked values. `MATH.md` explains each formula the cases pin down.
  *
  * Usage:
  *     node tools/assets/check_spine_math.mjs
@@ -622,6 +622,42 @@ function rgba(color) {
 }
 
 /**
+ * Runs labelled cases and prints one line each. A case returns `[expected, actual]`. Arrays compare within `TOLERANCE` item by item, numbers
+ * within `TOLERANCE`, and anything else by identity.
+ *
+ * @param {string} section The name printed before each label.
+ * @param {[string, () => [unknown, unknown]][]} cases The cases, each a label and a function giving the expected and actual values.
+ * @returns {string[]} One failure message per mismatch or throw.
+ */
+function runCases(section, cases) {
+	const failures = [];
+	for (const [label, run] of cases) {
+		let problem = null;
+		try {
+			const [expected, actual] = run();
+			let ok;
+			if (Array.isArray(expected)) {
+				ok = Array.isArray(actual) && actual.length === expected.length && close(expected, actual);
+			} else if (typeof expected === "number") {
+				ok = typeof actual === "number" && Math.abs(expected - actual) <= TOLERANCE;
+			} else {
+				ok = expected === actual;
+			}
+			if (!ok) {
+				problem = `expected ${shownValue(expected)}, got ${shownValue(actual)}`;
+			}
+		} catch (error) {
+			problem = `threw ${error.message}`;
+		}
+		console.log(`${problem === null ? "ok  " : "FAIL"} ${section}: ${label}`);
+		if (problem !== null) {
+			failures.push(`${section}: ${label} ${problem}`);
+		}
+	}
+	return failures;
+}
+
+/**
  * Checks a slot's live state: its color and dark color reset from the data, `setAttachment` looks names up, and the triangle lists follow
  * the live colors rather than the setup ones.
  *
@@ -720,24 +756,7 @@ function checkSlotState(skeletonModule, geometryModule) {
 		]
 	];
 
-	const failures = [];
-	for (const [label, run] of cases) {
-		let problem = null;
-		try {
-			const [expected, actual] = run();
-			const ok = Array.isArray(expected) ? Array.isArray(actual) && actual.length === expected.length && close(expected, actual) : expected === actual;
-			if (!ok) {
-				problem = `expected ${shownValue(expected)}, got ${shownValue(actual)}`;
-			}
-		} catch (error) {
-			problem = `threw ${error.message}`;
-		}
-		console.log(`${problem === null ? "ok  " : "FAIL"} slot state: ${label}`);
-		if (problem !== null) {
-			failures.push(`slot state: ${label} ${problem}`);
-		}
-	}
-	return failures;
+	return runCases("slot state", cases);
 }
 
 /**
@@ -803,23 +822,106 @@ function checkAnimation(skeletonModule, animationModule) {
 		["after the last key its value holds", () => [12, pose({ x: 5 }, boneTimeline("translate", [3, 7]), 4).x]]
 	];
 
-	const failures = [];
-	for (const [label, run] of cases) {
-		let problem = null;
-		try {
-			const [expected, actual] = run();
-			if (typeof actual !== "number" || !(Math.abs(expected - actual) <= TOLERANCE)) {
-				problem = `expected ${expected}, got ${actual}`;
-			}
-		} catch (error) {
-			problem = `threw ${error.message}`;
-		}
-		console.log(`${problem === null ? "ok  " : "FAIL"} animation: ${label}`);
-		if (problem !== null) {
-			failures.push(`animation: ${label} ${problem}`);
-		}
+	return runCases("animation", cases);
+}
+
+/**
+ * Samples one animation on a 4-slot rig on a single bone. Every slot shows `a` in its setup pose and can also show `b`. Slot 0 has a setup
+ * color of (0.2, 0.4, 0.6, 0.8) and slot 1 a setup dark color of (0.1, 0.2, 0.3, 0.5).
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @param {object[]} timelines The animation's timelines.
+ * @param {number[]} times The times to sample in turn. Only the first one starts from the setup pose.
+ * @returns {import("../../src/spine/skeleton.ts").Skeleton} The skeleton after the last sample.
+ */
+function posedSlots(skeletonModule, animationModule, timelines, times) {
+	const slots = [0, 1, 2, 3].map((index) => slotData(`slot${index}`, "a"));
+	slots[0] = { ...slots[0], color: { r: 0.2, g: 0.4, b: 0.6, a: 0.8 } };
+	slots[1] = { ...slots[1], darkColor: { r: 0.1, g: 0.2, b: 0.3, a: 0.5 } };
+	const attachments = new Map(
+		slots.map((slot, index) => [
+			index,
+			new Map([
+				["a", point("a")],
+				["b", point("b")]
+			])
+		])
+	);
+	const skeleton = new skeletonModule.Skeleton(skeletonData([{}], slots, [{ name: "default", attachments }]));
+	const animation = { name: "test", duration: Math.max(...timelines.flatMap((timeline) => timeline.times)), timelines };
+	skeleton.setToSetupPose();
+	for (const time of times) {
+		animationModule.applyAnimation(skeleton, animation, time);
 	}
-	return failures;
+	return skeleton;
+}
+
+/**
+ * Runs the slot and draw order timeline cases: attachment, color, two-color and draw order keys applied to a small rig.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkSlotTimelines(skeletonModule, animationModule) {
+	const pose = (timelines, ...times) => posedSlots(skeletonModule, animationModule, timelines, times);
+	const order = (skeleton) => skeleton.drawOrder.map((slot) => slot.index);
+	const shownName = (skeleton, index) => skeleton.slots[index].attachment?.name ?? null;
+	const drawOrder = (changes, times = changes.map((_, index) => index)) => ({ type: "drawOrder", times, changes });
+	const attachment = (times, names) => ({ type: "attachment", slotIndex: 0, times, names });
+	const white = { r: 1, g: 1, b: 1, a: 1 };
+	const black = { r: 0, g: 0, b: 0, a: 1 };
+	const color = (colors, curve = "linear") => ({ type: "color", slotIndex: 0, times: [0, 1], colors, curves: [curve] });
+	const twoColor = (slotIndex) => ({
+		type: "twoColor",
+		slotIndex,
+		times: [0, 1],
+		lights: [
+			{ r: 1, g: 0.5, b: 0.5, a: 1 },
+			{ r: 0.2, g: 0.5, b: 0.5, a: 0.6 }
+		],
+		darks: [
+			{ r: 0, g: 0, b: 0, a: 0 },
+			{ r: 0.4, g: 0.2, b: 0, a: 0.9 }
+		],
+		curves: ["linear"]
+	});
+	const cases = [
+		["draw order moves slot 3 back 2", () => [[0, 3, 1, 2], order(pose([drawOrder([[{ slotIndex: 3, offset: -2 }]])], 0))]],
+		["draw order moves slot 0 on 2", () => [[1, 2, 0, 3], order(pose([drawOrder([[{ slotIndex: 0, offset: 2 }]])], 0))]],
+		["draw order with no changes is the setup order", () => [[0, 1, 2, 3], order(pose([drawOrder([[{ slotIndex: 3, offset: -2 }], []])], 1))]],
+		["draw order with no changes restores a changed order", () => [[0, 1, 2, 3], order(pose([drawOrder([[{ slotIndex: 3, offset: -2 }], []])], 0, 1))]],
+		["draw order keeps the setup order before the first key", () => [[0, 1, 2, 3], order(pose([drawOrder([[{ slotIndex: 0, offset: 2 }]], [0.5])], 0.2))]],
+		["draw order holds its key until the next", () => [[1, 2, 0, 3], order(pose([drawOrder([[{ slotIndex: 0, offset: 2 }], []])], 0.99))]],
+		[
+			"draw order writes into the skeleton's own array",
+			() => {
+				const skeleton = pose([]);
+				const own = skeleton.drawOrder;
+				animationModule.applyAnimation(skeleton, { name: "test", duration: 0, timelines: [drawOrder([[{ slotIndex: 3, offset: -2 }]])] }, 0);
+				return [[0, 3, 1, 2], skeleton.drawOrder === own ? order(skeleton) : "a new array"];
+			}
+		],
+		["draw order puts back the same slot objects", () => [true, pose([drawOrder([[{ slotIndex: 3, offset: -2 }]])], 0).drawOrder.every((slot, index, all) => all.indexOf(slot) === index)]],
+		["attachment sets its key's name at 0.25", () => ["b", shownName(pose([attachment([0, 0.5], ["b", null])], 0.25), 0)]],
+		["attachment with a null name clears the slot", () => [null, shownName(pose([attachment([0, 0.5], ["b", null])], 0.75), 0)]],
+		["attachment keeps the setup attachment before the first key", () => ["a", shownName(pose([attachment([0.5], ["b"])], 0.25), 0)]],
+		["attachment is stepped", () => ["b", shownName(pose([attachment([0, 1], ["b", null])], 0.99), 0)]],
+		["color replaces the setup color", () => [[0.75, 0.75, 0.75, 1], rgba(pose([color([white, black])], 0.25).slots[0].color)]],
+		["color holds the last key", () => [[0, 0, 0, 1], rgba(pose([color([white, black])], 3).slots[0].color)]],
+		// This bezier's value reaches 1.25 halfway, which would push the channels past 1.
+		["color clamps a bezier overshoot to [0, 1]", () => [[1, 1, 1, 1], rgba(pose([color([{ r: 0, g: 0, b: 0, a: 0 }, white], { bezier: [0.25, 1.5, 0.75, 1.5] })], 0.5).slots[0].color)]],
+		["color stepped holds the key", () => [[1, 1, 1, 1], rgba(pose([color([white, black], "stepped")], 0.9).slots[0].color)]],
+		["color keeps the setup color before the first key", () => [[0.2, 0.4, 0.6, 0.8], rgba(pose([{ ...color([white, black]), times: [0.5, 1] }], 0.25).slots[0].color)]],
+		// A quarter of the way along, so a blend run backwards (0.75 of the way) gives other numbers.
+		["two-color blends the light color", () => [[0.8, 0.5, 0.5, 0.9], rgba(pose([twoColor(1)], 0.25).slots[1].color)]],
+		["two-color blends the dark color and keeps its alpha", () => [[0.1, 0.05, 0, 0.5], rgba(pose([twoColor(1)], 0.25).slots[1].darkColor)]],
+		["two-color on a slot without a dark color sets the light color", () => [[0.8, 0.5, 0.5, 0.9], rgba(pose([twoColor(2)], 0.25).slots[2].color)]],
+		["two-color on a slot without a dark color leaves it null", () => [null, pose([twoColor(2)], 0.25).slots[2].darkColor]],
+		["timelines apply in file order", () => [[0, 0, 0, 1], rgba(pose([color([white, white]), color([black, black])], 0.5).slots[0].color)]]
+	];
+	return runCases("slot timelines", cases);
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -839,7 +941,7 @@ try {
 	}
 	try {
 		const animationModule = await server.ssrLoadModule("/src/spine/animation.ts");
-		failures.push(...checkAnimation(skeletonModule, animationModule));
+		failures.push(...checkAnimation(skeletonModule, animationModule), ...checkSlotTimelines(skeletonModule, animationModule));
 	} catch (error) {
 		failures.push(`animation: could not run: ${error.message}`);
 	}

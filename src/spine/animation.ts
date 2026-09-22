@@ -3,12 +3,24 @@
 // Animation
 
 /**
- * Samples an animation's timelines at a time and writes the result into a live skeleton's bones. `MATH.md` ("Animation") explains the curve,
- * key search and timeline rules and the JSON format page text behind them.
+ * Samples an animation's timelines at a time and writes the result into a live skeleton's bones, slots and draw order. `MATH.md`
+ * ("Animation") explains the curve, key search and timeline rules and the JSON format page text behind them.
  */
 
-import type { Skeleton } from "./skeleton.js";
-import type { Animation, Curve } from "./types.js";
+import type { Skeleton, Slot } from "./skeleton.js";
+import type { Animation, Color, Curve, DrawOrderChange } from "./types.js";
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Types
+
+/** Working space for building one skeleton's draw order. Both arrays are all empty between uses. */
+interface DrawOrderScratch {
+	/** The slot put at each draw order place so far, or null for a free place. */
+	placed: (Slot | null)[];
+	/** 1 for each slot index a draw order key moves, else 0. */
+	moved: Uint8Array;
+}
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -26,60 +38,74 @@ const runStartsCache = new WeakMap<readonly number[], readonly number[]>();
 /** The index one past the last key of the run the latest `keyIndex` call searched. Set by `keyIndex`, read right after it. */
 let foundRunEnd = 0;
 
-/** The fraction from the found key toward the next one that the latest `keyFraction` call worked out, or 0 when the key holds. */
-let foundFraction = 0;
+/**
+ * Scratch for the eased fraction. Slot `FRACTION` holds the fraction from the found key toward the next one that the latest `easeInto`
+ * or `keyFraction` call worked out, or 0 when the key holds. A typed array stores the double in place, where a module `let` would box a
+ * new number on every write once the writer is not inlined.
+ */
+const found = new Float64Array(1);
+
+/** The slot in `found` that holds the eased fraction. */
+const FRACTION = 0;
+
+/** Per-skeleton scratch for building a draw order, made once so applying a draw order key allocates nothing. */
+const drawOrderScratch = new WeakMap<Skeleton, DrawOrderScratch>();
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Curves
 
 /**
- * Evaluates a cubic bezier coordinate from 0 to 1 with control values `p1` and `p2`, at curve parameter `s`.
+ * Eases a time fraction between two keys into a value fraction and writes it to `found[FRACTION]`. A bezier runs from (0, 0) to (1, 1)
+ * with x as time and y as value. The parameter whose x equals `t` is found by bisection. A `t` at or past either end gives exactly 0 or 1.
+ * The cubic is written out in the loop and the result goes to `found`, so no number is returned across a call that may not be inlined.
  *
- * @param p1 The first control point's coordinate.
- * @param p2 The second control point's coordinate.
- * @param s The curve parameter, 0 to 1.
- * @returns The coordinate at `s`.
+ * @param curve The curve from one key to the next.
+ * @param t The time fraction between the two keys, 0 to 1.
  */
-function bezierAt(p1: number, p2: number, s: number): number {
+function easeInto(curve: Curve, t: number): void {
+	if (curve === "linear") {
+		found[FRACTION] = t;
+		return;
+	}
+	// The ends are exact. A control x outside [0, 1] can make the search land on a far crossing of x = 0 or x = 1.
+	if (curve === "stepped" || t <= 0) {
+		found[FRACTION] = 0;
+		return;
+	}
+	if (t >= 1) {
+		found[FRACTION] = 1;
+		return;
+	}
+	const bezier = curve.bezier;
+	const cx1 = bezier[0];
+	const cx2 = bezier[2];
+	let low = 0;
+	let high = 1;
+	for (let step = 0; step < BEZIER_STEPS; step++) {
+		const s = (low + high) / 2;
+		const u = 1 - s;
+		if (3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s * s * s < t) {
+			low = s;
+		} else {
+			high = s;
+		}
+	}
+	const s = (low + high) / 2;
 	const u = 1 - s;
-	return 3 * u * u * s * p1 + 3 * u * s * s * p2 + s * s * s;
+	found[FRACTION] = 3 * u * u * s * bezier[1] + 3 * u * s * s * bezier[3] + s * s * s;
 }
 
 /**
- * Eases a time fraction between two keys into a value fraction. A bezier runs from (0, 0) to (1, 1) with x as time and y as value. The
- * parameter whose x equals `t` is found by bisection. A `t` at or past either end gives exactly 0 or 1.
+ * Eases a time fraction between two keys into a value fraction, as `easeInto` does.
  *
  * @param curve The curve from one key to the next.
  * @param t The time fraction between the two keys, 0 to 1.
  * @returns The value fraction. A bezier may overshoot [0, 1].
  */
 export function curveValue(curve: Curve, t: number): number {
-	if (curve === "linear") {
-		return t;
-	}
-	if (curve === "stepped") {
-		return 0;
-	}
-	// The ends are exact. A control x outside [0, 1] can make the search land on a far crossing of x = 0 or x = 1.
-	if (t <= 0) {
-		return 0;
-	}
-	if (t >= 1) {
-		return 1;
-	}
-	const [cx1, cy1, cx2, cy2] = curve.bezier;
-	let low = 0;
-	let high = 1;
-	for (let step = 0; step < BEZIER_STEPS; step++) {
-		const middle = (low + high) / 2;
-		if (bezierAt(cx1, cx2, middle) < t) {
-			low = middle;
-		} else {
-			high = middle;
-		}
-	}
-	return bezierAt(cy1, cy2, (low + high) / 2);
+	easeInto(curve, t);
+	return found[FRACTION]!;
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -147,7 +173,7 @@ export function keyIndex(times: readonly number[], time: number): number {
 }
 
 /**
- * Finds the key that applies at a time and sets `foundFraction` to the eased fraction toward the next key. The last key of a run holds.
+ * Finds the key that applies at a time and sets `found[FRACTION]` to the eased fraction toward the next key. The last key of a run holds.
  *
  * @param times The key times.
  * @param curves The curve from each key to the next.
@@ -160,40 +186,111 @@ function keyFraction(times: readonly number[], curves: readonly Curve[], time: n
 		return -1;
 	}
 	if (index + 1 >= foundRunEnd) {
-		foundFraction = 0;
+		found[FRACTION] = 0;
 		return index;
 	}
 	const start = times[index]!;
-	foundFraction = curveValue(curves[index]!, (time - start) / (times[index + 1]! - start));
+	easeInto(curves[index]!, (time - start) / (times[index + 1]! - start));
 	return index;
 }
 
 /**
- * Blends two key values by `foundFraction`. A key that holds has no next key, so it gives its own value.
+ * Writes two key colors blended by `found[FRACTION]` into a color in place, channel by channel, each clamped to [0, 1]. Alpha is left
+ * alone when `withAlpha` is false.
  *
- * @param values The key values.
+ * @param target The color to write.
+ * @param colors The key colors.
  * @param index The key found by `keyFraction`.
- * @returns The blended value.
+ * @param withAlpha True to write alpha too.
  */
-function blend(values: readonly number[], index: number): number {
-	const value = values[index]!;
-	return foundFraction === 0 ? value : value + (values[index + 1]! - value) * foundFraction;
+function blendColor(target: Color, colors: readonly Color[], index: number, withAlpha: boolean): void {
+	const from = colors[index]!;
+	const t = found[FRACTION]!;
+	if (t === 0) {
+		target.r = from.r;
+		target.g = from.g;
+		target.b = from.b;
+		if (withAlpha) {
+			target.a = from.a;
+		}
+		return;
+	}
+	// A bezier that overshoots its two keys would push a channel past either end, so each channel is clamped.
+	const to = colors[index + 1]!;
+	target.r = Math.min(1, Math.max(0, from.r + (to.r - from.r) * t));
+	target.g = Math.min(1, Math.max(0, from.g + (to.g - from.g) * t));
+	target.b = Math.min(1, Math.max(0, from.b + (to.b - from.b) * t));
+	if (withAlpha) {
+		target.a = Math.min(1, Math.max(0, from.a + (to.a - from.a) * t));
+	}
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Draw order
+
+/**
+ * Gives a skeleton's draw order scratch, made on first use.
+ *
+ * @param skeleton The skeleton.
+ * @returns The scratch, cleared.
+ */
+function scratchFor(skeleton: Skeleton): DrawOrderScratch {
+	const count = skeleton.slots.length;
+	let scratch = drawOrderScratch.get(skeleton);
+	if (!scratch || scratch.placed.length !== count) {
+		scratch = { placed: new Array<Slot | null>(count).fill(null), moved: new Uint8Array(count) };
+		drawOrderScratch.set(skeleton, scratch);
+	}
+	return scratch;
 }
 
 /**
- * Blends two key angles by `foundFraction` the short way round: the difference is wrapped into [-180, 180) first.
+ * Writes a draw order key into the skeleton's own draw order. Each changed slot goes to its setup index plus its offset, and the other
+ * slots fill the free places in setup order. No changes means the setup order. A key that moves a slot twice, out of range, or onto a place
+ * another slot already took leaves the setup order, so the draw order is always a permutation.
  *
- * @param angles The key angles in degrees.
- * @param index The key found by `keyFraction`.
- * @returns The blended angle in degrees.
+ * @param skeleton The skeleton.
+ * @param changes The key's slot moves.
  */
-function blendAngle(angles: readonly number[], index: number): number {
-	const angle = angles[index]!;
-	if (foundFraction === 0) {
-		return angle;
+function applyDrawOrder(skeleton: Skeleton, changes: readonly DrawOrderChange[]): void {
+	const slots = skeleton.slots;
+	const drawOrder = skeleton.drawOrder;
+	const count = slots.length;
+	const { placed, moved } = scratchFor(skeleton);
+	let valid = true;
+	for (let i = 0; i < changes.length; i++) {
+		const { slotIndex, offset } = changes[i]!;
+		const target = slotIndex + offset;
+		if (slotIndex < 0 || slotIndex >= count || moved[slotIndex] === 1 || target < 0 || target >= count || placed[target] !== null) {
+			valid = false;
+			break;
+		}
+		placed[target] = slots[slotIndex]!;
+		moved[slotIndex] = 1;
 	}
-	const difference = angles[index + 1]! - angle;
-	return angle + (difference - 360 * Math.floor((difference + 180) / 360)) * foundFraction;
+	if (valid && changes.length > 0) {
+		// Walk the slots in setup order, skip the moved ones, and put each other slot in the next free place.
+		let free = 0;
+		for (let index = 0; index < count; index++) {
+			if (moved[index] === 1) {
+				continue;
+			}
+			while (placed[free] !== null) {
+				free++;
+			}
+			placed[free] = slots[index]!;
+		}
+		for (let index = 0; index < count; index++) {
+			drawOrder[index] = placed[index]!;
+		}
+	} else {
+		for (let index = 0; index < count; index++) {
+			drawOrder[index] = slots[index]!;
+		}
+	}
+	placed.fill(null);
+	moved.fill(0);
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -224,9 +321,12 @@ export function loopTime(animation: Animation, time: number, loop: boolean): num
 }
 
 /**
- * Poses a skeleton's bones at a time in an animation. Each bone timeline writes its bone's local transform from the setup values: rotate,
- * translate and shear add to them, scale multiplies them. A timeline whose first key is after `time` leaves its bone alone. Constraint,
- * deform and event timelines are skipped. Allocates nothing once each timeline has been seen. Call `updateWorldTransform` after.
+ * Poses a skeleton at a time in an animation, applying its timelines in file order. Each bone timeline writes its bone's local transform
+ * from the setup values: rotate, translate and shear add to them, scale multiplies them. Slot timelines set a slot's attachment or replace
+ * its colors, and a draw order timeline rewrites the draw order in place. A timeline whose first key is after `time` leaves its bone, slot
+ * or draw order alone. Constraint, deform and event timelines are skipped. Once each timeline and skeleton has been seen, it allocates
+ * nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work arrays are kept per skeleton.
+ * Colors are written into the slot's own color objects. Call `updateWorldTransform` after.
  *
  * @param skeleton The skeleton, just reset by `setToSetupPose`.
  * @param animation The animation to sample.
@@ -234,16 +334,26 @@ export function loopTime(animation: Animation, time: number, loop: boolean): num
  */
 export function applyAnimation(skeleton: Skeleton, animation: Animation, time: number): void {
 	const bones = skeleton.bones;
+	const slots = skeleton.slots;
 	const timelines = animation.timelines;
 	for (let i = 0; i < timelines.length; i++) {
 		const timeline = timelines[i]!;
 		switch (timeline.type) {
 			case "rotate": {
 				const index = keyFraction(timeline.times, timeline.curves, time);
-				if (index >= 0) {
-					const bone = bones[timeline.boneIndex]!;
-					bone.rotation = bone.data.rotation + blendAngle(timeline.angles, index);
+				if (index < 0) {
+					break;
 				}
+				// Blend the short way round: the difference is wrapped into [-180, 180) first.
+				const angles = timeline.angles;
+				const fraction = found[FRACTION]!;
+				let angle = angles[index]!;
+				if (fraction !== 0) {
+					const difference = angles[index + 1]! - angle;
+					angle += (difference - 360 * Math.floor((difference + 180) / 360)) * fraction;
+				}
+				const bone = bones[timeline.boneIndex]!;
+				bone.rotation = bone.data.rotation + angle;
 				break;
 			}
 			case "translate":
@@ -253,9 +363,17 @@ export function applyAnimation(skeleton: Skeleton, animation: Animation, time: n
 				if (index < 0) {
 					break;
 				}
+				// A key that holds has no next key, so it gives its own value.
+				const fraction = found[FRACTION]!;
+				const xs = timeline.x;
+				const ys = timeline.y;
+				let x = xs[index]!;
+				let y = ys[index]!;
+				if (fraction !== 0) {
+					x += (xs[index + 1]! - x) * fraction;
+					y += (ys[index + 1]! - y) * fraction;
+				}
 				const bone = bones[timeline.boneIndex]!;
-				const x = blend(timeline.x, index);
-				const y = blend(timeline.y, index);
 				const data = bone.data;
 				if (timeline.type === "translate") {
 					bone.x = data.x + x;
@@ -269,12 +387,41 @@ export function applyAnimation(skeleton: Skeleton, animation: Animation, time: n
 				}
 				break;
 			}
-			case "attachment":
-			case "color":
-			case "twoColor":
-			case "drawOrder":
-				// Slot and draw order timelines are not applied yet. The setup values stay.
+			case "attachment": {
+				// Attachment keys are always stepped, so only the key itself matters.
+				const index = keyIndex(timeline.times, time);
+				if (index >= 0) {
+					skeleton.setAttachment(timeline.slotIndex, timeline.names[index] ?? null);
+				}
 				break;
+			}
+			case "color": {
+				const index = keyFraction(timeline.times, timeline.curves, time);
+				if (index >= 0) {
+					blendColor(slots[timeline.slotIndex]!.color, timeline.colors, index, true);
+				}
+				break;
+			}
+			case "twoColor": {
+				const index = keyFraction(timeline.times, timeline.curves, time);
+				if (index < 0) {
+					break;
+				}
+				const slot = slots[timeline.slotIndex]!;
+				blendColor(slot.color, timeline.lights, index, true);
+				// The dark alpha has no meaning. A slot with no dark color of its own ignores the dark keys.
+				if (slot.darkColor !== null) {
+					blendColor(slot.darkColor, timeline.darks, index, false);
+				}
+				break;
+			}
+			case "drawOrder": {
+				const index = keyIndex(timeline.times, time);
+				if (index >= 0) {
+					applyDrawOrder(skeleton, timeline.changes[index]!);
+				}
+				break;
+			}
 			default:
 				// Constraint, deform and event timelines are skipped.
 				break;
