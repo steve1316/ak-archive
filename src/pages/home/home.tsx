@@ -1,23 +1,20 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { Box, Button, Card, CardActionArea, CardActions, CardContent, CardMedia, Container, Grid, Grow, Typography } from "@mui/material";
+import { alpha, Box, Button, Card, CardActionArea, CardActions, CardContent, Container, Grid, Grow, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { Link } from "react-router-dom";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
 import { ScrollToTop } from "archive-kit";
 
-import { hasPortrait, illustrationUrl } from "../../lib/assets.js";
-import { searchIndex, upstream } from "../../lib/data.js";
+import { classIconUrl, hasPortrait } from "../../lib/assets.js";
+import { searchIndex } from "../../lib/data.js";
 import OperatorCarousel from "./OperatorCarousel.js";
-
-/** How many characters of the pinned sha the page shows. Enough to identify the commit without printing the full 40-character hash. */
-const SHA_DISPLAY_LENGTH = 10;
 
 /** How many operators the carousel holds: four sets of three before it asks for a fresh pool. */
 const CAROUSEL_SIZE = 12;
 
-/** Every operator id with a hosted portrait, read once. A random pick from the whole roster could otherwise land on one of the 21 with none. */
+/** Every operator id with a hosted portrait, read once, so a random pick can never land on an operator whose portrait is missing. */
 const OPERATOR_IDS_WITH_PORTRAIT = searchIndex.filter((entry) => hasPortrait(entry.id)).map((entry) => entry.id);
 
 const styles = {
@@ -26,8 +23,8 @@ const styles = {
 	heroContent: { backgroundColor: "background.paper" },
 	cardGrid: { py: 8 },
 	card: { height: "100%", display: "flex", flexDirection: "column" },
-	// 16:9, held open by padding because the image is a background.
-	cardMedia: { paddingTop: "56.25%" },
+	// 16:9, held open by padding, with the class icons laid over it.
+	cardMedia: { position: "relative", paddingTop: "56.25%" },
 	cardContent: { flexGrow: 1 },
 	cardButton: { display: "flex", margin: "10px", justifyContent: "flex-end" }
 } satisfies Record<string, SxProps<Theme>>;
@@ -35,8 +32,23 @@ const styles = {
 /** Transform origin for each card's grow-in. A constant, since an inline object is a new prop every render. */
 const GROW_STYLE = { transformOrigin: "0 0 0" };
 
-/** Crops the operators card's 2048x2048 illustration in toward Amiya's face and shoulders. Tuned by eye to this one image only. */
-const AMIYA_CROP_SX = { backgroundSize: "240%", backgroundPosition: "50% 18%" } satisfies SxProps<Theme>;
+/** The 8 classes in the game's own order, shown as the Operator Index card's art. */
+const CLASSES = ["Vanguard", "Guard", "Defender", "Sniper", "Caster", "Medic", "Supporter", "Specialist"] as const;
+
+/** The class icon grid, filling the card's 16:9 media box over a glow in the site's accent colour. */
+const CLASS_GRID_SX: SxProps<Theme> = {
+	position: "absolute",
+	inset: 0,
+	display: "grid",
+	gridTemplateColumns: "repeat(4, 1fr)",
+	gap: 1.25,
+	px: 4.25,
+	py: 2.25,
+	background: (theme) => `radial-gradient(circle at 50% 40%, ${alpha(theme.palette.primary.main, 0.3)}, ${theme.palette.background.default} 70%)`
+};
+
+/** One class icon in the grid, scaled to fit its cell. */
+const CLASS_ICON_SX: SxProps<Theme> = { width: "100%", height: "100%", objectFit: "contain", opacity: 0.9 };
 
 /**
  * Pick distinct operator ids with a portrait, uniformly at random.
@@ -56,7 +68,7 @@ function randomOperatorIds(count: number): string[] {
 /**
  * The home page: a shuffling operator carousel and cards linking into each section.
  *
- * The carousel and the section card below it read only `searchIndex` (31 KB) and `upstream.json`, both already in the bundle, and never call a
+ * The carousel and the section card below it read only `searchIndex` (31 KB), already in the bundle, and never call a
  * shard loader such as `loadAllOperators`. That is a hard requirement for this page: the index genuinely needs every operator to filter by
  * class, nation and tag, but the home page only ever shows a handful of names, so it has no reason to pull the shard data the index needs:
  * 1122 KB raw and 116 KB gzipped, both measured from the production build at the pinned sha.
@@ -71,10 +83,7 @@ export default function Home() {
 	// Stable, so the memoised carousel does not re-render whenever the home page does.
 	const reshuffle = useCallback(() => setCarouselIds(randomOperatorIds(CAROUSEL_SIZE)), []);
 
-	// Amiya is the game's lead, so her illustration is the curated art for the one section card rather than an arbitrary pick.
-	const amiyaArt = useMemo(() => illustrationUrl("char_002_amiya"), []);
-
-	const shortSha = upstream.sha.slice(0, SHA_DISPLAY_LENGTH);
+	const classIcons = useMemo(() => CLASSES.map((name) => ({ name, url: classIconUrl(name) })), []);
 
 	return (
 		<Box component="main" sx={styles.root}>
@@ -97,7 +106,13 @@ export default function Home() {
 							<Card sx={styles.card}>
 								{/* The artwork links to the section too, with a name for screen readers. */}
 								<CardActionArea component={Link} to="/operators" aria-label="Operator Index">
-									<CardMedia sx={[styles.cardMedia, AMIYA_CROP_SX]} image={amiyaArt} title="Operator Index" />
+									<Box sx={styles.cardMedia}>
+										<Box sx={CLASS_GRID_SX}>
+											{classIcons.map((icon) => (
+												<Box key={icon.name} component="img" src={icon.url} alt="" sx={CLASS_ICON_SX} />
+											))}
+										</Box>
+									</Box>
 								</CardActionArea>
 								<CardContent sx={styles.cardContent}>
 									<Typography component="h2" variant="h5" gutterBottom>
@@ -117,10 +132,6 @@ export default function Home() {
 				</Grid>
 			</Container>
 			{/* End of Cards Section */}
-
-			<Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", mt: 4 }}>
-				Data from {upstream.repo}, {upstream.server} server, commit {shortSha}
-			</Typography>
 		</Box>
 	);
 }

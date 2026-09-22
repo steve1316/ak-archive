@@ -6,7 +6,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { ArchiveNavbar, ErrorBoundary, ScrollToTopOnNavigate, normaliseName } from "archive-kit";
 import type { NavItem, SearchOption } from "archive-kit";
 
-import { classIconUrl } from "./lib/assets.js";
+import { glyphIconUrl } from "./lib/icons.js";
 import { searchIndex } from "./lib/data.js";
 import { operatorPath } from "./lib/routes.js";
 import CanonicalOperatorRoute from "./components/CanonicalOperatorRoute.js";
@@ -22,10 +22,17 @@ const OperatorArt = lazy(() => import("./pages/operator_art/operator_art.js"));
 /** The dev-only Spine rig lab. Guarded here too, not just at the route, so a production build's tree-shaking drops the import entirely. */
 const SpineLab = import.meta.env.DEV ? lazy(() => import("./pages/spine_lab/spine_lab.js")) : null;
 
-/** The drawer's destinations. Icons resolve to asset-host paths that 404 until the A3 pipeline publishes the class icons. */
+/** Path data of MUI's `Home` icon, the house the kit's top bar shows, so the drawer's Home entry matches it. */
+const HOME_GLYPH = "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z";
+
+/** Path data of MUI's `Groups` icon, for the Operator Index entry. */
+const GROUPS_GLYPH =
+	"M12 12.75c1.63 0 3.07.39 4.24.9 1.08.48 1.76 1.56 1.76 2.73V18H6v-1.61c0-1.18.68-2.26 1.76-2.73 1.17-.52 2.61-.91 4.24-.91M4 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m1.13 1.1c-.37-.06-.74-.1-1.13-.1-.99 0-1.93.21-2.78.58C.48 14.9 0 15.62 0 16.43V18h4.5v-1.61c0-.83.23-1.61.63-2.29M20 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m4 3.43c0-.81-.48-1.53-1.22-1.85-.85-.37-1.79-.58-2.78-.58-.39 0-.76.04-1.13.1.4.68.63 1.46.63 2.29V18H24zM12 6c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3";
+
+/** The drawer's destinations, each drawn as a plain glyph in the theme's text colour. */
 const NAV_ITEMS: readonly NavItem[] = [
-	{ title: "Home", link: "/", icon: classIconUrl("Guard") },
-	{ title: "Operator Index", link: "/operators", icon: classIconUrl("Caster") }
+	{ title: "Home", link: "/", icon: glyphIconUrl(HOME_GLYPH, theme.palette.text.primary) },
+	{ title: "Operator Index", link: "/operators", icon: glyphIconUrl(GROUPS_GLYPH, theme.palette.text.primary) }
 ];
 
 /**
