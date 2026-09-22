@@ -6,9 +6,6 @@ import type { RigFacing, RigKind, StageStatus } from "../../components/Animation
 import { classIconUrl } from "../../lib/assets.js";
 import { loadSpineIndex, spineFormKey, spineRigUrls, spineRoot } from "../../lib/spine.js";
 
-/** The animation each kind starts on when the rig has it. */
-const START_ANIMATION: Record<RigKind, string> = { battle: "Idle", dorm: "Relax" };
-
 /** Props for SpineStage. */
 interface SpineStageProps {
 	/** The upstream operator id, such as `char_172_svrash`. */
@@ -49,7 +46,6 @@ export default function SpineStage({ operatorId, formKey, kind, facing, professi
 			rig={rig}
 			urls={urls}
 			indexState={state}
-			startAnimation={START_ANIMATION[kind]}
 			missingMessage={kind === "dorm" ? "No dorm chibi for this outfit." : "No battle chibi for this outfit."}
 			renderPlaceholder={renderPlaceholder}
 			canvasLabel="Operator chibi animation"

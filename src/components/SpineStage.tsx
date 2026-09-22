@@ -16,6 +16,7 @@ import type { SxProps, Theme } from "@mui/material";
 
 import { ErrorBoundary, useZoomPan } from "archive-kit";
 
+import { animationEntries } from "../lib/animations.js";
 import { isSupported, SUPPORTED_STAGE } from "../spine/features.js";
 import type { RigUrls, SpinePlayer } from "../spine/player.js";
 import type { SpineRig } from "../types/spine.js";
@@ -73,8 +74,6 @@ export interface SpineStageProps {
 	urls: RigUrls | null;
 	/** Where the rig index's fetch stands. The missing-rig message only shows once the index is ready. */
 	indexState: RigIndexState;
-	/** The animation to start on. Matched loosely, and failing that the rig's first animation plays. See `startAnimationIndex`. */
-	startAnimation: string;
 	/** Shown when the index is ready but names no rig for the selection. */
 	missingMessage: string;
 	/** Draws the placeholder for a reason no animation plays. */
@@ -90,24 +89,6 @@ export interface SpineStageProps {
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
-
-/**
- * Picks which animation a rig starts on. Upstream spells the same animation differently from rig to rig, so the exact name wins, and failing
- * that the first name that contains it, which catches the prefixed and suffixed spellings such as `Idle_A`, `A_Idle` and `C1_Idle`.
- *
- * @param anims The rig's animation names, in index order.
- * @param wanted The animation to start on, such as `Idle`.
- * @returns The index to start on, or 0 when the rig names nothing like it.
- */
-function startAnimationIndex(anims: readonly string[], wanted: string): number {
-	const exact = anims.indexOf(wanted);
-	if (exact !== -1) {
-		return exact;
-	}
-	const needle = wanted.toLowerCase();
-	const loose = anims.findIndex((name) => name.toLowerCase().includes(needle));
-	return loose === -1 ? 0 : loose;
-}
 
 /**
  * Frees a canvas's WebGL context at once rather than waiting for garbage collection, since browsers cap how many can be live.
@@ -158,14 +139,14 @@ export function useRigIndex<T>(load: () => Promise<T>, retryKey: string): { inde
 // Component
 
 /**
- * Plays the given rig. Every animation loops, and a click (not a drag) moves to the next one in index order. The wheel zooms and a drag pans
- * through the player's view, so the art stays sharp. The frame loop stops while the stage is off screen or the tab is hidden. Runtime
+ * Plays the given rig. Every entry loops, and a click (not a drag) moves to the next one in `animationEntries` order, starting on Idle, or on
+ * Relax for a dorm rig. The wheel zooms and a drag pans through the player's view, so the art stays sharp. The frame loop stops while the stage is off screen or the tab is hidden. Runtime
  * errors fall back to the load-failure placeholder rather than escaping the card.
  *
  * @param props Component props.
  * @returns The stage contents: the canvas, and the placeholder when no animation plays.
  */
-function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessage, renderPlaceholder, canvasLabel, hasBack, onStatus }: SpineStageProps) {
+function LiveStage({ rigKey, rig, urls, indexState, missingMessage, renderPlaceholder, canvasLabel, hasBack, onStatus }: SpineStageProps) {
 	const [playerModule, setPlayerModule] = useState<PlayerModule | null>(null);
 	const [player, setPlayer] = useState<SpinePlayer | null>(null);
 	const [playerFailed, setPlayerFailed] = useState(false);
@@ -184,7 +165,8 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 	const drawable = rig !== null && rig.stage <= SUPPORTED_STAGE;
 	const current = result !== null && result.key === rigKey && result.load === loadCount.current ? result : null;
 	const ready = current?.outcome === "ready";
-	const anims = useMemo(() => rig?.anims ?? [], [rig]);
+	// What a click cycles through: Defaults dropped, each wind-up, middle and wind-down merged into one move, Idle first. See `animationEntries`.
+	const entries = useMemo(() => (rig ? animationEntries(rig.anims) : []), [rig]);
 
 	// Why no animation plays, or null while one plays or is still loading.
 	let message: string | null = null;
@@ -267,9 +249,11 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 					setResult({ key: rigKey, load, outcome: "unsupported" });
 					return;
 				}
-				const first = startAnimationIndex(rig.anims, startAnimation);
-				player.play(rig.anims[first] ?? "", true);
-				setAnimIndex(first);
+				const first = entries[0];
+				if (first) {
+					player.playSequence(first.steps);
+				}
+				setAnimIndex(0);
 				setResult({ key: rigKey, load, outcome: "ready" });
 			})
 			.catch(() => {
@@ -284,7 +268,7 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 			setResult({ key: rigKey, load, outcome: "error" });
 		}
 		return () => controller.abort();
-	}, [player, rig, rigKey, urls, drawable, startAnimation, resetZoom]);
+	}, [player, rig, rigKey, urls, drawable, entries, resetZoom]);
 
 	// Marks the current load as failed, which swaps in the load-failure placeholder. Read through a ref by the observers and the frame loop.
 	const fail = useCallback(() => {
@@ -299,9 +283,9 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 	useEffect(() => () => onStatus(INITIAL_STATUS), [onStatus]);
 
 	useEffect(() => {
-		const name = anims[animIndex];
-		onStatus({ hasBack, caption: ready && name !== undefined ? `${name} - ${animIndex + 1} / ${anims.length}` : null });
-	}, [onStatus, hasBack, ready, anims, animIndex]);
+		const entry = entries[animIndex];
+		onStatus({ hasBack, caption: ready && entry !== undefined ? `${entry.label} - ${animIndex + 1} / ${entries.length}` : null });
+	}, [onStatus, hasBack, ready, entries, animIndex]);
 
 	// Tracks whether the stage is on screen, so the frame loop can stop while it is scrolled away.
 	useEffect(() => {
@@ -382,17 +366,18 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 	// A drag ends in a click, so only a click that never moved cycles the animation.
 	// Every animation loops, so the cycle never stalls on one that would otherwise stop at its end.
 	const handleClick = useCallback(() => {
-		if (!player || !ready || wasDragged() || anims.length === 0) {
+		const next = (animIndex + 1) % Math.max(1, entries.length);
+		const entry = entries[next];
+		if (!player || !ready || wasDragged() || !entry) {
 			return;
 		}
-		const next = (animIndex + 1) % anims.length;
 		try {
-			player.play(anims[next] ?? "", true);
+			player.playSequence(entry.steps);
 			setAnimIndex(next);
 		} catch {
 			fail();
 		}
-	}, [player, ready, wasDragged, anims, animIndex, fail]);
+	}, [player, ready, wasDragged, entries, animIndex, fail]);
 
 	return (
 		<>

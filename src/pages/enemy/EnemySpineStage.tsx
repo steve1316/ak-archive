@@ -35,7 +35,6 @@ export default function EnemySpineStage({ enemyId, iconUrl, onStatus }: EnemySpi
 			rig={rig}
 			urls={urls}
 			indexState={state}
-			startAnimation="Idle"
 			missingMessage="No animation for this enemy."
 			renderPlaceholder={renderPlaceholder}
 			canvasLabel="Enemy animation"
