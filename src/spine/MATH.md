@@ -851,6 +851,8 @@ The path constraints page describes every mode in words and gives no formulas. T
   goes to its own place instead. Confirm against PRTS.
 - **ChainScale.** Each bone goes to its place, turns to aim at the next place, and its X axis stretches by the distance between the two
   places over its world length. A bone with no length is not stretched.
+- **Nothing to aim at.** When a chain or chainScale bone's next place coincides with where it starts (a bone with no length and no gap),
+  it takes the path's direction at its place, the limit of aiming at a next place as the gap closes. Confirm against PRTS.
 - **Offset.** The rotation offset adds to each angle. When the target slot's bone is reflected it is negated, the same rule the world
   transform constraint uses. Confirm against PRTS.
 - **Mixes.** The translate mix moves the bone's world origin toward its place. The rotate mix turns both world axes toward the angle the

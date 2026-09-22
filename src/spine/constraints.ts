@@ -684,7 +684,10 @@ export function solvePath(constraint: PathConstraint, skeleton: Skeleton): void 
 			}
 			const nextX = points[place + 3]!;
 			const nextY = points[place + 4]!;
-			angle = Math.atan2(nextY - targetY, nextX - targetX) + offset;
+			const aimX = nextX - targetX;
+			const aimY = nextY - targetY;
+			// With nothing to aim at (a zero-length bone and no gap), the direction is the path's own at the place, the limit as the gap closes.
+			angle = (aimX * aimX + aimY * aimY < EPSILON * EPSILON ? points[place + 2]! : Math.atan2(aimY, aimX)) + offset;
 			if (mode === "chainScale" && lengths[i]! > EPSILON) {
 				const dx = nextX - points[place]!;
 				const dy = nextY - points[place + 1]!;

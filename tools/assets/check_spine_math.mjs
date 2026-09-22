@@ -1796,6 +1796,10 @@ function checkPathConstraints(skeletonModule) {
 			}
 		],
 		["chain lays bones end to end", () => [[0, 0, 90, 0, 10, 90, 0, 20, 90], posedPath(skeletonModule, { rotateMode: "chain" })]],
+		[
+			"a zero-length bone with nothing to aim at follows the path's direction",
+			() => [[0, 0, 90], posedPath(skeletonModule, { rotateMode: "chainScale", spacingMode: "fixed", spacing: 0 }, { ...one, setup: { 1: { length: 0 } } })]
+		],
 		["a target slot showing no path leaves the bones alone", () => [[0, 0, 0], posedPath(skeletonModule, {}, { ...one, before: (skeleton) => skeleton.setAttachment(0, null) })]],
 		["bones in path order out of skeleton order", () => [[0, 0, 90, 0, 10, 90, 0, 20, 90], posedPath(skeletonModule, {}, { bones: [3, 1, 2], read: [3, 1, 2] })]],
 		[
