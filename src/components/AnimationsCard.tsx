@@ -58,8 +58,8 @@ const CAPTION_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center
 /** The caption block while nothing plays: hidden, but still holding its height. */
 const CAPTION_HIDDEN_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center", display: "flex", flexDirection: "column", visibility: "hidden" };
 
-/** The status the card starts with, before the stage reports. */
-const INITIAL_STATUS: StageStatus = { hasBack: false, caption: null };
+/** The status the card starts with, and the one the stage reports on its way out, so no caption or Back toggle outlives the rig it described. */
+export const INITIAL_STATUS: StageStatus = { hasBack: false, caption: null };
 
 /** The placeholder's stand-in icon, such as an operator's class icon or an enemy's icon, greyed so it reads as absent rather than as content. */
 const PLACEHOLDER_ICON_SX: SxProps<Theme> = { width: 70, display: "block", mx: "auto", mb: 1.125, opacity: 0.45, filter: "grayscale(1)" };

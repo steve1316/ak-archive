@@ -19,6 +19,7 @@ import { ErrorBoundary, useZoomPan } from "archive-kit";
 import { isSupported, SUPPORTED_STAGE } from "../spine/features.js";
 import type { RigUrls, SpinePlayer } from "../spine/player.js";
 import type { SpineRig } from "../types/spine.js";
+import { INITIAL_STATUS } from "./AnimationsCard.js";
 import type { StageStatus } from "./AnimationsCard.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -39,9 +40,6 @@ const SURFACE_SX: SxProps<Theme> = { position: "absolute", inset: 0 };
 
 /** The canvas fills the surface. Its backing store is sized by the player at the device pixel ratio. */
 const CANVAS_STYLE: CSSProperties = { display: "block", width: "100%", height: "100%" };
-
-/** The status reported while no stage is mounted, so the card never shows a caption or Back toggle left over from an earlier rig. */
-const EMPTY_STATUS: StageStatus = { hasBack: false, caption: null };
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -298,7 +296,7 @@ function LiveStage({ rigKey, rig, urls, indexState, startAnimation, missingMessa
 	failRef.current = fail;
 
 	// Clears the card's caption and Back toggle when the stage goes away.
-	useEffect(() => () => onStatus(EMPTY_STATUS), [onStatus]);
+	useEffect(() => () => onStatus(INITIAL_STATUS), [onStatus]);
 
 	useEffect(() => {
 		const name = anims[animIndex];
