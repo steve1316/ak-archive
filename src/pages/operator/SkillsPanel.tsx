@@ -62,6 +62,20 @@ function levelLabel(index: number): string {
 }
 
 /**
+ * The caption for a skill that keeps the operator's normal range, saying how far it stretches or shortens it forward.
+ *
+ * @param extend The level's `rangeExtend`, or undefined when the skill does not change the range.
+ * @returns The caption.
+ */
+function normalRangeLabel(extend: number | undefined): string {
+	if (!extend) {
+		return "Uses normal range";
+	}
+	const tiles = Math.abs(extend) === 1 ? "tile" : "tiles";
+	return extend > 0 ? `Normal range, extended ${extend} ${tiles} forward` : `Normal range, ${-extend} ${tiles} shorter`;
+}
+
+/**
  * Render a description's runs, colouring raised and lowered values.
  *
  * @param runs The description runs.
@@ -174,7 +188,7 @@ export default function SkillsPanel({ skills, phase, traitRangeId }: SkillsPanel
 					<RangeGrid rangeId={entry.rangeId} traitRangeId={traitRangeId} label="Range while active" />
 				) : (
 					<Typography variant="body2" color="text.secondary">
-						Uses normal range
+						{normalRangeLabel(entry.rangeExtend)}
 					</Typography>
 				)}
 			</Box>

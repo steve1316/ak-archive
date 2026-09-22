@@ -27,6 +27,9 @@ const CONTENT_TAG = /<([A-Za-z][^<>@$/]*)>/g;
 /** Skill trigger by upstream `skillType`. */
 const TRIGGER = { AUTO: "auto", MANUAL: "manual", PASSIVE: "passive" };
 
+/** The blackboard key a skill uses to stretch the normal range forward instead of swapping in a new range id. */
+const RANGE_EXTEND_KEY = "ability_range_forward_extend";
+
 /** SP recovery by upstream `spData.spType`. Anything else, such as the numeric type a few passives carry, has no recovery to show. */
 const RECOVERY = { INCREASE_WITH_TIME: "auto", INCREASE_WHEN_ATTACK: "offensive", INCREASE_WHEN_TAKEN_DAMAGE: "defensive" };
 
@@ -110,6 +113,7 @@ export function buildSkills(row, skillTable) {
 					if (!trigger) {
 						throw new Error(`${slot.skillId} has an unknown skillType ${JSON.stringify(level.skillType)}`);
 					}
+					const extend = asArray(level.blackboard).find((entry) => entry.key === RANGE_EXTEND_KEY)?.value;
 					// A few templates name the level's own duration field, not a blackboard key, so it is seeded first and a real blackboard entry
 					// named "duration" still wins.
 					return {
@@ -121,7 +125,9 @@ export function buildSkills(row, skillTable) {
 						initialSp: level.spData?.initSp ?? 0,
 						duration: level.duration ?? 0,
 						// The range while the skill is active. Null means the operator's normal range.
-						rangeId: level.rangeId ?? null
+						rangeId: level.rangeId ?? null,
+						// Tiles the skill stretches the normal range forward, or takes away when negative. Left out when it does not change it.
+						...(extend ? { rangeExtend: extend } : {})
 					};
 				})
 			};

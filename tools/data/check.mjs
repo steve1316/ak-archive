@@ -149,6 +149,17 @@ const RANGE_FIXTURES = [
 	{ id: "char_308_swire", skill: "skchr_swire_1", skillLevels: { 0: "x-1", 5: "x-1", 6: "x-2", 9: "x-2" } }
 ];
 
+/**
+ * Skills that stretch the normal range through a blackboard value rather than a range id. Surtr's S3 adds 2 tiles, Narantuya's S1 takes one away, and
+ * Weedy's S2 grows from 1 to 2 at M2. A skill without the value carries no `rangeExtend` at all.
+ */
+const RANGE_EXTEND_FIXTURES = [
+	{ id: "char_350_surtr", skill: "skchr_surtr_3", levels: { 0: 2, 9: 2 } },
+	{ id: "char_4138_narant", skill: "skchr_narant_1", levels: { 9: -1 } },
+	{ id: "char_400_weedy", skill: "skchr_weedy_2", levels: { 0: 1, 7: 1, 8: 2 } },
+	{ id: "char_103_angel", skill: "skchr_angel_1", levels: { 9: undefined } }
+];
+
 /** The handbook's grade scale, best first. */
 const ENEMY_GRADES = ["SS", "S+", "S", "A+", "A", "B+", "B", "C", "D", "E"];
 
@@ -870,6 +881,19 @@ for (const fixture of RANGE_FIXTURES) {
 	for (const [index, expected] of Object.entries(fixture.skillLevels)) {
 		if (skill?.levels[Number(index)]?.rangeId !== expected) {
 			fail(`${fixture.id} ${fixture.skill} level ${index} range is ${skill?.levels[Number(index)]?.rangeId}, expected ${expected}`);
+		}
+	}
+}
+
+for (const fixture of RANGE_EXTEND_FIXTURES) {
+	const skill = detailsById.get(fixture.id)?.skills.find((entry) => entry.id === fixture.skill);
+	if (!skill) {
+		fail(`${fixture.id} has no skill ${fixture.skill}`);
+		continue;
+	}
+	for (const [index, expected] of Object.entries(fixture.levels)) {
+		if (skill.levels[Number(index)]?.rangeExtend !== expected) {
+			fail(`${fixture.id} ${fixture.skill} level ${index} rangeExtend is ${skill.levels[Number(index)]?.rangeExtend}, expected ${expected}`);
 		}
 	}
 }

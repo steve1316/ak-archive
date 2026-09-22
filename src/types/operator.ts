@@ -119,6 +119,8 @@ export interface SkillLevel {
 	duration: number;
 	/** The range while this skill level is active, a key into `src/data/ranges.json`, or null when it keeps the operator's normal range. */
 	rangeId: string | null;
+	/** Tiles this level stretches the normal range forward, negative when it shortens it. Absent when the skill does not change the normal range. */
+	rangeExtend?: number;
 }
 
 /** One of an operator's combat skills. */
