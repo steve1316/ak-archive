@@ -5,7 +5,8 @@ Walks the **encoded output** under `--staging`, not the staged upstream tree, so
 For `portraits/` and `illustrations/`, a file named exactly `<id>.webp` means that operator has canonical art. A file named `<id>_<key>.webp`
 is a variant, and its key is collected into `skins` for that operator, for the later phase that imports `skin_table.json`. Skill icons are listed
 in `skillIcons`, since a page shows one per skill and the import gate checks every skill has one. Potential, elite and class icons are fixed sets
-with no per-operator presence to record, so they stay outside the manifest. See `encode.py` for how these filenames are produced.
+with no per-operator presence to record, so they stay outside the manifest. `enemies` records an icon for every enemy variant the importer wrote,
+`false` included, read from `enemies/<id>.webp`. See `encode.py` for how these filenames are produced.
 
 `portraits` and `illustrations` carry an entry for every operator, `false` included. The site cannot tell the difference - `hasPortrait` reads a
 missing id and a `false` id the same way - but a reader can: `false` means this operator has no art upstream and never will, where a missing id
@@ -159,16 +160,47 @@ def scan_skill_icons(staging_dir):
     return sorted(name[: -len(".webp")] for name in os.listdir(folder) if name.endswith(".webp"))
 
 
-def build_manifest(staging_dir, operator_ids):
+def load_enemy_ids():
+    """
+    Read every enemy variant id the importer wrote.
+
+    Returns:
+        A set of enemy ids, such as `enemy_1007_slime_2`. Empty when the importer has not written `enemies.json`.
+    """
+    path = os.path.join(DATA_DIR, "enemies.json")
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding="utf-8") as handle:
+        return {variant["id"] for enemy in json.load(handle) for variant in enemy["variants"]}
+
+
+def scan_enemies(staging_dir, enemy_ids):
+    """
+    Record which enemies have an encoded icon.
+
+    Args:
+        staging_dir: Root of the `--staging` tree.
+        enemy_ids: Every known enemy variant id.
+
+    Returns:
+        A dict naming every enemy id, sorted, with True when `enemies/<id>.webp` exists.
+    """
+    folder = os.path.join(staging_dir, "assets", "enemies")
+    present = set(os.listdir(folder)) if os.path.isdir(folder) else set()
+    return {enemy_id: f"{enemy_id}.webp" in present for enemy_id in sorted(enemy_ids)}
+
+
+def build_manifest(staging_dir, operator_ids, enemy_ids=frozenset()):
     """
     Walk both encoded art kinds and assemble the manifest the site reads.
 
     Args:
         staging_dir: Root of the `--staging` tree.
         operator_ids: Every known operator id.
+        enemy_ids: Every known enemy variant id.
 
     Returns:
-        A dict with `portraits`, `illustrations`, `skins`, `variants` and `skillIcons` keys, each with its entries sorted so a re-run of an unchanged
+        A dict with `portraits`, `illustrations`, `skins`, `variants`, `skillIcons` and `enemies` keys, each with its entries sorted so a re-run of an unchanged
         tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant. `variants` records each
         kind's variant keys separately, in that kind's own upstream spelling. `skins` merges them, which loses both whether a kind has the file and
         how it spells it - upstream lower-cases some keys under `charpor/` only. `skillIcons` is a flat list of the encoded skill icon keys, listed
@@ -192,6 +224,7 @@ def build_manifest(staging_dir, operator_ids):
             "illustrations": {operator_id: sorted(keys) for operator_id, keys in sorted(illustration_variants.items())},
         },
         "skillIcons": scan_skill_icons(staging_dir),
+        "enemies": scan_enemies(staging_dir, enemy_ids),
     }
 
 
@@ -207,7 +240,7 @@ def main():
     args = parser.parse_args()
 
     operator_ids = load_operator_ids()
-    manifest = build_manifest(args.staging, operator_ids)
+    manifest = build_manifest(args.staging, operator_ids, load_enemy_ids())
 
     # Compact, one line, no spaces after `:` or `,` - matches what the importer's `JSON.stringify(value)` writes for every sibling file
     # under `src/data/`, so this generated file is not the one outlier in that directory.
@@ -221,6 +254,7 @@ def main():
     print(f"portraits     {portraits} of {len(manifest['portraits'])}")
     print(f"illustrations {illustrations} of {len(manifest['illustrations'])}")
     print(f"skins         {len(manifest['skins'])}")
+    print(f"enemies       {sum(1 for present in manifest['enemies'].values() if present)} of {len(manifest['enemies'])}")
 
 
 if __name__ == "__main__":

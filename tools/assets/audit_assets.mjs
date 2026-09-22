@@ -77,7 +77,7 @@ function readAssetBaseUrl() {
  * This has to stay in step with `src/lib/assets.ts` by hand, not by import - that file is TypeScript and reads `import.meta.env`, which
  * is awkward to pull into plain Node. It wraps `archive-kit`'s `createAssetUrls` (strip trailing slashes from the base, then join
  * percent-encoded path segments onto it), and its own builders derive three path shapes from an operator id or class name:
- * `portraits/<id>.webp`, `illustrations/<id>.webp`, and `classes/<lowercase class name>.webp`. If a future change to `src/lib/assets.ts`
+ * `portraits/<id>.webp`, `illustrations/<id>.webp`, `classes/<lowercase class name>.webp` and `enemies/<enemy id>.webp`. If a future change to `src/lib/assets.ts`
  * alters any of those shapes, this script drifts silently until it starts passing checks it should fail - keep both sides in sync.
  *
  * @param {string} baseUrl The asset host, with or without a trailing slash.
@@ -129,7 +129,7 @@ function loadManifest() {
  * Class icons carry no per-operator presence in the manifest, so all eight are always checked.
  *
  * @param {string} baseUrl The asset host.
- * @param {{portraits?: Record<string, boolean>, illustrations?: Record<string, boolean>}} manifest The parsed asset manifest.
+ * @param {{portraits?: Record<string, boolean>, illustrations?: Record<string, boolean>, enemies?: Record<string, boolean>}} manifest The parsed asset manifest.
  * @param {Array<{id: string, profession: string}>} operators Every operator's id and display class name.
  * @returns {Array<{label: string, url: string}>} The checks to run.
  */
@@ -147,6 +147,12 @@ function buildChecks(baseUrl, manifest, operators) {
 	const professions = new Set(operators.map((operator) => operator.profession));
 	for (const profession of professions) {
 		checks.push({ label: `class icon ${profession}`, url: assetUrl(baseUrl, `classes/${profession.toLowerCase()}.webp`) });
+	}
+
+	for (const [id, present] of Object.entries(manifest.enemies ?? {})) {
+		if (present === true) {
+			checks.push({ label: `enemy icon ${id}`, url: assetUrl(baseUrl, `enemies/${id}.webp`) });
+		}
 	}
 	return checks;
 }

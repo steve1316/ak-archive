@@ -3,7 +3,7 @@ Re-encode staged upstream PNGs into the WebP files the site publishes.
 
 Portraits and illustrations get their filenames from the naming rules in `names.py`: one variant per operator becomes
 the canonical, suffix-free file, and the rest keep their variant key as a suffix. Class icons need no naming rule -
-the staged filename is already the lowercase class name the site asks for. See `names.py` for why one variant has to
+the staged filename is already the lowercase class name the site asks for, and enemy icons keep their upstream enemy id. See `names.py` for why one variant has to
 be picked as canonical, and `fetch.py` for where the staged tree this script reads comes from.
 
 `parse_asset` returns None both for a file that belongs to no known operator (a token or summon) and, in principle,
@@ -12,7 +12,7 @@ against the real staged tree, but both are silent, so this script counts what ea
 the end of every run - that is what makes a future upstream change visible in the run log instead of vanishing.
 
 Usage:
-    python3 -u tools/assets/encode.py [--dry-run] [--only {portraits,illustrations,classes,skills,potentials,elites}] [--staging PATH]
+    python3 -u tools/assets/encode.py [--dry-run] [--only {portraits,illustrations,classes,skills,potentials,elites,enemies}] [--staging PATH]
 """
 
 import argparse
@@ -55,6 +55,12 @@ PORTRAIT_FALLBACK_DIR = os.path.join(ICONS_ARTS_DIR, "charportraits")
 
 # Fixed icon sets: (upstream folder, upstream file prefix, how many, published folder). File `i` publishes as `<folder>/<i>.webp`.
 NUMBERED_ICONS = {"potentials": ("potential_hub", "potential_", 6), "elites": ("elite_hub", "elite_", 3)}
+
+# Where `fetch.py --only enemies` stages the enemy icons, relative to `--staging`.
+ENEMY_ICONS_DIR = os.path.join("enemies-upstream", "enemy")
+
+# Every stage, in the order they run when `--only` is omitted.
+STAGES = ("portraits", "illustrations", "classes", "skills", "potentials", "elites", "enemies")
 
 # How often the real encode reports a running count and byte total.
 PROGRESS_EVERY = 100
@@ -296,6 +302,48 @@ def plan_skills(staging_dir, wanted):
     return jobs, sorted(wanted - found)
 
 
+def load_enemy_ids():
+    """
+    Read every enemy variant id the importer wrote, so only enemies a page can show are encoded.
+
+    Returns:
+        A set of enemy ids, such as `enemy_1007_slime_2`. Empty when the importer has not written `enemies.json`.
+    """
+    path = os.path.join(DATA_DIR, "enemies.json")
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding="utf-8") as handle:
+        return {variant["id"] for enemy in json.load(handle) for variant in enemy["variants"]}
+
+
+def plan_enemies(staging_dir, wanted):
+    """
+    Work out a job for every enemy icon a page can show.
+
+    Args:
+        staging_dir: The root of the `--staging` tree.
+        wanted: Every enemy id the importer wrote.
+
+    Returns:
+        A `(jobs, missing)` pair: the `(input_path, output_path, label, kind)` quadruples, `kind` always `"enemies"`, and the sorted ids with no
+        staged icon. A missing icon is not an error, since the manifest records presence and the site draws a placeholder.
+    """
+    source_dir = os.path.join(staging_dir, ENEMY_ICONS_DIR)
+    dest_dir = os.path.join(staging_dir, "assets", "enemies")
+    if not os.path.isdir(source_dir):
+        print(f"skipping enemies: {source_dir} does not exist")
+        return [], []
+    jobs = []
+    missing = []
+    for enemy_id in sorted(wanted):
+        source = os.path.join(source_dir, f"{enemy_id}.png")
+        if os.path.exists(source):
+            jobs.append((source, os.path.join(dest_dir, f"{enemy_id}.webp"), f"enemy/{enemy_id}.png -> enemies/{enemy_id}.webp", "enemies"))
+        else:
+            missing.append(enemy_id)
+    return jobs, missing
+
+
 def plan_numbered(staging_dir, published_name):
     """
     Work out the jobs for one fixed, numbered icon set.
@@ -425,11 +473,11 @@ def main():
     """Parse arguments and run the encode pipeline for the selected stages."""
     parser = argparse.ArgumentParser(description="Re-encode staged upstream art into the WebP files the site publishes.")
     parser.add_argument("--dry-run", action="store_true", help="Print input -> output for every file and encode nothing.")
-    parser.add_argument("--only", choices=("portraits", "illustrations", "classes", "skills", "potentials", "elites"), help="Run only this stage. Defaults to all six.")
+    parser.add_argument("--only", choices=STAGES, help="Run only this stage. Defaults to all of them.")
     parser.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
     args = parser.parse_args()
 
-    stages = (args.only,) if args.only else ("portraits", "illustrations", "classes", "skills", "potentials", "elites")
+    stages = (args.only,) if args.only else STAGES
     operator_ids = load_operator_ids()
 
     jobs = []
@@ -454,6 +502,12 @@ def main():
     for published_name in NUMBERED_ICONS:
         if published_name in stages:
             jobs.extend(plan_numbered(args.staging, published_name))
+
+    if "enemies" in stages:
+        enemy_jobs, missing_enemies = plan_enemies(args.staging, load_enemy_ids())
+        jobs.extend(enemy_jobs)
+        if missing_enemies:
+            print(f"enemies with no staged icon: {len(missing_enemies)}: {', '.join(missing_enemies[:10])}")
 
     to_encode = [job for job in jobs if needs_encode(job[0], job[1])]
     skipped["already_exists"] = len(jobs) - len(to_encode)

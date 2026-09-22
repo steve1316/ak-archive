@@ -6,12 +6,14 @@ The two fetches are unrelated and share nothing but this command line and the sp
 directories are checked out of a repo that is 17.8 GB whole - this pulls about 9.2 GB. `--only icons` pulls `skills`, `potential_hub`, `elite_hub`,
 `profession_large_hub` and `charportraits` out of `ArknightsAssets/ArknightsAssets2` the same way. `charportraits` stands in for the operators
 whose portrait `charpor` stopped carrying after October 2025. Its `en` branch is refreshed hourly by the repo's own GitHub Actions
-job, so it stays current on its own and the 8 class icons no longer depend on the dead `Aceship/Arknight-Images` mirror. Neither stage produces
-anything the site reads - later pipeline stages re-encode this staged tree to WebP and publish it.
+job, so it stays current on its own and the 8 class icons no longer depend on the dead `Aceship/Arknight-Images` mirror. `--only enemies` pulls just `enemy`
+(the 158x158 handbook icons) out of `fexli/ArknightsResource` into a clone of its own, pinned by its own lock, so refreshing enemy icons never
+moves the sha the operator art was taken from. No stage produces anything the site reads - later pipeline stages re-encode this staged tree
+to WebP and publish it.
 See `PROJECT.md` for the mirror decisions behind both sources.
 
 Usage:
-    python3 -u tools/assets/fetch.py [--only {art,icons}]
+    python3 -u tools/assets/fetch.py [--only {art,icons,enemies}]
 """
 
 import argparse
@@ -35,6 +37,11 @@ CLONE_URL = "https://github.com/fexli/ArknightsResource.git"
 ART_BRANCH = "main"
 ART_DIRS = ("charpor", "charpack", "spine")
 LOCK_PATH = os.path.join(TOOLS_DIR, "upstream.lock.json")
+
+# Enemy icons: the same mirror as the art, in a separate clone narrowed to one directory and pinned by its own lock.
+ENEMIES_DIR = os.path.join(STAGING_DIR, "enemies-upstream")
+ENEMY_DIRS = ("enemy",)
+ENEMIES_LOCK_PATH = os.path.join(TOOLS_DIR, "enemies.lock.json")
 
 # Icon mirror: `en` is refreshed by the repo's own hourly GitHub Actions job from each new EN client, so it stays current on its own.
 ICONS_CLONE_URL = "https://github.com/ArknightsAssets/ArknightsAssets2.git"
@@ -260,22 +267,38 @@ def fetch_icons():
         print(f"icons/{directory.rsplit('/', 1)[-1]}: {count} files, {format_bytes(total)}")
 
 
+def fetch_enemies():
+    """
+    Clone or refresh the enemy icon clone, record its sha, then print what was staged.
+
+    Raises:
+        subprocess.CalledProcessError: If any `git` command fails.
+        AssertionError: If recovering from an invalid clone would remove a path outside `STAGING_DIR`.
+    """
+    clone_or_refresh_sparse(ENEMIES_DIR, CLONE_URL, ART_BRANCH, ENEMY_DIRS)
+    print(f"enemies/sha: {write_lock(ENEMIES_DIR, 'fexli/ArknightsResource', ART_BRANCH, ENEMIES_LOCK_PATH)}")
+    count, total = directory_stats(os.path.join(ENEMIES_DIR, "enemy"))
+    print(f"enemies/enemy: {count} files, {format_bytes(total)}")
+
+
 # //////////////////////////////////////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////////////////
 # Entry point
 
 
 def main():
-    """Parse arguments and run the requested fetch stage, or both when `--only` is omitted."""
-    parser = argparse.ArgumentParser(description="Fetch operator art and class icons for the asset pipeline.")
-    parser.add_argument("--only", choices=("art", "icons"), help="Fetch only this stage. Defaults to both.")
+    """Parse arguments and run the requested fetch stage, or every stage when `--only` is omitted."""
+    parser = argparse.ArgumentParser(description="Fetch operator art, class icons and enemy icons for the asset pipeline.")
+    parser.add_argument("--only", choices=("art", "icons", "enemies"), help="Fetch only this stage. Defaults to all three.")
     args = parser.parse_args()
 
-    stages = (args.only,) if args.only else ("art", "icons")
+    stages = (args.only,) if args.only else ("art", "icons", "enemies")
     if "art" in stages:
         fetch_art()
     if "icons" in stages:
         fetch_icons()
+    if "enemies" in stages:
+        fetch_enemies()
 
 
 if __name__ == "__main__":

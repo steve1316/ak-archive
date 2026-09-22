@@ -307,6 +307,10 @@ def check_manifest_against_tree(manifest, files):
         for key in keys:
             if not any(f"{kind}/{operator_id}_{key}.webp" in present for kind in ("portraits", "illustrations")):
                 problems.append(f"the manifest claims skin {key} for {operator_id}, which the encoded tree has in neither portraits nor illustrations")
+
+    for enemy_id, claimed in sorted(manifest.get("enemies", {}).items()):
+        if claimed is True and f"enemies/{enemy_id}.webp" not in present:
+            problems.append(f"the manifest claims enemies/{enemy_id}.webp, which the encoded tree does not have")
     return problems
 
 
