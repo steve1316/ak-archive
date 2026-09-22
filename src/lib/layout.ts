@@ -129,10 +129,13 @@ export const PAGE_SX: SxProps<Theme> = { position: "relative", zIndex: 1, px: { 
  */
 export const HERO_ROW_SX = { display: "grid", gap: { xs: 2, md: 2.75 }, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "180px minmax(0, 1fr) 330px" } } as const satisfies SxProps<Theme>;
 
-/** A detail page's second row: stats beside the abilities. Content height - nothing here stretches. The enemy page stretches it instead. */
+/** A detail page's second row: stats beside the abilities, each at its content height. Pages use it through `STATS_ROW_STRETCH_SX`. */
 export const STATS_ROW_SX: SxProps<Theme> = { display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "360px minmax(0, 1fr)" } };
 
-/** The enemy page's second row: `STATS_ROW_SX` stretched, so the column beside Stats lines up with it when that column's text is shorter. */
+/**
+ * The operator and enemy pages' second row: `STATS_ROW_SX` stretched, so the card beside Stats matches its height. When that card is taller, the row
+ * grows to fit it rather than hiding it behind a scrollbar.
+ */
 export const STATS_ROW_STRETCH_SX: SxProps<Theme> = { ...STATS_ROW_SX, alignItems: "stretch" };
 
 /**

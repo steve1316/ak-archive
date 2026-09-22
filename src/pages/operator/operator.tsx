@@ -17,7 +17,7 @@ import type { StageRequest } from "../../components/AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import HandbookSection from "./HandbookSection.js";
 import IdentityBlock from "./IdentityBlock.js";
-import { HERO_ROW_SX, NAVBAR_HEIGHT, PAGE_SX, PAGE_TOP_PADDING, STATS_ROW_SX } from "../../lib/layout.js";
+import { HERO_ROW_SX, NAVBAR_HEIGHT, PAGE_SX, PAGE_TOP_PADDING, STATS_ROW_STRETCH_SX } from "../../lib/layout.js";
 import RecordBlock from "../../components/RecordBlock.js";
 import SpineStage from "./SpineStage.js";
 import StatsPanel from "./StatsPanel.js";
@@ -204,7 +204,7 @@ export default function Operator() {
 								</Box>
 								<AnimationsCard key={operator.id} interactive renderStage={renderStage} />
 							</Box>
-							<Box sx={STATS_ROW_SX}>
+							<Box sx={STATS_ROW_STRETCH_SX}>
 								<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
 								<AbilitiesCard operator={operator} controls={controls} />
 							</Box>
