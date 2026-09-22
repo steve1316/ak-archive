@@ -10,8 +10,8 @@ The user compared the setup poses of 8 reference rigs side by side with PRTS and
 PRTS** until a later comparison covers it.
 
 `tools/assets/check_spine_math.mjs` checks these formulas with small hand-worked cases: each inherit mode, shear on either axis, skeleton
-scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, skin changes, and the animation curves,
-key search and bone timelines.
+scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, skin changes, the animation curves,
+key search and bone timelines, and the renderer's two-color tint and blend factors.
 
 ## Coordinates and angles
 
@@ -208,23 +208,46 @@ flipped v or a wrong strip offset moves the hull off the box. A wrong rotate dir
 ### Color
 
 A list's tint is the slot's live color times the attachment's color, channel by channel. A list also carries the slot's live dark color, or
-null when the slot has none. The renderer ignores the dark color for now and draws every slot with the normal blend (see Drawing).
+null when the slot has none. The renderer uses both, and the slot's blend mode (see Drawing).
 
 ## Drawing
 
 `renderer.ts` draws the lists with WebGL2, in draw order, back to front.
 
 - **Premultiplied color.** The staged PNGs are straight alpha (see `FORMAT-3.8.md`, atlas point 4), so each page is premultiplied when it
-  is decoded. A list's tint is premultiplied too, as `(r*a, g*a, b*a, a)`. The fragment color is the texel times the tint, which stays
-  premultiplied, and it blends with `ONE, ONE_MINUS_SRC_ALPHA`: `out = src + dst * (1 - src.a)`. Skipping the premultiply would leave
-  bright fringes on soft edges, and premultiplying twice would leave dark ones. **Settled by the PRTS side by side**: the references show
-  neither.
-- **Blend modes.** Every list uses that normal blend for now, whatever its slot's `blendMode`. Additive, multiply and screen come later.
+  is decoded. The shader's output is premultiplied too. For a slot without a dark color it is the texel times the premultiplied tint
+  `(r*a, g*a, b*a, a)`, and the normal blend is `ONE, ONE_MINUS_SRC_ALPHA`: `out = src + dst * (1 - src.a)`. Skipping the premultiply
+  would leave bright fringes on soft edges, and premultiplying twice would leave dark ones. **Settled by the PRTS side by side**: the
+  references show neither.
+- **Two-color tint.** The user guide's slots page says the light color tints the lighter portions of the image and controls opacity, and
+  the dark color tints the darker portions. Read as a map of the texture's black to the dark color and its white to the light color, a
+  straight texel color `c` gives the straight output `dark + (light - dark) * c`, with alpha `a * light.a`. The output must be
+  premultiplied by its own alpha. With a premultiplied texel of rgb `p = a * c` and alpha `a`, that is rgb
+  `light.a * (a * dark + (light - dark) * p)` and alpha `a * light.a`. The `light.a` factor matters: without it a slot fading out would keep
+  adding color at zero alpha, which draws as a glow. The dark alpha is unused. A slot without a dark color draws with black, which reduces the formula to the plain tint, so
+  one shader serves every slot. `tintTexel` in `renderer.ts` works the same formula on the CPU for the maths gate. For example dark
+  (0.2, 0, 0), light (1, 1, 1, 1) and texel (0.5, 0.5, 0.5, 1) give (0.6, 0.5, 0.5, 1). This formula is derived, not observed.
+  **Confirm against PRTS.**
+- **Blend modes.** The slots page names each mode by its Photoshop equivalent: additive is Linear Dodge, and multiply and screen are
+  Photoshop's own. In premultiplied colour they are:
+
+  | Mode | Source factor | Destination factor | Result |
+  |---|---|---|---|
+  | normal | `ONE` | `ONE_MINUS_SRC_ALPHA` | `src + dst * (1 - src.a)` |
+  | additive | `ONE` | `ONE` | `src + dst` |
+  | multiply | `DST_COLOR` | `ONE_MINUS_SRC_ALPHA` | `src * dst + dst * (1 - src.a)` |
+  | screen | `ONE` | `ONE_MINUS_SRC_COLOR` | `src + dst * (1 - src)` |
+
+  A draw call breaks when the page texture or the blend mode changes. **Confirm against PRTS**: no reference rig uses a blend mode other
+  than normal.
 - **Sampling.** Page textures use LINEAR filtering and CLAMP_TO_EDGE with no mipmaps. The first PNG row is uploaded as v = 0, so the page
   UVs above are used as they are.
 - **Projection.** A view rectangle in world units maps onto the whole viewport with y up. The player frames the setup pose's `bounds` once,
   at load, and each draw fits that box into the canvas with 5% of the canvas empty on each side, the aspect kept and the box centred. The
-  framing does not follow the pose as it moves, so the camera stays still. `refit` frames the current pose again.
+  framing does not follow the pose as it moves, so the camera stays still. `refit` frames the current pose again. `play` frames the
+  animation instead: the union of the pose bounds at 8 evenly spaced times from 0 to the duration, fitted the same way. The setup pose can
+  hold parts every animation hides, which would leave the figure small and off-centre. A pose between the samples that leaves the box is
+  clipped.
 
 ## Animation
 

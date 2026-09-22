@@ -3,11 +3,13 @@
 // Player
 
 /**
- * Loads one rig into a canvas and draws its current pose with `SpineRenderer`. Fetches the skeleton, atlas and page images, builds the
- * `Skeleton`, and frames the setup pose in the canvas with a margin, aspect kept and centred. The framing stays put as the pose changes,
- * until `refit` runs.
+ * Loads one rig into a canvas, plays its animations and draws each pose with `SpineRenderer`. Fetches the skeleton, atlas and page images,
+ * builds the `Skeleton`, and frames the setup pose in the canvas with a margin, aspect kept and centred. `play` frames the animation it
+ * starts instead. The framing stays put as the pose changes, until `refit` or `play` runs. The caller owns the frame loop and calls `update`
+ * once a frame.
  */
 
+import { applyAnimation, loopTime } from "./animation.js";
 import { readAtlas } from "./atlas.js";
 import { readSkeleton } from "./binary.js";
 import { bounds, skeletonTriangles } from "./geometry.js";
@@ -15,7 +17,7 @@ import type { PageSize } from "./geometry.js";
 import { SpineRenderer } from "./renderer.js";
 import type { View } from "./renderer.js";
 import { defaultSkinName, Skeleton } from "./skeleton.js";
-import type { Atlas } from "./types.js";
+import type { Animation, Atlas } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -23,6 +25,9 @@ import type { Atlas } from "./types.js";
 
 /** Share of the canvas kept empty on each side of the fitted drawing. */
 const FIT_MARGIN = 0.05;
+
+/** How many evenly spaced times, from 0 to the duration, `play` samples to frame an animation. */
+const FIT_SAMPLES = 8;
 
 /**
  * How page images are decoded. The staged PNGs are straight alpha (see `FORMAT-3.8.md`), so they are premultiplied on decode, and the
@@ -84,6 +89,32 @@ export function fitView(box: View, width: number, height: number): View {
 }
 
 /**
+ * Finds the box around an animation's poses at `FIT_SAMPLES` evenly spaced times. A looping animation is sampled over [0, duration), since a
+ * loop wraps to 0 and never shows its end pose. One that plays once is sampled over [0, duration]. It leaves the skeleton posed at the last
+ * sample, so the caller poses it again after.
+ *
+ * @param rig The loaded rig.
+ * @param animation The animation to sample.
+ * @param loop True when the animation will loop, so its end pose is left out.
+ * @returns The union of the sampled poses' bounds, or null when none of them drew anything.
+ */
+function animationBox(rig: LoadedRig, animation: Animation, loop: boolean): View | null {
+	const skeleton = rig.skeleton;
+	const samples = animation.duration > 0 ? FIT_SAMPLES : 1;
+	let box: View | null = null;
+	for (let i = 0; i < samples; i++) {
+		skeleton.setToSetupPose();
+		applyAnimation(skeleton, animation, samples > 1 ? (animation.duration * i) / (loop ? samples : samples - 1) : 0);
+		skeleton.updateWorldTransform();
+		const pose = bounds(skeletonTriangles(skeleton, rig.atlas, rig.pageSizes));
+		if (pose) {
+			box = box ? { minX: Math.min(box.minX, pose.minX), minY: Math.min(box.minY, pose.minY), maxX: Math.max(box.maxX, pose.maxX), maxY: Math.max(box.maxY, pose.maxY) } : pose;
+		}
+	}
+	return box;
+}
+
+/**
  * Fetches a URL and fails on a non-2xx status.
  *
  * @param url The URL.
@@ -102,8 +133,12 @@ async function fetchOk(url: string, signal: AbortSignal | undefined): Promise<Re
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Player
 
-/** Plays one rig at a time in a canvas. This stage draws the setup pose only. */
+/** Plays one rig at a time in a canvas. */
 export class SpinePlayer {
+	/** Playback rate: seconds of animation per second of `update` delta. */
+	speed = 1;
+	/** True to wrap round at the end of the animation, false to stop on its last frame. */
+	loop = true;
 	/** The canvas drawn into. The caller owns it. */
 	private readonly canvas: HTMLCanvasElement;
 	/** The renderer, which owns every GL object the player makes. */
@@ -114,6 +149,12 @@ export class SpinePlayer {
 	private loadCount = 0;
 	/** The world rectangle the last `render` showed, or null when nothing was framed. */
 	private lastView: View | null = null;
+	/** The animation `play` chose, or null for the setup pose. */
+	private current: Animation | null = null;
+	/** The time within `current`, in seconds, from 0 to its duration. */
+	private currentTime = 0;
+	/** True while `update` does not advance the time. */
+	private isPaused = false;
 
 	/**
 	 * Gets a WebGL2 context on the canvas and builds the renderer.
@@ -149,6 +190,91 @@ export class SpinePlayer {
 		return this.lastView;
 	}
 
+	/** The name of the animation `play` chose, or null when none is playing. */
+	get animation(): string | null {
+		return this.current?.name ?? null;
+	}
+
+	/** The time within the current animation, in seconds, from 0 to its duration. */
+	get time(): number {
+		return this.currentTime;
+	}
+
+	/** The current animation's duration in seconds, or 0 when none is playing. */
+	get duration(): number {
+		return this.current?.duration ?? 0;
+	}
+
+	/** True while `update` does not advance the time. */
+	get paused(): boolean {
+		return this.isPaused;
+	}
+
+	/**
+	 * Starts an animation from its first frame: frames the animation, resets the skeleton to the setup pose, sets the time to 0, poses and
+	 * draws. The framing is the union of the pose bounds at `FIT_SAMPLES` evenly spaced times, and it stays put during playback. Playback is
+	 * resumed if it was paused.
+	 *
+	 * @param name The animation's name.
+	 * @param loop True to wrap round at the end, false to stop on the last frame. Defaults to true.
+	 */
+	play(name: string, loop = true): void {
+		const rig = this.rig;
+		if (!rig) {
+			throw new Error("No rig is loaded");
+		}
+		const animation = rig.skeleton.data.animations.find((candidate) => candidate.name === name);
+		if (!animation) {
+			throw new Error(`The rig has no animation named ${name}`);
+		}
+		this.current = animation;
+		this.loop = loop;
+		this.currentTime = 0;
+		this.isPaused = false;
+		rig.framedBox = animationBox(rig, animation, loop);
+		this.pose();
+	}
+
+	/**
+	 * Advances the time by `delta` seconds times `speed`, unless paused, then poses and draws. Without an animation it draws the current pose.
+	 *
+	 * @param delta Seconds since the last update.
+	 */
+	update(delta: number): void {
+		const animation = this.current;
+		if (animation && !this.isPaused) {
+			this.currentTime = loopTime(animation, this.currentTime + delta * this.speed, this.loop);
+		}
+		this.pose();
+	}
+
+	/** Stops `update` from advancing the time. The pose stays as it is. */
+	pause(): void {
+		this.isPaused = true;
+	}
+
+	/** Lets `update` advance the time again. An animation that stopped on its last frame without looping starts over. */
+	resume(): void {
+		if (this.isPaused && this.current && !this.loop && this.currentTime >= this.current.duration) {
+			this.currentTime = 0;
+		}
+		this.isPaused = false;
+	}
+
+	/**
+	 * Jumps to a time in the current animation, then poses and draws. Does nothing without an animation.
+	 *
+	 * @param time The time in seconds, clamped to the animation's duration.
+	 */
+	seek(time: number): void {
+		const animation = this.current;
+		if (!animation) {
+			return;
+		}
+		this.currentTime = loopTime(animation, time, false);
+		this.pose();
+	}
+
 	/**
 	 * Loads a rig, replacing any rig already loaded. The old rig is dropped at once, so on an abort or a failed fetch the player is empty.
 	 * The skin starts as `defaultSkinName` picks, in the setup pose, and the framing fits that pose.
@@ -159,6 +285,8 @@ export class SpinePlayer {
 	async load(urls: RigUrls, signal?: AbortSignal): Promise<void> {
 		const loadId = ++this.loadCount;
 		this.clear();
+		this.current = null;
+		this.currentTime = 0;
 		const [skelResponse, atlasResponse] = await Promise.all([fetchOk(urls.skel, signal), fetchOk(urls.atlas, signal)]);
 		const [skelBytes, atlasText] = await Promise.all([skelResponse.arrayBuffer(), atlasResponse.text()]);
 		const data = readSkeleton(new Uint8Array(skelBytes));
@@ -210,7 +338,7 @@ export class SpinePlayer {
 		this.rig?.skeleton.setToSetupPose();
 	}
 
-	/** Frames the current pose: every later `render` fits this pose's bounds to the canvas, however the pose moves after. */
+	/** Frames the current pose: every later `render` fits this pose's bounds to the canvas, until `refit` or `play` frames again. */
 	refit(): void {
 		const rig = this.rig;
 		if (!rig) {
@@ -249,8 +377,19 @@ export class SpinePlayer {
 	dispose(): void {
 		this.loadCount++;
 		this.rig = null;
+		this.current = null;
 		this.lastView = null;
 		this.renderer.dispose();
+	}
+
+	/** Resets the skeleton to the setup pose, applies the current animation at the current time, and draws. */
+	private pose(): void {
+		const rig = this.rig;
+		if (rig && this.current) {
+			rig.skeleton.setToSetupPose();
+			applyAnimation(rig.skeleton, this.current, this.currentTime);
+		}
+		this.render();
 	}
 
 	/** Drops the loaded rig and frees its textures. */

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
- * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, and `src/spine/animation.ts` curves, key search,
- * bone, slot and draw order timelines against hand-worked values. `MATH.md` explains each formula the cases pin down.
+ * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, `src/spine/animation.ts` curves, key search,
+ * bone, slot and draw order timelines, and the `src/spine/renderer.ts` two-color tint and blend factors against hand-worked values.
+ * `MATH.md` explains each formula the cases pin down.
  *
  * Usage:
  *     node tools/assets/check_spine_math.mjs
@@ -924,6 +925,35 @@ function checkSlotTimelines(skeletonModule, animationModule) {
 	return runCases("slot timelines", cases);
 }
 
+/**
+ * Runs the drawing cases: the two-color tint of one premultiplied texel, and the blend factors each blend mode draws with.
+ *
+ * @param {object} rendererModule The loaded `renderer.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkDrawing(rendererModule) {
+	const { tintTexel, BLEND_FACTORS } = rendererModule;
+	const white = { r: 1, g: 1, b: 1, a: 1 };
+	const darkRed = { r: 0.2, g: 0, b: 0, a: 1 };
+	const grey = [0.5, 0.5, 0.5, 1];
+	const cases = [
+		["two-color maps black to the dark color and white to the light color", () => [[0.6, 0.5, 0.5, 1], tintTexel(white, darkRed, grey)]],
+		["no dark color is the plain premultiplied tint", () => [[0.25, 0.125, 0.0625, 0.5], tintTexel({ r: 1, g: 0.5, b: 0.25, a: 0.5 }, null, grey)]],
+		[
+			"a black dark color matches the plain tint",
+			() => [tintTexel({ r: 0.8, g: 0.6, b: 0.4, a: 0.7 }, null, [0.3, 0.3, 0.3, 0.6]), tintTexel({ r: 0.8, g: 0.6, b: 0.4, a: 0.7 }, { r: 0, g: 0, b: 0, a: 1 }, [0.3, 0.3, 0.3, 0.6])]
+		],
+		["two-color light alpha fades the whole output", () => [[0.3, 0.25, 0.25, 0.5], tintTexel({ ...white, a: 0.5 }, darkRed, grey)]],
+		["two-color on a half transparent texel stays premultiplied", () => [[0.3, 0.25, 0.25, 0.5], tintTexel(white, darkRed, [0.25, 0.25, 0.25, 0.5])]],
+		["two-color leaves a transparent texel transparent", () => [[0, 0, 0, 0], tintTexel(white, darkRed, [0, 0, 0, 0])]],
+		["normal blends ONE, ONE_MINUS_SRC_ALPHA", () => ["ONE,ONE_MINUS_SRC_ALPHA", BLEND_FACTORS.normal.join()]],
+		["additive blends ONE, ONE", () => ["ONE,ONE", BLEND_FACTORS.additive.join()]],
+		["multiply blends DST_COLOR, ONE_MINUS_SRC_ALPHA", () => ["DST_COLOR,ONE_MINUS_SRC_ALPHA", BLEND_FACTORS.multiply.join()]],
+		["screen blends ONE, ONE_MINUS_SRC_COLOR", () => ["ONE,ONE_MINUS_SRC_COLOR", BLEND_FACTORS.screen.join()]]
+	];
+	return runCases("drawing", cases);
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -944,6 +974,12 @@ try {
 		failures.push(...checkAnimation(skeletonModule, animationModule), ...checkSlotTimelines(skeletonModule, animationModule));
 	} catch (error) {
 		failures.push(`animation: could not run: ${error.message}`);
+	}
+	try {
+		const rendererModule = await server.ssrLoadModule("/src/spine/renderer.ts");
+		failures.push(...checkDrawing(rendererModule));
+	} catch (error) {
+		failures.push(`drawing: could not run: ${error.message}`);
 	}
 } catch (error) {
 	failures = [`could not run: ${error.message}`];

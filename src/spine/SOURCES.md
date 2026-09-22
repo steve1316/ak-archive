@@ -54,5 +54,8 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
   Also its "Slot timelines" section (attachment, color and twoColor keys, each a value "to set" for the slot) and its "Draw order timeline"
   section (signed offsets from the setup pose draw order index, and a key without offsets restoring the setup order).
   `MATH.md` ("Animation") records each rule and the corpus measurements that back the ones the page leaves open.
-- Any other method or helper name in `src/spine/` (for example `localToWorld`, `slotTriangles`, `fitView`, `refit` and `defaultSkinName`)
+- https://esotericsoftware.com/spine-slots - the "Tint black" section: the light color tints the lighter portions of an image and
+  controls opacity, and the dark color tints the darker portions. The "Blending" section: additive, multiply and screen correspond to
+  Photoshop's Linear Dodge, Multiply and Screen. `MATH.md` ("Drawing") derives the two-color formula and the blend factors from these.
+- Any other method or helper name in `src/spine/` (for example `localToWorld`, `slotTriangles`, `fitView`, `refit`, `tintTexel` and `defaultSkinName`)
   is this runtime's own choice. Type names such as `Bone`, `Slot`, `Skin` and `Attachment` are the user guide's own terms.
