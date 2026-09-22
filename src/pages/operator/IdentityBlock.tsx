@@ -5,7 +5,7 @@ import RarityStars from "../../components/RarityStars.js";
 import { classIconUrl } from "../../lib/assets.js";
 import type { OperatorForm } from "../../lib/forms.js";
 import type { Operator } from "../../types/operator.js";
-import { BADGE_SX, CHIP_SELECTED_SX, CHIP_UNSELECTED_SX, HERO_CHIPS_SX, HERO_NAME_SX, HERO_RELEASE_SX, HERO_SUBTITLE_SX } from "../../lib/layout.js";
+import { BADGE_SX, CHIP_SELECTED_SX, CHIP_UNSELECTED_SX, HERO_CHIPS_SX, HERO_DEBUT_SX, HERO_NAME_SX, HERO_RELEASE_SX, HERO_SUBTITLE_SX } from "../../lib/layout.js";
 
 /** The class icon inside the badge. */
 const BADGE_ICON_SX: SxProps<Theme> = { width: 17, height: 17 };
@@ -24,12 +24,13 @@ interface IdentityBlockProps {
 
 /**
  * Class badge, rarity, name with subclass, then the form chips - the order gfl's doll hero uses. The chip row is left out when there is only one
- * form, since a lone "Base" chip switches nothing.
+ * form, since a lone "Base" chip switches nothing. Under the name sits the release line, with the selected outfit's own release under that.
  *
  * @param props Component props.
  * @returns The block.
  */
 export default function IdentityBlock({ operator, forms, formKey, onFormChange }: IdentityBlockProps) {
+	const outfitDate = forms.find((form) => form.key === formKey)?.releaseDate ?? null;
 	return (
 		<Box sx={{ minWidth: 0 }}>
 			<Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
@@ -43,6 +44,7 @@ export default function IdentityBlock({ operator, forms, formKey, onFormChange }
 				{operator.name} <Box component="span" sx={HERO_SUBTITLE_SX}>{`${operator.subProfession} — ${operator.position}`}</Box>
 			</Typography>
 			<Box component="p" sx={HERO_RELEASE_SX}>{`Global release: ${operator.releaseDate ?? "Unknown"}`}</Box>
+			{outfitDate ? <Box component="p" sx={HERO_DEBUT_SX}>{`Outfit release: ${outfitDate}`}</Box> : null}
 			{forms.length > 1 ? (
 				<Stack direction="row" useFlexGap sx={HERO_CHIPS_SX} role="group" aria-label="Forms">
 					{forms.map((form) => {

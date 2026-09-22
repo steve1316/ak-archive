@@ -52,6 +52,8 @@ export interface OperatorForm {
 	portrait: string | null;
 	/** The form's illustration. Every listed form has one. */
 	illustration: string;
+	/** An outfit's Global release day, or null for Base and Elite art. */
+	releaseDate: string | null;
 }
 
 /**
@@ -106,7 +108,7 @@ export function formsOf(operator: Operator): OperatorForm[] {
 	const illustrationKeys = VARIANTS.illustrations?.[id];
 	const canonical = canonicalFormKey(operator.forms);
 	const bareForm = (key: string, name: string): OperatorForm | null =>
-		hasIllustration(id) ? { key, name, portrait: hasPortrait(id) ? portraitUrl(id) : null, illustration: illustrationUrl(id) } : null;
+		hasIllustration(id) ? { key, name, portrait: hasPortrait(id) ? portraitUrl(id) : null, illustration: illustrationUrl(id), releaseDate: null } : null;
 
 	const forms: OperatorForm[] = [];
 	for (const entry of operator.forms) {
@@ -122,7 +124,13 @@ export function formsOf(operator: Operator): OperatorForm[] {
 			continue;
 		}
 		const portraitKey = matchKey(portraitKeys, entry.key);
-		forms.push({ key: entry.key, name: entry.name, portrait: portraitKey === null ? null : variantPortraitUrl(id, portraitKey), illustration: illustrationUrl(id, illustrationKey) });
+		forms.push({
+			key: entry.key,
+			name: entry.name,
+			portrait: portraitKey === null ? null : variantPortraitUrl(id, portraitKey),
+			illustration: illustrationUrl(id, illustrationKey),
+			releaseDate: entry.releaseDate
+		});
 	}
 
 	// A form at the canonical key can be missing above - some operators (Amiya's Guard and Medic forms) have no base outfit in skin_table at
