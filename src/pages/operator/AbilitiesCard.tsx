@@ -7,7 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { eliteIconUrl, potentialIconUrl } from "../../lib/icons.js";
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
 import type { Controls, OperatorFull } from "../../types/operator.js";
-import { RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "./layout.js";
+import { RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "../../lib/layout.js";
 import SkillsPanel from "./SkillsPanel.js";
 
 /** The gap between tiles, both across columns and from one tile to the next down a column. */

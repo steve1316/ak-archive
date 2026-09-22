@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 
 import { ART_TOP_ANCHOR, ArtPlaceholder, CARD_ASPECT, FAB_EXPAND_SX } from "archive-kit";
 
-import { TIGHT_RADIUS } from "./layout.js";
+import { TIGHT_RADIUS } from "../../lib/layout.js";
 
 /**
  * The card's width. The portrait file is 180x360 and nothing larger exists upstream, so any wider card upscales it. At the target DPR of 1.76

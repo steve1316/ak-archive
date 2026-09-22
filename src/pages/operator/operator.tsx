@@ -17,7 +17,7 @@ import type { StageRequest } from "./AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import HandbookSection from "./HandbookSection.js";
 import IdentityBlock from "./IdentityBlock.js";
-import { NAVBAR_HEIGHT } from "./layout.js";
+import { NAVBAR_HEIGHT } from "../../lib/layout.js";
 import RecordBlock from "./RecordBlock.js";
 import SpineStage from "./SpineStage.js";
 import StatsPanel from "./StatsPanel.js";

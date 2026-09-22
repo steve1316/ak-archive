@@ -5,7 +5,7 @@ import { Box, Paper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/ma
 import type { SxProps, Theme } from "@mui/material";
 
 import { classIconUrl } from "../../lib/assets.js";
-import { SECTION_HEADING_GAP, SECTION_HEADING_SX, SECTION_SX, TIGHT_RADIUS } from "./layout.js";
+import { SECTION_HEADING_GAP, SECTION_HEADING_SX, SECTION_SX, TIGHT_RADIUS } from "../../lib/layout.js";
 
 /** Which of an operator's two chibi rigs is on the stage. Named after upstream's own split: `build_<id>` is battle, `<id>/Back` is dorm. */
 export type RigKind = "battle" | "dorm";

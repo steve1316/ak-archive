@@ -5,7 +5,7 @@ import { Box, Button, Paper, Tab, Tabs, Typography, useMediaQuery } from "@mui/m
 import type { SxProps, Theme } from "@mui/material";
 
 import type { LoreSection } from "../../types/operator.js";
-import { SECTION_HEADING_SX, SECTION_SX, TAB_STRIP_SX, TIGHT_RADIUS } from "./layout.js";
+import { SECTION_HEADING_SX, SECTION_SX, TAB_STRIP_SX, TIGHT_RADIUS } from "../../lib/layout.js";
 
 /** A line that is only a bracketed label, such as `[Classified Log]`. Upstream uses these as headings inside a file. */
 const BRACKET_LINE = /^\[[^\]]+\]$/;

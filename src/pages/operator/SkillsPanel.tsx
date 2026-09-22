@@ -6,7 +6,7 @@ import type { SelectChangeEvent, SxProps, Theme } from "@mui/material";
 
 import { skillIconUrl } from "../../lib/icons.js";
 import type { OperatorSkill, SkillLevel, SkillRun } from "../../types/operator.js";
-import { RAISED_TILE_SX, TIGHT_RADIUS } from "./layout.js";
+import { RAISED_TILE_SX, TIGHT_RADIUS } from "../../lib/layout.js";
 
 /**
  * Opens the level menu to the right of its field, as gfl's skills panel does.

@@ -8,7 +8,7 @@ import { LevelSlider } from "archive-kit";
 
 import { statsAt } from "../../lib/stats.js";
 import type { Controls, Operator, StatValues, TrustBonus } from "../../types/operator.js";
-import { SECTION_HEADING_SX, SECTION_SX } from "./layout.js";
+import { SECTION_HEADING_SX, SECTION_SX } from "../../lib/layout.js";
 
 /** One single-stat row: its label, the `StatValues` field it reads, and the `TrustBonus` field that marks what full trust adds to it. */
 const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues; trustKey: keyof TrustBonus }> = [

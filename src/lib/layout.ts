@@ -1,8 +1,8 @@
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
-// Operator page layout
+// Detail page layout
 
-/** Geometry shared by the operator page's sections, so the cards read as one surface over the backdrop. */
+/** Geometry shared by the operator and enemy pages' sections, so the cards read as one surface over the backdrop. */
 
 import { alpha } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
@@ -60,3 +60,56 @@ export const RAISED_TILE_SX: SxProps<Theme> = {
 	borderRadius: 1,
 	backgroundColor: RAISED_BG
 };
+
+/** A badge on the raised surface, such as the operator page's class icon beside the class name. */
+export const BADGE_SX: SxProps<Theme> = {
+	display: "inline-flex",
+	alignItems: "center",
+	gap: 0.875,
+	px: 1.125,
+	py: 0.375,
+	border: 1,
+	borderColor: "divider",
+	borderRadius: TIGHT_RADIUS,
+	backgroundColor: RAISED_BG,
+	fontWeight: 600,
+	fontSize: 13
+};
+
+/**
+ * An unselected chip: the mockup's square-cornered outline on the same low-contrast fill as the rest of the fold's cards. Hover and focus lift
+ * it to the raised-surface colour rather than MUI's default light overlay, which washes out white against a fill this dark.
+ */
+export const CHIP_UNSELECTED_SX: SxProps<Theme> = (theme) => ({
+	border: "1px solid",
+	borderColor: "divider",
+	borderRadius: TIGHT_RADIUS,
+	backgroundColor: "rgba(13, 14, 18, 0.55)",
+	color: "text.secondary",
+	fontWeight: 400,
+	"&:hover, &.Mui-focusVisible": { backgroundColor: RAISED_BG(theme), borderColor: "text.secondary" }
+});
+
+/**
+ * A selected chip: the primary fill and border in every state. A clickable MUI chip's own `:hover` and `.Mui-focusVisible` rules are more
+ * specific than a plain `backgroundColor`, so hover and focus are pinned here explicitly rather than left to fall through to the default grey
+ * overlay - the bug fix round 1 left behind.
+ */
+export const CHIP_SELECTED_SX: SxProps<Theme> = (theme) => ({
+	border: "1px solid",
+	borderColor: "primary.main",
+	borderRadius: TIGHT_RADIUS,
+	backgroundColor: "primary.main",
+	color: theme.palette.primary.contrastText,
+	fontWeight: 600,
+	"&:hover, &.Mui-focusVisible": { backgroundColor: "primary.dark", borderColor: "primary.dark" }
+});
+
+/** A detail page's name heading. */
+export const HERO_NAME_SX: SxProps<Theme> = { fontWeight: 700, lineHeight: 1.15, mt: 0.625 };
+
+/** The small line beside the name, such as an operator's subclass and position. */
+export const HERO_SUBTITLE_SX: SxProps<Theme> = { fontSize: 14, fontWeight: 400, color: "text.secondary", ml: 1.25 };
+
+/** The row of choice chips under the name, such as an operator's forms or an enemy's variants. */
+export const HERO_CHIPS_SX: SxProps<Theme> = { flexWrap: "wrap", gap: 0.625, mt: 1.25 };
