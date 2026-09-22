@@ -105,6 +105,8 @@ export interface EnemyDetails {
 	description: string | null;
 	/** This variant's Global release day as `YYYY-MM-DD`, or null when unknown. */
 	releaseDate: string | null;
+	/** Where this variant first appeared on Global: an event, a main story chapter, or `Game launch`. Null when it has no release date. */
+	debut: string | null;
 	/** The handbook's lore paragraph. */
 	lore: string;
 	/** The handbook's ability list, in order. */

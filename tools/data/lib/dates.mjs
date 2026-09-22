@@ -27,6 +27,12 @@ export const ID_ALIASES = {
 /** The suffix EN gives a rerun's name, such as `Near Light - Rerun` or `Il Siracusano - Retrospection`. */
 const RERUN_SUFFIX = /\s*-\s*(Rerun|Retrospection)\s*$/i;
 
+/** The debut an enemy dated to Global's launch day gets. */
+const LAUNCH_DEBUT = "Game launch";
+
+/** An event's tie-break order: after every main story chapter, whose order is its chapter number. */
+const EVENT_ORDER = 1000;
+
 /**
  * The day part of a wiki timestamp such as `2020-01-16 11:00:00`.
  *
@@ -130,79 +136,94 @@ export function chapterDay(number, wikitext) {
 }
 
 /**
- * Map every rerun activity to its original run's start time. A rerun is flagged `isReplicate` and named after its original plus a suffix, and the
- * names are matched case-insensitively since upstream spells `IL Siracusano` one way and its rerun another.
+ * Map every rerun activity to its original run. A rerun is flagged `isReplicate` and named after its original plus a suffix, and the names are
+ * matched case-insensitively since upstream spells `IL Siracusano` one way and its rerun another.
  *
  * @param {Record<string, {name: string, startTime: number, isReplicate?: boolean}>} basicInfo `activity_table.basicInfo`.
- * @returns {Map<string, number>} Rerun activity id to its original's start time. A rerun with no findable original is left out.
+ * @returns {Map<string, {name: string, startTime: number}>} Rerun activity id to its original. A rerun with no findable original is left out.
  */
-function originalStarts(basicInfo) {
+function originalRuns(basicInfo) {
 	const byName = new Map();
 	for (const info of Object.values(basicInfo)) {
 		if (!info.isReplicate) {
-			byName.set(info.name.trim().toLowerCase(), info.startTime);
+			byName.set(info.name.trim().toLowerCase(), info);
 		}
 	}
-	const starts = new Map();
+	const originals = new Map();
 	for (const [id, info] of Object.entries(basicInfo)) {
 		const original = info.isReplicate ? byName.get(info.name.replace(RERUN_SUFFIX, "").trim().toLowerCase()) : undefined;
 		if (original) {
-			starts.set(id, original);
+			originals.set(id, original);
 		}
 	}
-	return starts;
+	return originals;
 }
 
 /**
- * Date every stage that can be dated. A main story zone uses its chapter's day, otherwise the zone's event start from `activity_table`.
+ * Date every stage that can be dated, and name where it came from. A main story zone uses its chapter's day and name, otherwise the zone's event
+ * start and name from `activity_table`.
  *
- * When an event reruns, EN moves its stages into the rerun's zone, so a zone that maps to a rerun is dated by the original run instead. A rerun whose
- * original cannot be found leaves its stages undated rather than dating them by the rerun. Supply, Annihilation and Stationary Security Service
- * zones belong to no event and stay undated.
+ * When an event reruns, EN moves its stages into the rerun's zone, so a zone that maps to a rerun is credited to the original run instead. A rerun
+ * whose original cannot be found leaves its stages undated rather than dating them by the rerun. Supply, Annihilation and Stationary Security
+ * Service zones belong to no event and stay undated. `order` breaks a tie on the same day: main story before events, then the lower chapter.
  *
  * @param {Record<string, {zoneId: string}>} stages `stage_table.stages`.
  * @param {{zoneToActivity?: Record<string, string>, basicInfo?: Record<string, {name: string, startTime: number, isReplicate?: boolean}>}} activityTable
  * `activity_table`.
  * @param {Map<string, string>} chapters Main story zone id, such as `main_7`, to its Global day.
- * @returns {Map<string, string>} Stage id to day.
+ * @param {Record<string, {zoneNameFirst?: string, zoneNameSecond?: string}>} zones `zone_table.zones`, for the chapter names.
+ * @returns {Map<string, {day: string, name: string, order: number}>} Stage id to its day, its source's name and its tie-break order.
  */
-export function stageDates(stages, activityTable, chapters) {
+export function stageDates(stages, activityTable, chapters, zones) {
 	const basicInfo = activityTable.basicInfo ?? {};
-	const reruns = originalStarts(basicInfo);
-	const days = new Map();
+	const originals = originalRuns(basicInfo);
+	const sources = new Map();
 	for (const [stageId, stage] of Object.entries(stages)) {
-		let day = chapters.get(stage.zoneId) ?? null;
-		if (!day) {
-			const activityId = activityTable.zoneToActivity?.[stage.zoneId];
-			const info = activityId ? basicInfo[activityId] : undefined;
-			const startTime = info?.isReplicate ? reruns.get(activityId) : info?.startTime;
-			day = startTime ? dayOfUnix(startTime) : null;
+		const chapter = chapters.get(stage.zoneId);
+		if (chapter) {
+			const zone = zones[stage.zoneId] ?? {};
+			const name = [zone.zoneNameFirst, zone.zoneNameSecond].filter(Boolean).join(": ");
+			sources.set(stageId, { day: chapter, name, order: Number(/^main_(\d+)$/.exec(stage.zoneId)?.[1] ?? 0) });
+			continue;
 		}
-		if (day) {
-			days.set(stageId, day);
+		const activityId = activityTable.zoneToActivity?.[stage.zoneId];
+		const info = activityId ? basicInfo[activityId] : undefined;
+		const run = info?.isReplicate ? originals.get(activityId) : info;
+		if (run?.startTime) {
+			sources.set(stageId, { day: dayOfUnix(run.startTime), name: run.name.trim(), order: EVENT_ORDER });
 		}
 	}
-	return days;
+	return sources;
 }
 
 /**
- * Date every enemy by the earliest dated stage whose level lists it.
+ * Date every enemy by the earliest dated stage whose level lists it, and name that stage's event or chapter as its debut. Anything dated to
+ * Global's launch day debuts at "Game launch", since the prologue and the first four episodes all arrived together.
  *
  * @param {Record<string, {levelId?: string}>} stages `stage_table.stages`.
- * @param {Map<string, string>} stageDay Stage id to day, from `stageDates`.
+ * @param {Map<string, {day: string, name: string, order: number}>} stageSources Stage id to its source, from `stageDates`.
  * @param {Map<string, string[]>} levelEnemies Level id to the enemy ids in its `enemyDbRefs`.
- * @returns {Record<string, string>} Enemy id to day.
+ * @returns {{dates: Record<string, string>, debuts: Record<string, string>}} Enemy id to day, and enemy id to debut name.
  */
-export function enemyDates(stages, stageDay, levelEnemies) {
-	const dates = {};
+export function enemyDates(stages, stageSources, levelEnemies) {
+	const best = new Map();
 	for (const [stageId, stage] of Object.entries(stages)) {
-		const day = stageDay.get(stageId);
-		if (!day || !stage.levelId) {
+		const source = stageSources.get(stageId);
+		if (!source || !stage.levelId) {
 			continue;
 		}
 		for (const enemyId of levelEnemies.get(stage.levelId) ?? []) {
-			dates[enemyId] = earliest(dates[enemyId], day);
+			const current = best.get(enemyId);
+			if (!current || source.day < current.day || (source.day === current.day && source.order < current.order)) {
+				best.set(enemyId, source);
+			}
 		}
 	}
-	return dates;
+	const dates = {};
+	const debuts = {};
+	for (const [enemyId, source] of best) {
+		dates[enemyId] = source.day;
+		debuts[enemyId] = source.day === EN_LAUNCH ? LAUNCH_DEBUT : source.name;
+	}
+	return { dates, debuts };
 }

@@ -129,8 +129,8 @@ async function main() {
 			console.log(`  levels ${done}/${levelIds.length}`);
 		}
 	});
-	const enemies = enemyDates(stages, stageDates(stages, activityTable, chapters), levelEnemies);
-	console.log(`enemies: ${Object.keys(enemies).length} dated from ${levelEnemies.size} levels`);
+	const enemies = enemyDates(stages, stageDates(stages, activityTable, chapters, zoneTable.zones ?? {}), levelEnemies);
+	console.log(`enemies: ${Object.keys(enemies.dates).length} dated from ${levelEnemies.size} levels`);
 	console.log(`  missing levels (${missing.length}): ${missing.join("; ") || "none"}`);
 
 	const snapshot = {
@@ -138,7 +138,8 @@ async function main() {
 		gameDataSha: lock.sha,
 		levelFallbackSha: lock.levelFallback?.sha ?? null,
 		operators: sortedObject(operators.dates),
-		enemies: sortedObject(enemies)
+		enemies: sortedObject(enemies.dates),
+		enemyDebuts: sortedObject(enemies.debuts)
 	};
 	fs.writeFileSync(OUT_PATH, `${JSON.stringify(snapshot, null, "\t")}\n`);
 	console.log(`wrote ${OUT_PATH}`);

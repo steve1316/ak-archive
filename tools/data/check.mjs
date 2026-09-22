@@ -140,6 +140,13 @@ const ENEMY_DATE_FIXTURES = [
 	{ id: "enemy_10071_ftprg", date: "2025-08-28" }
 ];
 
+/** Hand-checked debut lines: a launch enemy, a main story boss that arrived later, and an event enemy whose event has since rerun. */
+const ENEMY_DEBUT_FIXTURES = [
+	{ id: "enemy_1007_slime", debut: "Game launch" },
+	{ id: "enemy_1506_patrt", debut: "Episode 7: The Birth of Tragedy" },
+	{ id: "enemy_10071_ftprg", debut: "When Elegies Are Ashes" }
+];
+
 /**
  * Hand-checked range ids. Ch'en the Holungday grows at E1, has a front-row trait area and an S3 that widens her range. Swire's S1 changes range at
  * level 7, which is why ranges are kept per skill level rather than per skill.
@@ -895,6 +902,20 @@ for (const fixture of RANGE_EXTEND_FIXTURES) {
 		if (skill.levels[Number(index)]?.rangeExtend !== expected) {
 			fail(`${fixture.id} ${fixture.skill} level ${index} rangeExtend is ${skill.levels[Number(index)]?.rangeExtend}, expected ${expected}`);
 		}
+	}
+}
+
+for (const [id, detail] of Object.entries(enemyDetails)) {
+	if (detail.debut === undefined) {
+		fail(`${id} has no debut field`);
+	} else if ((detail.debut === null) !== (detail.releaseDate === null)) {
+		fail(`${id} has a debut without a release date or the other way round`);
+	}
+}
+for (const fixture of ENEMY_DEBUT_FIXTURES) {
+	const actual = enemyDetails[fixture.id]?.debut;
+	if (actual !== fixture.debut) {
+		fail(`${fixture.id} debut is ${actual}, expected ${fixture.debut}`);
 	}
 }
 

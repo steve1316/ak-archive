@@ -51,15 +51,16 @@ function writeJson(file, value) {
 /**
  * Read the release-date snapshot. A missing snapshot is not fatal: every date comes out null and the import says so.
  *
- * @returns {{operators: Record<string, string>, enemies: Record<string, string>}} Days by operator id and by enemy id.
+ * @returns {{operators: Record<string, string>, enemies: Record<string, string>, enemyDebuts: Record<string, string>}} Days by operator id and by
+ * enemy id, and each enemy's debut event or chapter.
  */
 function readDates() {
 	if (!fs.existsSync(DATES_PATH)) {
 		console.warn(`${DATES_PATH} is missing, so every release date is null. Run pnpm data:dates.`);
-		return { operators: {}, enemies: {} };
+		return { operators: {}, enemies: {}, enemyDebuts: {} };
 	}
 	const snapshot = JSON.parse(fs.readFileSync(DATES_PATH, "utf8"));
-	return { operators: snapshot.operators ?? {}, enemies: snapshot.enemies ?? {} };
+	return { operators: snapshot.operators ?? {}, enemies: snapshot.enemies ?? {}, enemyDebuts: snapshot.enemyDebuts ?? {} };
 }
 
 /**
@@ -67,12 +68,18 @@ function readDates() {
  *
  * @param {object} handbook `enemy_handbook_table`.
  * @param {Record<string, Array<object>>} database `enemy_database`, keyed by enemy id.
- * @param {Record<string, string>} enemyDates Days by enemy id, from the snapshot.
+ * @param {{enemies: Record<string, string>, enemyDebuts: Record<string, string>}} dates Days and debuts by enemy id, from the snapshot.
  * @returns {{total: number, variants: number}} The bytes written and how many variants were imported.
  */
-function writeEnemies(handbook, database, enemyDates) {
+function writeEnemies(handbook, database, dates) {
 	const groups = selectEnemies(handbook).map((rows) =>
-		buildEnemyGroup(rows.map((row) => ({ ...buildVariant(row, database[row.enemyId], handbook.raceData, handbook.levelInfoList), releaseDate: enemyDates[row.enemyId] ?? null })))
+		buildEnemyGroup(
+			rows.map((row) => ({
+				...buildVariant(row, database[row.enemyId], handbook.raceData, handbook.levelInfoList),
+				releaseDate: dates.enemies[row.enemyId] ?? null,
+				debut: dates.enemyDebuts[row.enemyId] ?? null
+			}))
+		)
 	);
 	groups.sort((a, b) => a.record.sortId - b.record.sortId);
 	const variants = groups.reduce((count, group) => count + group.record.variants.length, 0);
@@ -162,7 +169,7 @@ async function main() {
 	const rangeBytes = writeJson(path.join(OUT_DIR, "ranges.json"), ranges);
 	console.log(`  ${"ranges".padEnd(24)} ${String(Object.keys(ranges).length).padStart(3)} shapes     ${(rangeBytes / 1024).toFixed(0).padStart(5)} KB`);
 
-	const enemyBytes = writeEnemies(enemyHandbook, enemyDatabase, dates.enemies);
+	const enemyBytes = writeEnemies(enemyHandbook, enemyDatabase, dates);
 	const upstreamBytes = writeJson(path.join(OUT_DIR, "upstream.json"), {
 		repo: lock.repo,
 		server: lock.server,
