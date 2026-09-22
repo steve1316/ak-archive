@@ -13,14 +13,14 @@
  * one that runs on real data.
  *
  * Usage:
- *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation]
+ *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform]
  *
  * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--survey` also prints
  * how many rigs use each feature and how many each planned stage would draw in full. `--geometry` also turns every rig's setup pose into
  * triangles with `src/spine/geometry.ts`: every drawing attachment must give a list with finite positions and indices in range. A UV
  * outside [0, 1] is a warning, since a few meshes reach past their stripped image. The drawn bounds are compared with the skeleton's
- * declared bounds by intersection-over-union. A rig with a transform or path constraint is only reported, since those are not applied yet.
- * An IK-only or unconstrained rig is judged. Below 0.5 it
+ * declared bounds by intersection-over-union. A rig with a path constraint is only reported, since those are not applied yet.
+ * Every other rig is judged. Below 0.5 it
  * fails unless the drawn box sits inside the declared one, which hidden or other-skin attachments can widen. A rig that declares no bounds,
  * or draws nothing in its setup pose, is counted as unscored. It also checks UV orientation: the packer strips whitespace down to a mesh's
  * hull, so a stripped mesh's hull, mapped to page pixels, should meet every edge of its packed box.
@@ -37,7 +37,15 @@
  * `IK_SETUP_GAP` of its line must solve back to its setup rotation, and a two-bone chain within `IK_LOOSE_GAP` must sit nearer the solution
  * its bend direction picks than the mirror one. The brief gap-0.5 angle rates are printed too, for information. Then it plays every
  * animation at `ANIMATION_SAMPLES` times: solved rotations and scales must be finite, and a chain at mix 1 without stretch must point at
- * its target (one bone), or end on it or on the line to it (two bones). It prints the run time.
+ * its target (one bone), or end on it or on the line to it (two bones). A chain is left out of the reach check at a sample where a later
+ * constraint that touches it (see `touchingLater`) has a mix other than 0. It prints the run time.
+ *
+ * `--transform` checks every rig with a transform constraint. No constraint may be relative. In the setup pose, for each world constraint
+ * with a channel at setup mix 1, the bone's unconstrained setup world value is compared with each reading of the offsets (see `MATH.md`).
+ * Of the entries that at least one reading places, the runtime's own solve must place at least `TC_MIN_SETUP` per channel. With the
+ * skeleton flipped, at least `TC_MIN_MIRROR` of constrained bones must mirror. Under animation, at `ANIMATION_SAMPLES` times, every
+ * constrained bone must be finite, and a world constraint at translate mix 1 must put its bone on the target point, except at a sample
+ * where a later constraint that touches it has a mix other than 0. It prints the rates and the run time.
  */
 
 import fs from "node:fs";
@@ -56,7 +64,7 @@ const REPEATING_KEY_TYPES = new Set(["attachment", "color", "deform"]);
 const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik]  (scans <staging>/assets/spine)";
+const USAGE = "Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform]  (scans <staging>/assets/spine)";
 
 /** Lowest intersection-over-union between a rig's drawn and declared setup bounds before `--geometry` fails it. */
 const MIN_IOU = 0.5;
@@ -67,6 +75,26 @@ const MIN_IOU = 0.5;
  * IoU is 0.121 with or without IK applied, and its battle twin, which shares the art, scores the same.
  */
 const STALE_DECLARED_BOUNDS = new Set(["char_4036_forcer/epoque_20/back/char_4036_forcer_epoque_20.skel"]);
+
+/**
+ * Rigs first judged once transform constraints were applied, whose IoU is below `MIN_IOU` with every transform constraint off too (within
+ * 0.002), so the low IoU does not come from the transform solve. A low IoU is reported, not failed. The slots furthest past the declared
+ * box: `char_4064_mlynar` epoque_28 sword `*_Sword_H` (297, beside an unapplied `*_Sword_Cut` clip), `char_4138_narant` weapon chain
+ * `F_Weapon_1_*` (up to 784), `char_4055_bgsnow` `C_Weapon_*` (334), `char_2025_shu` nian_11 `F_Tail_*` (371), `char_4141_marcil`
+ * back `B_R_Foot` and `B_R_Hand` (303) and battle `C_Bird1` (263), and `char_4177_brigid` `F_Weapon_L` (19, under a declared box that is
+ * wider than the drawing).
+ */
+const LOW_WITHOUT_TRANSFORM = new Set([
+	"char_2025_shu/nian_11/back/char_2025_shu_nian_11.skel",
+	"char_4055_bgsnow/base/back/char_4055_bgsnow.skel",
+	"char_4064_mlynar/epoque_28/back/char_4064_mlynar_epoque_28.skel",
+	"char_4064_mlynar/epoque_28/battle/char_4064_mlynar_epoque_28.skel",
+	"char_4138_narant/base/back/char_4138_narant.skel",
+	"char_4138_narant/base/battle/char_4138_narant.skel",
+	"char_4141_marcil/base/back/char_4141_marcil.skel",
+	"char_4141_marcil/base/battle/char_4141_marcil.skel",
+	"char_4177_brigid/base/battle/char_4177_brigid.skel"
+]);
 
 /** How far, in world units, a drawn box may poke past the declared box and still count as inside it. */
 const CONTAINED_SLACK = 1;
@@ -130,6 +158,30 @@ const IK_REACH_TOLERANCE = 0.01;
 
 /** Two local scales whose sizes differ by more than this make a nonuniform parent, where the two-bone solve is not exact. */
 const IK_UNIFORM_TOLERANCE = 1e-4;
+
+/** How far, in world units, a setup bone may sit from where a transform constraint's translate puts it and still count as placed. */
+const TC_POSITION_TOLERANCE = 0.5;
+
+/** How far, in degrees, a setup bone's angle may sit from a transform constraint's rotate or shear solution and still count as placed. */
+const TC_ANGLE_TOLERANCE = 0.5;
+
+/** How far, as a fraction, a setup bone's axis length may sit from a transform constraint's scale solution and still count as placed. */
+const TC_SCALE_TOLERANCE = 0.005;
+
+/** Lowest share, per channel, of the placed setup entries that the runtime's solve must also place. */
+const TC_MIN_SETUP = 0.9;
+
+/** Lowest share of constrained bones whose world transform under a flipped skeleton must mirror the unflipped one. */
+const TC_MIN_MIRROR = 0.99;
+
+/** Largest difference, relative to the value's size (at least 1), between a flipped world value and the mirror of the unflipped one. */
+const TC_MIRROR_TOLERANCE = 1e-6;
+
+/** How far, in world units, a bone at translate mix 1 may sit from its target point under animation. */
+const TC_REACH_TOLERANCE = 0.01;
+
+/** The transform constraint channels, with the data mix each is judged at. */
+const TC_CHANNELS = ["translate", "rotate", "scale", "shear"];
 
 /** The 8-byte signature every PNG file starts with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -547,11 +599,12 @@ function checkTriangleList(list) {
  * @param {{ width: number, height: number }[]} pageSizes Each atlas page's real PNG size.
  * @param {object} skeletonModule The loaded `skeleton.ts` module.
  * @param {object} geometryModule The loaded `geometry.ts` module.
- * @param {string} rigPath The rig's path under the staged spine directory, for `STALE_DECLARED_BOUNDS`.
+ * @param {string} rigPath The rig's path under the staged spine directory, for `STALE_DECLARED_BOUNDS` and `LOW_WITHOUT_TRANSFORM`.
  * @returns {object} `problems`, every failure found. `uvWarnings`, the slots with a UV outside [0, 1]. `iou`, the bounds IoU, or null when
- *   either box is empty. `verdict` for a low IoU: `"failed"`, `"declaredLarger"`, `"staleBounds"` or `"constrained"`, or null when the IoU is fine or unscored.
- *   `lists` and `triangles`, how much was built. `namedSkin`, whether a named skin was set. `constrained`, whether the rig has a transform
- *   or path constraint, which the setup pose here does not apply. `ik`, whether it has an IK constraint, which it does apply.
+ *   either box is empty. `verdict` for a low IoU: `"failed"`, `"declaredLarger"`, `"staleBounds"`,
+ *   `"lowWithoutTransform"` or `"constrained"`, or null when the IoU is fine or unscored.
+ *   `lists` and `triangles`, how much was built. `namedSkin`, whether a named skin was set. `constrained`, whether the rig has a path
+ *   constraint, which the setup pose here does not apply. `ik`, whether it has an IK or transform constraint, which it does apply.
  */
 function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule, rigPath) {
 	const skeleton = new skeletonModule.Skeleton(data);
@@ -585,7 +638,7 @@ function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule
 	const drawn = geometryModule.bounds(lists);
 	const declared = { minX: data.x, minY: data.y, maxX: data.x + data.width, maxY: data.y + data.height };
 	const iou = drawn && data.width > 0 && data.height > 0 ? intersectionOverUnion(drawn, declared) : null;
-	const constrained = data.transform.length + data.path.length > 0;
+	const constrained = data.path.length > 0;
 	let verdict = null;
 	if (iou !== null && iou < MIN_IOU) {
 		if (constrained) {
@@ -594,6 +647,8 @@ function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule
 			verdict = "declaredLarger";
 		} else if (STALE_DECLARED_BOUNDS.has(rigPath)) {
 			verdict = "staleBounds";
+		} else if (LOW_WITHOUT_TRANSFORM.has(rigPath)) {
+			verdict = "lowWithoutTransform";
 		} else {
 			verdict = "failed";
 			problems.push(`bounds IoU ${iou.toFixed(3)} is below ${MIN_IOU}`);
@@ -610,7 +665,7 @@ function checkRigGeometry(data, atlas, pageSizes, skeletonModule, geometryModule
 		triangles,
 		namedSkin,
 		constrained,
-		ik: data.ik.length > 0
+		ik: data.ik.length + data.transform.length > 0
 	};
 }
 
@@ -1009,7 +1064,7 @@ function printGeometry(geometry) {
 	console.log("");
 	console.log(`Geometry: ${WORST_SHOWN} lowest bounds IoU:`);
 	for (const rig of scored.slice(0, WORST_SHOWN)) {
-		console.log(`  ${rig.iou.toFixed(3)} ${rig.constrained ? "transform/path" : rig.ik ? "IK only       " : "unconstrained "} ${rig.shown}`);
+		console.log(`  ${rig.iou.toFixed(3)} ${rig.constrained ? "path          " : rig.ik ? "IK/transform  " : "unconstrained "} ${rig.shown}`);
 	}
 	const declaredLarger = geometry.rigs.filter((rig) => rig.verdict === "declaredLarger");
 	console.log(`Geometry: ${declaredLarger.length} judged rigs below IoU ${MIN_IOU} drawn inside a larger declared box (not failed):`);
@@ -1021,6 +1076,11 @@ function printGeometry(geometry) {
 	for (const rig of stale) {
 		console.log(`  ${rig.iou.toFixed(3)} ${rig.shown}`);
 	}
+	const lowWithoutTransform = geometry.rigs.filter((rig) => rig.verdict === "lowWithoutTransform");
+	console.log(`Geometry: ${lowWithoutTransform.length} judged rigs below IoU ${MIN_IOU} listed in LOW_WITHOUT_TRANSFORM (not failed):`);
+	for (const rig of lowWithoutTransform) {
+		console.log(`  ${rig.iou.toFixed(3)} ${rig.shown}`);
+	}
 	const uvWarned = geometry.rigs.filter((rig) => rig.uvWarnings.length > 0);
 	const uvSlots = uvWarned.reduce((count, rig) => count + rig.uvWarnings.length, 0);
 	console.log(`Geometry: warning, ${uvSlots} slots in ${uvWarned.length} rigs have a UV outside [0, 1] (not failed):`);
@@ -1028,13 +1088,13 @@ function printGeometry(geometry) {
 		console.log(`  ${rig.shown}: ${rig.uvWarnings.join(", ")}`);
 	}
 	console.log(`Geometry: ${geometry.namedSkinRigs} rigs drawn with their first named skin`);
-	console.log(`Geometry: transform or path constraint rigs (reported only): ${describeSpread(scored.filter((rig) => rig.constrained).map((rig) => rig.iou))}`);
-	console.log(`Geometry: IK-only rigs (judged): ${describeSpread(scored.filter((rig) => !rig.constrained && rig.ik).map((rig) => rig.iou))}`);
+	console.log(`Geometry: path constraint rigs (reported only): ${describeSpread(scored.filter((rig) => rig.constrained).map((rig) => rig.iou))}`);
+	console.log(`Geometry: IK or transform constraint rigs without a path constraint (judged): ${describeSpread(scored.filter((rig) => !rig.constrained && rig.ik).map((rig) => rig.iou))}`);
 	console.log(`Geometry: unconstrained rigs (judged): ${describeSpread(scored.filter((rig) => !rig.constrained && !rig.ik).map((rig) => rig.iou))}`);
 	const spread = `min ${quantile(sorted, 0).toFixed(3)}, p10 ${quantile(sorted, 0.1).toFixed(3)}, median ${quantile(sorted, 0.5).toFixed(3)}`;
 	console.log(`Geometry: hull fit, ${geometry.hullFit.message}`);
 	const judged = scored.filter((rig) => !rig.constrained).length;
-	const constrainedNote = `${judged} judged, transform and path constraint rigs reported until those constraints are applied`;
+	const constrainedNote = `${judged} judged, path constraint rigs reported until those constraints are applied`;
 	console.log(
 		`Geometry: ${geometry.rigs.length} rigs checked, ${scored.length} scored, ${geometry.rigs.length - scored.length} unscored, ` +
 			`${geometry.triangles} triangles drawn, ${geometry.lists} lists built, IoU ${spread}, ${good} rigs with IoU >= ${GOOD_IOU}, ` +
@@ -1166,30 +1226,73 @@ function checkIkSetup(data, skeletonModule, stats) {
 }
 
 /**
- * Finds the constraints whose result a later constraint can move: a later one's first bone is an ancestor of, or is, one of this chain's
- * bones or its target. Their end position is not checked under animation.
+ * Checks whether one bone is another or one of its ancestors.
+ *
+ * @param {object} ancestor The possible ancestor.
+ * @param {object} bone The bone.
+ * @returns {boolean} True when `ancestor` is `bone` or above it.
+ */
+function isAncestorOrSelf(ancestor, bone) {
+	for (let current = bone; current; current = current.parent) {
+		if (current === ancestor) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Lists every IK and transform constraint in the order they run: ascending `order`, with ties in file order and IK first.
  *
  * @param {object} skeleton The live skeleton.
- * @returns {Set<object>} The constraints to leave out of the reach check.
+ * @returns {{ constraint: object, moves: object[] }[]} Each constraint with the bones it moves directly: an IK chain's first bone, or
+ *   every bone of a transform constraint.
  */
-function movedLater(skeleton) {
-	const ordered = [...skeleton.ikConstraints].sort((first, second) => first.data.order - second.data.order);
-	const isAncestorOrSelf = (ancestor, bone) => {
-		for (let current = bone; current; current = current.parent) {
-			if (current === ancestor) {
-				return true;
-			}
-		}
-		return false;
-	};
-	const moved = new Set();
-	ordered.forEach((constraint, index) => {
+function constraintsInOrder(skeleton) {
+	const steps = [
+		...skeleton.ikConstraints.map((constraint) => ({ constraint, moves: [constraint.bones[0]] })),
+		...skeleton.transformConstraints.map((constraint) => ({ constraint, moves: constraint.bones }))
+	];
+	return steps.sort((first, second) => first.constraint.data.order - second.constraint.data.order);
+}
+
+/**
+ * Finds, for each constraint, the later IK and transform constraints that touch it: a bone the later one moves is, or is an ancestor of,
+ * one of this constraint's bones or its target. Whether one of them actually moves anything depends on its live mixes, see `movedNow`.
+ *
+ * @param {object} skeleton The live skeleton.
+ * @returns {Map<object, object[]>} Each constraint that some later constraint touches, with those later constraints.
+ */
+function touchingLater(skeleton) {
+	const ordered = constraintsInOrder(skeleton);
+	const touching = new Map();
+	ordered.forEach(({ constraint }, index) => {
 		const watched = [...constraint.bones, constraint.target];
-		if (ordered.slice(index + 1).some((later) => watched.some((bone) => isAncestorOrSelf(later.bones[0], bone)))) {
-			moved.add(constraint);
+		const later = ordered.slice(index + 1).filter((step) => step.moves.some((ancestor) => watched.some((bone) => isAncestorOrSelf(ancestor, bone))));
+		if (later.length > 0) {
+			touching.set(
+				constraint,
+				later.map((step) => step.constraint)
+			);
 		}
 	});
-	return moved;
+	return touching;
+}
+
+/**
+ * Checks whether a later constraint that touches this one moves anything at the current pose: an IK constraint with a mix other than 0, or
+ * a transform constraint with any mix other than 0.
+ *
+ * @param {Map<object, object[]>} touching The map `touchingLater` gives.
+ * @param {object} constraint The constraint whose result is about to be checked.
+ * @returns {boolean} True when the reach check should be skipped at this pose.
+ */
+function movedNow(touching, constraint) {
+	const later = touching.get(constraint);
+	if (!later) {
+		return false;
+	}
+	return later.some((other) => ("mix" in other ? other.mix !== 0 : other.rotateMix !== 0 || other.translateMix !== 0 || other.scaleMix !== 0 || other.shearMix !== 0));
 }
 
 /**
@@ -1254,8 +1357,8 @@ function checkIkChain(constraint, checkReach, stats) {
  */
 function checkIkAnimations(data, modules, stats) {
 	const skeleton = new modules.skeleton.Skeleton(data);
-	const moved = movedLater(skeleton);
-	stats.movedLater += moved.size;
+	const touching = touchingLater(skeleton);
+	stats.touched += skeleton.ikConstraints.filter((constraint) => touching.has(constraint)).length;
 	const problems = [];
 	let hidden = 0;
 	for (const animation of data.animations) {
@@ -1266,7 +1369,11 @@ function checkIkAnimations(data, modules, stats) {
 			skeleton.updateWorldTransform();
 			stats.samples++;
 			for (const constraint of skeleton.ikConstraints) {
-				const problem = checkIkChain(constraint, !moved.has(constraint), stats);
+				const moved = movedNow(touching, constraint);
+				if (moved && constraint.mix === 1 && !constraint.stretch) {
+					stats.reach.movedLater++;
+				}
+				const problem = checkIkChain(constraint, !moved, stats);
 				if (problem === null) {
 					continue;
 				}
@@ -1300,7 +1407,7 @@ function ikSetupPasses(stats) {
  * Prints the `--ik` summary lines.
  *
  * @param {object} stats The accumulator: `one` and `two` setup counts (`judged`, `hits`, `loose`, `looseHits`, and `tooStraight` for two),
- *   `reach` counts (`checked`, `inexact`, `failed`), `samples`, `movedLater`, `rigs`, `failed` and `seconds`.
+ *   `reach` counts (`checked`, `inexact`, `movedLater`, `failed`), `samples`, `touched`, `rigs`, `failed` and `seconds`.
  */
 function printIk(stats) {
 	const percent = (hits, total) => `${hits}/${total} (${total === 0 ? "-" : ((hits / total) * 100).toFixed(1)}%)`;
@@ -1316,8 +1423,314 @@ function printIk(stats) {
 	);
 	console.log(
 		`IK: ${stats.rigs} rigs, ${stats.samples} animation samples, ${stats.reach.checked} chain samples checked for reach, ${stats.reach.inexact} skipped ` +
-			`(nonuniform parent or non-normal bone), ${stats.movedLater} chains moved by a later constraint, ${stats.reach.failed} chain failures, ` +
+			`(nonuniform parent or non-normal bone), ${stats.reach.movedLater} skipped as moved by a later active constraint ` +
+			`(${stats.touched} IK chains touched by a later constraint), ${stats.reach.failed} chain failures, ` +
 			`${stats.failed} rigs failed, setup rates ${ikSetupPasses(stats) ? "passed" : "FAILED"}, ${stats.seconds.toFixed(1)} s`
+	);
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Transform constraints
+
+/**
+ * Copies a bone's world transform.
+ *
+ * @param {object} bone The bone, with its world transform up to date.
+ * @returns {{ a: number, b: number, c: number, d: number, worldX: number, worldY: number }} The copy.
+ */
+function worldOf(bone) {
+	return { a: bone.a, b: bone.b, c: bone.c, d: bone.d, worldX: bone.worldX, worldY: bone.worldY };
+}
+
+/**
+ * Gives a world transform's Y axis angle from its X axis, in degrees.
+ *
+ * @param {{ a: number, b: number, c: number, d: number }} world The world transform.
+ * @returns {number} The angle.
+ */
+function shearAngle(world) {
+	return ((Math.atan2(world.d, world.b) - Math.atan2(world.c, world.a)) * 180) / Math.PI;
+}
+
+/**
+ * Gives a size difference as a fraction of the expected size.
+ *
+ * @param {number} want The expected size.
+ * @param {number} got The actual size.
+ * @returns {number} The fraction.
+ */
+function relativeError(want, got) {
+	return Math.abs(got - want) / Math.max(Math.abs(want), 1e-9);
+}
+
+/**
+ * Measures, for one channel, how far a bone's world transform sits from what a transform constraint at mix 1 gives under each reading of
+ * the offsets. Reading 0 is the one the runtime uses. `MATH.md` ("Transform constraints") weighs them against each other.
+ *
+ * @param {string} channel One of `TC_CHANNELS`.
+ * @param {object} data The constraint's data.
+ * @param {object} bone The bone's world transform.
+ * @param {object} target The target's world transform.
+ * @returns {number[]} The error under each reading: world units for translate, degrees for rotate and shear, a fraction for scale.
+ */
+function readingErrors(channel, data, bone, target) {
+	const reflected = target.a * target.d - target.b * target.c < 0 ? -1 : 1;
+	switch (channel) {
+		case "translate": {
+			const pointX = target.a * data.offsetX + target.b * data.offsetY + target.worldX;
+			const pointY = target.c * data.offsetX + target.d * data.offsetY + target.worldY;
+			return [Math.hypot(bone.worldX - pointX, bone.worldY - pointY), Math.hypot(bone.worldX - target.worldX - data.offsetX, bone.worldY - target.worldY - data.offsetY)];
+		}
+		case "rotate": {
+			const gap = ((Math.atan2(bone.c, bone.a) - Math.atan2(target.c, target.a)) * 180) / Math.PI;
+			return [Math.abs(shortTurn(gap - reflected * data.offsetRotation)), Math.abs(shortTurn(gap - data.offsetRotation))];
+		}
+		case "scale": {
+			const targetX = Math.hypot(target.a, target.c);
+			const targetY = Math.hypot(target.b, target.d);
+			const boneX = Math.hypot(bone.a, bone.c);
+			const boneY = Math.hypot(bone.b, bone.d);
+			return [
+				Math.max(relativeError(targetX + data.offsetScaleX, boneX), relativeError(targetY + data.offsetScaleY, boneY)),
+				Math.max(relativeError(targetX * (1 + data.offsetScaleX), boneX), relativeError(targetY * (1 + data.offsetScaleY), boneY))
+			];
+		}
+		default: {
+			const gap = shearAngle(bone) - shearAngle(target);
+			const offset = data.offsetShearY;
+			return [Math.abs(shortTurn(gap - reflected * offset)), Math.abs(shortTurn(gap - offset)), Math.abs(shortTurn(gap + offset))];
+		}
+	}
+}
+
+/**
+ * Measures how far apart two world transforms of one bone are in one channel.
+ *
+ * @param {string} channel One of `TC_CHANNELS`.
+ * @param {object} first One world transform.
+ * @param {object} second The other.
+ * @returns {number} The distance, in the channel's units.
+ */
+function channelDistance(channel, first, second) {
+	switch (channel) {
+		case "translate":
+			return Math.hypot(first.worldX - second.worldX, first.worldY - second.worldY);
+		case "rotate":
+			return Math.abs(shortTurn(((Math.atan2(first.c, first.a) - Math.atan2(second.c, second.a)) * 180) / Math.PI));
+		case "scale":
+			return Math.max(relativeError(Math.hypot(second.a, second.c), Math.hypot(first.a, first.c)), relativeError(Math.hypot(second.b, second.d), Math.hypot(first.b, first.d)));
+		default:
+			return Math.abs(shortTurn(shearAngle(first) - shearAngle(second)));
+	}
+}
+
+/**
+ * Gives the tolerance a channel is judged against.
+ *
+ * @param {string} channel One of `TC_CHANNELS`.
+ * @returns {number} The tolerance, in the channel's units.
+ */
+function channelTolerance(channel) {
+	return channel === "translate" ? TC_POSITION_TOLERANCE : channel === "scale" ? TC_SCALE_TOLERANCE : TC_ANGLE_TOLERANCE;
+}
+
+/**
+ * Poses a skeleton's setup pose with every transform constraint off, except one channel of one constraint at mix 1.
+ *
+ * @param {object} skeleton The live skeleton.
+ * @param {object | null} only The constraint to solve, or null for none.
+ * @param {string | null} channel The channel to solve.
+ */
+function solveChannel(skeleton, only, channel) {
+	skeleton.setToSetupPose();
+	for (const constraint of skeleton.transformConstraints) {
+		for (const name of TC_CHANNELS) {
+			constraint[`${name}Mix`] = constraint === only && name === channel ? 1 : 0;
+		}
+	}
+	skeleton.updateWorldTransform();
+}
+
+/**
+ * Runs the setup-pose check on one rig and counts relative constraints. For each world constraint, each bone set by only it, and each
+ * channel at setup mix 1, the bone's setup world value with every transform constraint off is compared with each reading. The entry is
+ * judged when some reading places the bone. The runtime then solves that channel alone, and the entry passes when the setup bone is
+ * within tolerance of the solved bone.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} stats The accumulator, see `printTransform`.
+ */
+function checkTransformSetup(data, skeletonModule, stats) {
+	const skeleton = new skeletonModule.Skeleton(data);
+	const constraints = skeleton.transformConstraints;
+	const setBy = new Map();
+	for (const constraint of constraints) {
+		stats.relative += constraint.data.relative ? 1 : 0;
+		for (const bone of constraint.bones) {
+			setBy.set(bone, (setBy.get(bone) ?? 0) + 1);
+		}
+	}
+	solveChannel(skeleton, null, null);
+	const setup = new Map(skeleton.bones.map((bone) => [bone, worldOf(bone)]));
+	for (const constraint of constraints) {
+		const constraintData = constraint.data;
+		if (constraintData.local || constraintData.relative) {
+			continue;
+		}
+		const bones = constraint.bones.filter((bone) => setBy.get(bone) === 1);
+		for (const channel of TC_CHANNELS) {
+			if (bones.length === 0 || constraintData[`${channel}Mix`] !== 1) {
+				continue;
+			}
+			solveChannel(skeleton, constraint, channel);
+			const tolerance = channelTolerance(channel);
+			const counts = stats.setup[channel];
+			for (const bone of bones) {
+				const placed = readingErrors(channel, constraintData, setup.get(bone), setup.get(constraint.target)).some((error) => error <= tolerance);
+				const solved = channelDistance(channel, setup.get(bone), worldOf(bone)) <= tolerance;
+				counts.entries++;
+				counts.raw += solved ? 1 : 0;
+				if (placed) {
+					counts.judged++;
+					counts.hits += solved ? 1 : 0;
+				}
+			}
+		}
+	}
+}
+
+/**
+ * Checks mirror invariance on one rig's setup pose: with the skeleton's X scale at -1, every constrained bone's world transform must be
+ * the unflipped one mirrored across the Y axis.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} stats The accumulator, whose `mirror` counts are updated.
+ */
+function checkTransformMirror(data, skeletonModule, stats) {
+	const skeleton = new skeletonModule.Skeleton(data);
+	const bones = [...new Set(skeleton.transformConstraints.flatMap((constraint) => constraint.bones))];
+	skeleton.setToSetupPose();
+	skeleton.updateWorldTransform();
+	const plain = bones.map(worldOf);
+	skeleton.scaleX = -1;
+	skeleton.updateWorldTransform();
+	bones.forEach((bone, index) => {
+		const before = plain[index];
+		const mirrored = [-before.a, -before.b, before.c, before.d, -before.worldX, before.worldY];
+		const after = [bone.a, bone.b, bone.c, bone.d, bone.worldX, bone.worldY];
+		stats.mirror.checked++;
+		if (mirrored.every((value, i) => Math.abs(value - after[i]) <= TC_MIRROR_TOLERANCE * Math.max(1, Math.abs(value)))) {
+			stats.mirror.hits++;
+		} else if (stats.mirror.examples.length < WORST_SHOWN) {
+			stats.mirror.examples.push(`${bone.data.name} (${bone.data.transformMode})`);
+		}
+	});
+}
+
+/**
+ * Plays every animation of one rig and checks every transform constraint at each sample: constrained bones are finite, and a world
+ * constraint at translate mix 1 puts each bone on its target point, unless a later constraint that touches the bone, the target or an
+ * ancestor has a mix other than 0 at that sample.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} modules The loaded `skeleton.ts` and `animation.ts` modules, as `skeleton` and `animation`.
+ * @param {object} stats The accumulator, see `printTransform`.
+ * @returns {string[]} The first `ANIMATION_PROBLEMS_SHOWN` problems, then a count of the rest.
+ */
+function checkTransformAnimations(data, modules, stats) {
+	const skeleton = new modules.skeleton.Skeleton(data);
+	const touching = touchingLater(skeleton);
+	const problems = [];
+	let hidden = 0;
+	const report = (problem) => {
+		stats.reach.failed++;
+		if (problems.length < ANIMATION_PROBLEMS_SHOWN) {
+			problems.push(problem);
+		} else {
+			hidden++;
+		}
+	};
+	for (const animation of data.animations) {
+		for (let sample = 0; sample < ANIMATION_SAMPLES; sample++) {
+			const time = (animation.duration * sample) / (ANIMATION_SAMPLES - 1);
+			skeleton.setToSetupPose();
+			modules.animation.applyAnimation(skeleton, animation, time);
+			skeleton.updateWorldTransform();
+			stats.samples++;
+			for (const constraint of skeleton.transformConstraints) {
+				const where = `animation "${animation.name}" at ${time.toFixed(4)}: transform "${constraint.data.name}"`;
+				const finite = constraint.bones.every((bone) => [bone.a, bone.b, bone.c, bone.d, bone.worldX, bone.worldY].every(Number.isFinite));
+				if (!finite) {
+					report(`${where} has a bone whose world transform is not finite`);
+					continue;
+				}
+				if (constraint.data.local || constraint.translateMix !== 1) {
+					continue;
+				}
+				if (movedNow(touching, constraint)) {
+					stats.reach.movedLater++;
+					continue;
+				}
+				const { target, data: constraintData } = constraint;
+				const pointX = target.a * constraintData.offsetX + target.b * constraintData.offsetY + target.worldX;
+				const pointY = target.c * constraintData.offsetX + target.d * constraintData.offsetY + target.worldY;
+				for (const bone of constraint.bones) {
+					stats.reach.checked++;
+					const miss = Math.hypot(bone.worldX - pointX, bone.worldY - pointY);
+					if (miss > TC_REACH_TOLERANCE) {
+						report(`${where} bone "${bone.data.name}" is ${miss.toFixed(4)} from its target point`);
+					}
+				}
+			}
+		}
+	}
+	if (hidden > 0) {
+		problems.push(`and ${hidden} more failures`);
+	}
+	return problems;
+}
+
+/**
+ * Judges the `--transform` rates: each channel's setup rate against `TC_MIN_SETUP`, the mirror rate against `TC_MIN_MIRROR`, and no
+ * relative constraint.
+ *
+ * @param {object} stats The accumulator, see `printTransform`.
+ * @returns {boolean} True when all pass.
+ */
+function transformPasses(stats) {
+	const setupPasses = TC_CHANNELS.every((channel) => {
+		const counts = stats.setup[channel];
+		return counts.judged === 0 || counts.hits / counts.judged >= TC_MIN_SETUP;
+	});
+	const mirrorPasses = stats.mirror.checked === 0 || stats.mirror.hits / stats.mirror.checked >= TC_MIN_MIRROR;
+	return setupPasses && mirrorPasses && stats.relative === 0;
+}
+
+/**
+ * Prints the `--transform` summary lines.
+ *
+ * @param {object} stats The accumulator: `setup` counts per channel (`entries`, `raw`, `judged`, `hits`), `mirror` (`checked`, `hits`,
+ *   `examples`), `relative`, `reach` (`checked`, `movedLater`, `failed`), `samples`, `rigs`, `failed` and `seconds`.
+ */
+function printTransform(stats) {
+	const percent = (hits, total) => `${hits}/${total} (${total === 0 ? "-" : ((hits / total) * 100).toFixed(1)}%)`;
+	console.log("");
+	for (const channel of TC_CHANNELS) {
+		const counts = stats.setup[channel];
+		console.log(
+			`Transform: ${channel}, setup entries some reading places that the solve places: ${percent(counts.hits, counts.judged)}, need ${TC_MIN_SETUP * 100}% ` +
+				`(information: all mix-1 entries ${percent(counts.raw, counts.entries)})`
+		);
+	}
+	const examples = stats.mirror.examples.length > 0 ? `, for example ${stats.mirror.examples.join(", ")}` : "";
+	console.log(`Transform: constrained bones that mirror under a flipped skeleton: ${percent(stats.mirror.hits, stats.mirror.checked)}, need ${TC_MIN_MIRROR * 100}%${examples}`);
+	console.log(
+		`Transform: ${stats.rigs} rigs, ${stats.relative} relative constraints, ${stats.samples} animation samples, ${stats.reach.checked} bone samples ` +
+			`checked at translate mix 1, ${stats.reach.movedLater} constraint samples skipped as moved by a later active constraint, ${stats.reach.failed} failures, ` +
+			`${stats.failed} rigs failed, rates ${transformPasses(stats) ? "passed" : "FAILED"}, ${stats.seconds.toFixed(1)} s`
 	);
 }
 
@@ -1456,6 +1869,7 @@ async function main() {
 	const wantGeometry = process.argv.includes("--geometry");
 	const wantAnimation = process.argv.includes("--animation");
 	const wantIk = process.argv.includes("--ik");
+	const wantTransform = process.argv.includes("--transform");
 
 	const server = await startVite();
 	let survey = null;
@@ -1473,9 +1887,19 @@ async function main() {
 	const ik = {
 		one: { judged: 0, hits: 0, loose: 0, looseHits: 0 },
 		two: { judged: 0, hits: 0, loose: 0, looseHits: 0, tooStraight: 0 },
-		reach: { checked: 0, inexact: 0, failed: 0 },
+		reach: { checked: 0, inexact: 0, movedLater: 0, failed: 0 },
 		samples: 0,
-		movedLater: 0,
+		touched: 0,
+		rigs: 0,
+		failed: 0,
+		seconds: 0
+	};
+	const transform = {
+		setup: Object.fromEntries(TC_CHANNELS.map((channel) => [channel, { entries: 0, raw: 0, judged: 0, hits: 0 }])),
+		mirror: { checked: 0, hits: 0, examples: [] },
+		relative: 0,
+		reach: { checked: 0, movedLater: 0, failed: 0 },
+		samples: 0,
 		rigs: 0,
 		failed: 0,
 		seconds: 0
@@ -1500,9 +1924,9 @@ async function main() {
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
 		const featuresModule = wantSurvey ? await server.ssrLoadModule("/src/spine/features.ts") : null;
 		survey = featuresModule ? createSurvey(featuresModule) : null;
-		const skeletonModule = wantGeometry || wantAnimation || wantIk ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
+		const skeletonModule = wantGeometry || wantAnimation || wantIk || wantTransform ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
 		const geometryModule = wantGeometry || wantAnimation ? await server.ssrLoadModule("/src/spine/geometry.ts") : null;
-		const animationModule = wantAnimation || wantIk ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
+		const animationModule = wantAnimation || wantIk || wantTransform ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
 
 		for (const file of atlasFiles) {
 			const shown = shownPath(file);
@@ -1627,6 +2051,18 @@ async function main() {
 					result.problems.push(...problems.map((problem) => `ik: ${problem}`));
 				}
 			}
+			if (wantTransform && data.transform.length > 0) {
+				const start = performance.now();
+				checkTransformSetup(data, skeletonModule, transform);
+				checkTransformMirror(data, skeletonModule, transform);
+				const problems = checkTransformAnimations(data, { skeleton: skeletonModule, animation: animationModule }, transform);
+				transform.seconds += (performance.now() - start) / 1000;
+				transform.rigs++;
+				if (problems.length > 0) {
+					transform.failed++;
+					result.problems.push(...problems.map((problem) => `transform: ${problem}`));
+				}
+			}
 			if (result.problems.length > 0) {
 				failed++;
 				for (const problem of result.problems) {
@@ -1659,9 +2095,13 @@ async function main() {
 	if (wantIk) {
 		printIk(ik);
 	}
+	if (wantTransform) {
+		printTransform(transform);
+	}
 	const hullFailed = wantGeometry && !geometry.hullFit.passed;
 	const ikFailed = wantIk && !ikSetupPasses(ik);
-	process.exit(failed > 0 || atlasFailed > 0 || hullFailed || ikFailed ? 1 : 0);
+	const transformFailed = wantTransform && !transformPasses(transform);
+	process.exit(failed > 0 || atlasFailed > 0 || hullFailed || ikFailed || transformFailed ? 1 : 0);
 }
 
 // Run only when called as a script, so a scratch check can import `checkSkeleton` without parsing the corpus.

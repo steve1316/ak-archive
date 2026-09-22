@@ -11,7 +11,8 @@ PRTS** until a later comparison covers it.
 
 `tools/assets/check_spine_math.mjs` checks these formulas with small hand-worked cases: each inherit mode, shear on either axis, skeleton
 scale, the zero-length fallback, a few multi-bone chains, the setup pose's reset and skin lookup, skin changes, the animation curves,
-key search and bone timelines, IK constraints and IK timelines, and the renderer's two-color tint and blend factors.
+key search and bone timelines, IK constraints and IK timelines, transform constraints and their timelines, and the renderer's two-color
+tint and blend factors.
 
 ## Coordinates and angles
 
@@ -42,9 +43,9 @@ lc = sin(r + shX) * sX      ld = sin(r + 90 + shY) * sY
 ## World transform
 
 Bones are stored parent first, so one pass in file order computes every world transform. The world transform is built from each bone's
-**applied** values, not its local ones. `updateWorldTransform` first copies each bone's local values into its applied ones, then IK changes
-only the applied ones (see "IK constraints"). The local values stay as animation wrote them, so running `updateWorldTransform` twice on the
-same pose gives the same world values, even at an IK mix below 1.
+**applied** values, not its local ones. `updateWorldTransform` first copies each bone's local values into its applied ones, then the IK
+and transform constraints change only the applied ones (see "IK constraints" and "Transform constraints"). The local values stay as
+animation wrote them, so running `updateWorldTransform` twice on the same pose gives the same world values, even at a mix below 1.
 
 - **Position.** The tools page says rotation, scale and shear are stored in the bone's own axes but translation is stored in the parent's
   axes. So a bone's world origin is always its parent's full transform applied to its local `(x, y)`, whatever it inherits.
@@ -423,7 +424,7 @@ once) and Executor base battle `Attack_A` (81), the same as before deform, which
 
 ### Not applied yet
 
-Transform, path and event timelines are skipped for now.
+Path and event timelines are skipped for now.
 
 ## IK constraints
 
@@ -433,9 +434,9 @@ staged corpus decided it, and the evidence is below.
 
 ### Order
 
-After the plain pass over the bones, the constraints run in ascending `order`. Before each solve, the chain's parent and the target have
-up-to-date world transforms. After it, the chain's first bone and all its descendants are recomputed, in parent-first order. The list of
-constraint steps is sorted once when the skeleton is built, so transform and path constraints can join it later.
+After the plain pass over the bones, the IK and transform constraints run in one list, in ascending `order` (see "Transform constraints",
+"Order"). Before each solve, the chain's parent and the target have up-to-date world transforms. After it, the chain's first bone and all
+its descendants are recomputed, in parent-first order.
 
 ### The space the solve works in
 
@@ -552,5 +553,136 @@ constraints) and Amiya base battle `Attack`. `applyAnimation` profiles at 0 too,
   least 99% of cases. Two-bone chains with setup mix 1 and a gap below 0.5, whose mirrors differ by at least 4 degrees, must sit nearer
   their bend's solution in at least 95% of cases. The strict gap-0.5 angle rates are printed for information.
 - **Animation.** Every animation, sampled 8 times. Solved rotations and scales must be finite. A chain at mix 1 without stretch must point
-  at its target (one bone) or end on it or on the line to it (two bones), within 0.01. Chains that a later constraint can move are left out
-  of the reach check, and so are two-bone chains under a nonuniform parent or with a non-normal bone, where the solve is not exact.
+  at its target (one bone) or end on it or on the line to it (two bones), within 0.01. A chain is left out of the reach check at a sample
+  where a later IK or transform constraint that touches it is active there, by the rule in "Transform constraints", "Corpus check".
+  Two-bone chains under a nonuniform parent or with a non-normal bone are left out too, since the solve is not exact there.
+
+## Transform constraints
+
+`constraints.ts` solves transform constraints. The transform constraints page (https://esotericsoftware.com/spine-transform-constraints)
+says a constraint copies a target bone's world rotation, translation, scale and shear to the constrained bones. Without "Relative" the
+bones match the target, so at a mix of 100 their own transform before the constraint has no effect. With "Local" the local transform is
+changed instead of the world one. The offsets are added to the target's values. Each channel has its own mix, and the mixes can be keyed.
+The page gives no formulas. The maths below is plane geometry on the world bases, and the corpus decided what the page leaves open.
+
+The corpus has 18,006 transform constraints in 1,736 rigs: 17,978 world and absolute, 28 local and absolute, and no relative ones.
+
+### World, absolute
+
+With the target's world basis `T` and origin `t` up to date, for each constrained bone with world basis `W` and origin `w`:
+
+- **Rotate.** Both of `W`'s axes turn by `(angle(T's X axis) - angle(W's X axis) + offsetRotation)` times the rotate mix. The gap is
+  wrapped into (-180, 180] first, so the blend takes the short way round.
+- **Translate.** `w` moves toward `T * (offsetX, offsetY) + t`, the target's local point, by the translate mix.
+- **Scale.** Each axis's length moves toward the target's matching axis length plus `offsetScaleX` or `offsetScaleY`, by the scale mix.
+  The axis keeps its direction. An axis shorter than 1e-9 has no direction and stays as it is.
+- **Shear.** `W`'s Y axis turns so that its angle from the X axis moves toward the target's, plus `offsetShearY`, by the shear mix, the
+  short way round. The X axis and the Y axis length stay as they are.
+- **Reflected target.** When `det(T) < 0`, the rotate and shear offsets are subtracted rather than added. A flipped skeleton reflects every
+  target, and this keeps the result the mirror image of the unflipped one.
+- Then `setAppliedFromWorld` writes the bone's applied values from the new world transform (below), and the step recomputes the bone and
+  its descendants. A constraint's bones are solved in skeleton order, so a constrained parent is solved before a constrained child. With
+  several bones, a constrained child's pre-constraint world at a mix below 1 is the one before its parent moved. This is this runtime's
+  choice.
+- The target is read once per constraint. If it sat below an earlier constrained bone of the same constraint, the later bones would read a
+  target not yet recomputed. The transform constraints page says a target cannot be a descendant of its constrained bones. None of the
+  corpus's 18,006 constraints (137 world constraints with more than one bone) has its target among its bones or below one, which was
+  checked by walking each target's ancestors.
+
+### Local, absolute
+
+Each applied local value moves toward the target's applied value plus the offset, by its mix. That covers rotation (the short way round),
+x and y, scale X and scale Y, and shear Y. Offsets never flip here, since local values are not affected by a skeleton flip. Then the step
+recomputes. **Confirm against PRTS**: 28 constraints, and no reference rig uses one.
+
+### Relative
+
+No rig in the corpus has one, so no reading of it can be checked. `solveTransform` leaves a relative constraint unsolved, and
+`check_spine_rigs.mjs --transform` fails if one appears.
+
+### Applied values from a world transform
+
+`setAppliedFromWorld` inverts `updateBone` for each transform mode. With `P` the parent's world basis (`S` for the root) and `W` the bone's
+world basis, the non-normal modes first take the skeleton scale off both (`S^-1 P`, `S^-1 W`), as `updateBone` does.
+
+- **Position.** The applied `(x, y)` is `P^-1 (w - parent origin)`.
+- **Basis `L`.**
+  - `normal`: `L = P^-1 W`.
+  - `onlyTranslation`: `L = W`.
+  - `noRotationOrReflection`: `L = diag(lengthX, lengthY)^-1 W`, with the parent's axis lengths.
+  - `noScale` and `noScaleOrReflection`: `updateBone` keeps only the direction of `P` times each unit local axis. So each local axis is
+    `P^-1` times the matching world column, cut to that column's world length. `noScaleOrReflection` negates the local Y axis under a
+    reflected parent, since `updateBone` negates the world one.
+- **Split.** Rotation is the angle of `L`'s X axis, scale X its length and shear X 0. Scale Y is the length of the Y axis, negated when
+  `det(L) < 0`. Shear Y is the Y axis angle minus rotation minus 90 (with the axis negated first when scale Y is negative), wrapped into
+  (-180, 180].
+- A parent basis with no inverse, a skeleton scale of 0 (for the non-normal modes) or a zero-length parent axis leaves the applied values
+  unchanged.
+- **Round trip.** `check_spine_math.mjs` poses 50 seeded random bones per mode under random parents (scales in [-2, 2] outside
+  (-0.05, 0.05), shears up to 40, every fourth with the skeleton flipped), then runs `setAppliedFromWorld` and `updateBone`. All 250
+  reproduce `a, b, c, d, worldX, worldY` within 1e-9, relative to each value's size.
+
+### Order
+
+IK and transform constraints share one list, sorted by `order` with ties in file order, which puts IK first. 422 rigs run an IK
+constraint after a transform constraint. Each step recomputes its constrained bones and all their descendants. Every solve writes applied
+values, so a later step that recomputes an ancestor carries an earlier constraint's result along rigidly. In 109 rigs, 269 bones set by a
+world transform constraint sit below a bone a later constraint moves. **Confirm against PRTS**: none of the 8 reference rigs depends on it.
+
+### Corpus evidence for the offsets
+
+A first reading of the page was that animators place a mix-1 bone where its constraint puts it in the setup pose. For each world
+constraint, each bone set by only this constraint (3,185 bone entries set by two or more were left out) and each channel at setup mix 1,
+the bone's setup world value was compared with every reading. Transform constraints were off and IK was on. The tolerances were 0.5 units,
+0.5 degrees and 0.5%.
+
+| Channel | Mix-1 entries | Chosen reading | Other reading | Where the readings differ |
+|---|---|---|---|---|
+| translate (offset in target space / in world units) | 495 | 231 (46.7%) | 86 (17.4%) | 277: 145 / 0 |
+| rotate (sign flips when the target is reflected / always added) | 637 | 317 (49.8%) | 317 | none |
+| scale (`length + offset` / `length * (1 + offset)`) | 354 | 342 (96.6%) | 342 | 1, neither matches |
+| shear (sign flips when reflected / added / subtracted) | 303 | 294 (97.0%) | 294 | none |
+
+About half of the translate and rotate entries are posed nowhere near the solution under any reading. 192 translate misses are over 50
+units and 172 rotate misses are over 45 degrees. Leaving out bones and targets moved by other constraints does not change that (44% and
+46%). The page explains it: in the editor a constraint overrides the stored locals, so a setup pose need not sit on the solution. The rates
+are therefore judged only over entries that at least one reading places. There the runtime's solve places 230 of 231 translate, 316 of
+317 rotate, 342 of 342 scale and 294 of 294 shear entries. The world-unit translate reading places 86 of the 231. The two misses are one
+bone, `C_Gun_W_Hand2` under `B_R_Hand_Gun` (order 0) in Executor's base back rig. Its target `F_R_Hand2` is moved afterward by the IK
+constraints `B_IK_R_Arm` and `B_IK_R_Hand` (orders 10 and 11), so the solve places the bone on the target's earlier position. That is
+0.61 units and 1.06 degrees from where the setup pose, measured after the IK, shows the target.
+
+- **Translate** is in the target's local units. The corpus decides it.
+- **Rotate and shear.** The setup poses cannot choose a sign. Only 1 of 662 world constraints with a rotate offset and rotate mix above 0
+  has a reflected setup target, and none of the 23 with a shear offset does. Flipping the sign under a reflected target is the choice that
+  keeps a flipped skeleton the mirror image of the unflipped one.
+- **Scale** is additive, `length + offset`, which matches the page's "added to the target bone's transform values". One entry could tell
+  the readings apart, and neither placed it. 89 world constraints use a scale offset. **Confirm against PRTS.**
+- **A wrong formula would leave a pattern in the misses. None was found.** Of the 320 rotate misses, 4 are 180 degrees off. None is off
+  by `-offset`, `2 * offset` or `-2 * offset` (118 have a nonzero offset). Of the 264 translate misses, 0 fit the offset taken in the
+  target's parent axes, and 2 fit the offset ignored (172 have a nonzero offset).
+
+### Timelines
+
+A transform key holds the four mixes, and all four blend along the key's curve. `setToSetupPose` puts them back to the data's values.
+
+### Allocation
+
+Solving uses scalar temporaries only. The short-turn wrap is written out where it is used, no helper in the path returns a number, and
+lengths use `Math.sqrt`. V8's sampling heap profiler, over 5,000 frames of `setToSetupPose`, `applyAnimation` and `updateWorldTransform` on
+Executor base battle `Attack_A` (22 transform constraints and 22 transform timelines), attributes 0 bytes to `applyAnimation`,
+`updateWorldTransform` and the solvers.
+
+### Corpus check
+
+`check_spine_rigs.mjs --transform` runs over every rig with a transform constraint:
+
+- **Setup pose.** The comparison above. The runtime solves each channel alone, and of the entries some reading places, at least 90% per
+  channel must sit on the runtime's solution. The raw mix-1 rates are printed for information. Currently translate places 230 of 231, rotate
+  316 of 317, scale 342 of 342 and shear 294 of 294, with the two misses named above.
+- **Mirror.** With the skeleton's X scale at -1, at least 99% of constrained bones must mirror the unflipped world transform within 1e-6
+  relative. Currently all 16,689 do.
+- **No relative constraint.**
+- **Animation.** Every animation, sampled 8 times. Constrained bones must be finite, and a world constraint at translate mix 1 must put
+  each bone on its target point within 0.01. A sample is skipped when a later constraint that touches the bone, the target or one of
+  their ancestors is active at it: an IK constraint with a mix other than 0, or a transform constraint with any mix other than 0.

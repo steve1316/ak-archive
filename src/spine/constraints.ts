@@ -3,13 +3,13 @@
 // Constraints
 
 /**
- * IK constraints: turning one bone to point at a target, or two bones so the child's tip reaches it. The solve writes the chain's applied
- * rotation and scale, never the local values animation writes. `MATH.md` ("IK constraints") derives each step and names the corpus
- * evidence behind the bend direction and the space the solve works in.
+ * IK constraints: turning one bone to point at a target, or two bones so the child's tip reaches it. Transform constraints: moving bones
+ * toward a target bone's rotation, position, scale and shear. Every solve writes the bones' applied values, never the local values
+ * animation writes. `MATH.md` ("IK constraints" and "Transform constraints") derives each step and names the corpus evidence behind it.
  */
 
 import type { Bone, Skeleton } from "./skeleton.js";
-import type { IkConstraintData } from "./types.js";
+import type { IkConstraintData, TransformConstraintData } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -37,6 +37,24 @@ export interface IkConstraint {
 	stretch: boolean;
 }
 
+/** A live transform constraint: its setup data, the bones it drives and the mixes timelines can key, reset from the data by `setToSetupPose`. */
+export interface TransformConstraint {
+	/** The constraint's setup data. */
+	data: TransformConstraintData;
+	/** The constrained bones, in skeleton order so a parent is solved before its child. */
+	bones: Bone[];
+	/** The bone whose transform the constrained bones move toward. */
+	target: Bone;
+	/** Current rotation influence, from 0 (no effect) to 1 (only the constraint). */
+	rotateMix: number;
+	/** Current translation influence. */
+	translateMix: number;
+	/** Current scale influence. */
+	scaleMix: number;
+	/** Current shear influence. */
+	shearMix: number;
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -51,6 +69,9 @@ const DEG_TO_RAD = Math.PI / 180;
 
 /** A distance or length below this counts as zero, so no direction can be taken from it. */
 const EPSILON = 1e-9;
+
+/** A full turn in radians. */
+const TURN = 2 * Math.PI;
 
 /** Two local scales whose sizes differ by more than this make a nonuniform parent, which the IK page's two-bone limits name. */
 const UNIFORM_TOLERANCE = 1e-4;
@@ -317,4 +338,278 @@ export function solveIk(constraint: IkConstraint): void {
 	} else {
 		solveTwoBones(constraint, bones[0]!, bones[1]!);
 	}
+}
+
+/**
+ * Makes a live transform constraint for a skeleton, with its mixes from the data. The bones are kept in skeleton order, so a constrained
+ * parent is solved before a constrained child and the child's applied values are taken against its parent's new world transform.
+ *
+ * @param data The constraint's setup data.
+ * @param skeleton The skeleton whose bones it names.
+ * @returns The constraint.
+ */
+export function createTransformConstraint(data: TransformConstraintData, skeleton: Skeleton): TransformConstraint {
+	const bones = [...data.bones]
+		.sort((first, second) => first - second)
+		.map((index) => {
+			const bone = skeleton.bones[index];
+			if (!bone) {
+				throw new Error(`Transform constraint ${data.name} names bone ${index}, which does not exist`);
+			}
+			return bone;
+		});
+	const target = skeleton.bones[data.target];
+	if (!target) {
+		throw new Error(`Transform constraint ${data.name} names target ${data.target}, which does not exist`);
+	}
+	const constraint: TransformConstraint = { data, bones, target, rotateMix: 0, translateMix: 0, scaleMix: 0, shearMix: 0 };
+	setTransformToSetupPose(constraint);
+	return constraint;
+}
+
+/**
+ * Resets a transform constraint's mixes from its data.
+ *
+ * @param constraint The constraint to reset.
+ */
+export function setTransformToSetupPose(constraint: TransformConstraint): void {
+	const data = constraint.data;
+	constraint.rotateMix = data.rotateMix;
+	constraint.translateMix = data.translateMix;
+	constraint.scaleMix = data.scaleMix;
+	constraint.shearMix = data.shearMix;
+}
+
+/**
+ * Solves one transform constraint. The target's world transform, and each constrained bone's parent, must be up to date. The caller then
+ * recomputes the constrained bones and their descendants from their applied values. Relative constraints are left unsolved: the corpus
+ * has none, so no reading of them could be checked.
+ *
+ * @param constraint The constraint to solve.
+ * @param skeleton The skeleton the bones belong to.
+ */
+export function solveTransform(constraint: TransformConstraint, skeleton: Skeleton): void {
+	const data = constraint.data;
+	if (data.relative) {
+		return;
+	}
+	if (data.local) {
+		solveLocal(constraint);
+	} else {
+		solveWorld(constraint, skeleton);
+	}
+}
+
+/**
+ * Moves each constrained bone's world transform toward the target's, channel by channel, then writes applied values that reproduce it.
+ * Rotation turns both world axes by the gap between the X axis angles plus the offset. Translation moves the origin toward the target's
+ * local point `(offsetX, offsetY)`. Scale moves each axis length toward the target's plus the offset. Shear turns the Y axis so its angle
+ * from the X axis moves toward the target's plus the offset. A reflected target flips the sign of the rotate and shear offsets, so a
+ * skeleton flip mirrors the result. Angle gaps are wrapped into (-180, 180], so each blend takes the short way round.
+ *
+ * @param constraint The constraint, not local and not relative.
+ * @param skeleton The skeleton the bones belong to.
+ */
+function solveWorld(constraint: TransformConstraint, skeleton: Skeleton): void {
+	const data = constraint.data;
+	const target = constraint.target;
+	const rotateMix = constraint.rotateMix;
+	const translateMix = constraint.translateMix;
+	const scaleMix = constraint.scaleMix;
+	const shearMix = constraint.shearMix;
+	const ta = target.a;
+	const tb = target.b;
+	const tc = target.c;
+	const td = target.d;
+	const offsetSign = ta * td - tb * tc < 0 ? -1 : 1;
+	const offsetRotation = data.offsetRotation * DEG_TO_RAD * offsetSign;
+	const offsetShearY = data.offsetShearY * DEG_TO_RAD * offsetSign;
+	const targetAngle = Math.atan2(tc, ta);
+	const bones = constraint.bones;
+	for (let i = 0; i < bones.length; i++) {
+		const bone = bones[i]!;
+		let changed = false;
+		if (rotateMix !== 0) {
+			let turn = targetAngle - Math.atan2(bone.c, bone.a) + offsetRotation;
+			turn = (turn - TURN * Math.ceil((turn - Math.PI) / TURN)) * rotateMix;
+			const cos = Math.cos(turn);
+			const sin = Math.sin(turn);
+			const a = bone.a;
+			const b = bone.b;
+			const c = bone.c;
+			const d = bone.d;
+			bone.a = cos * a - sin * c;
+			bone.b = cos * b - sin * d;
+			bone.c = sin * a + cos * c;
+			bone.d = sin * b + cos * d;
+			changed = true;
+		}
+		if (translateMix !== 0) {
+			const pointX = ta * data.offsetX + tb * data.offsetY + target.worldX;
+			const pointY = tc * data.offsetX + td * data.offsetY + target.worldY;
+			bone.worldX += (pointX - bone.worldX) * translateMix;
+			bone.worldY += (pointY - bone.worldY) * translateMix;
+			changed = true;
+		}
+		if (scaleMix !== 0) {
+			// A zero-length axis has no direction to scale along, so it stays as it is.
+			const lengthX = Math.sqrt(bone.a * bone.a + bone.c * bone.c);
+			if (lengthX > EPSILON) {
+				const factor = (lengthX + (Math.sqrt(ta * ta + tc * tc) + data.offsetScaleX - lengthX) * scaleMix) / lengthX;
+				bone.a *= factor;
+				bone.c *= factor;
+			}
+			const lengthY = Math.sqrt(bone.b * bone.b + bone.d * bone.d);
+			if (lengthY > EPSILON) {
+				const factor = (lengthY + (Math.sqrt(tb * tb + td * td) + data.offsetScaleY - lengthY) * scaleMix) / lengthY;
+				bone.b *= factor;
+				bone.d *= factor;
+			}
+			changed = true;
+		}
+		if (shearMix !== 0) {
+			const yAngle = Math.atan2(bone.d, bone.b);
+			let turn = Math.atan2(td, tb) - targetAngle - (yAngle - Math.atan2(bone.c, bone.a)) + offsetShearY;
+			turn = (turn - TURN * Math.ceil((turn - Math.PI) / TURN)) * shearMix;
+			const lengthY = Math.sqrt(bone.b * bone.b + bone.d * bone.d);
+			bone.b = Math.cos(yAngle + turn) * lengthY;
+			bone.d = Math.sin(yAngle + turn) * lengthY;
+			changed = true;
+		}
+		if (changed) {
+			setAppliedFromWorld(bone, skeleton);
+		}
+	}
+}
+
+/**
+ * Moves each constrained bone's applied local values toward the target's applied values plus the offsets: rotation the short way round,
+ * x and y, scale X and Y, and shear Y. Offsets never flip here, since local values do not see a skeleton flip.
+ *
+ * @param constraint The constraint, local and not relative.
+ */
+function solveLocal(constraint: TransformConstraint): void {
+	const data = constraint.data;
+	const target = constraint.target;
+	const rotateMix = constraint.rotateMix;
+	const translateMix = constraint.translateMix;
+	const scaleMix = constraint.scaleMix;
+	const shearMix = constraint.shearMix;
+	const bones = constraint.bones;
+	for (let i = 0; i < bones.length; i++) {
+		const bone = bones[i]!;
+		if (rotateMix !== 0) {
+			const turn = target.appliedRotation + data.offsetRotation - bone.appliedRotation;
+			bone.appliedRotation += (turn - 360 * Math.ceil((turn - 180) / 360)) * rotateMix;
+		}
+		if (translateMix !== 0) {
+			bone.appliedX += (target.appliedX + data.offsetX - bone.appliedX) * translateMix;
+			bone.appliedY += (target.appliedY + data.offsetY - bone.appliedY) * translateMix;
+		}
+		if (scaleMix !== 0) {
+			bone.appliedScaleX += (target.appliedScaleX + data.offsetScaleX - bone.appliedScaleX) * scaleMix;
+			bone.appliedScaleY += (target.appliedScaleY + data.offsetScaleY - bone.appliedScaleY) * scaleMix;
+		}
+		if (shearMix !== 0) {
+			const turn = target.appliedShearY + data.offsetShearY - bone.appliedShearY;
+			bone.appliedShearY += (turn - 360 * Math.ceil((turn - 180) / 360)) * shearMix;
+		}
+	}
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Applied values from a world transform
+
+/**
+ * Writes a bone's applied values so that `updateBone` reproduces its current world transform: `a`, `b`, `c`, `d`, `worldX` and `worldY`.
+ * It inverts `updateBone` for each transform mode, dividing the skeleton's scale out where `updateBone` multiplies it back in. The
+ * position is the parent's inverse world basis applied to the offset from the parent's origin. The local basis `L` is then:
+ * `normal` `P^-1 W`, `onlyTranslation` `W`, `noRotationOrReflection` `diag(lengthX, lengthY)^-1 W`, and for the `noScale` modes each
+ * world column mapped back through `P^-1`, cut to the column's own length. `L` is split into rotation, scale X, a signed scale Y and shear
+ * Y, with shear X 0. A parent basis with no inverse, a zero skeleton scale or a zero-length parent axis leaves the applied values as they are.
+ *
+ * @param bone The bone, with its world transform set and its parent's up to date.
+ * @param skeleton The skeleton the bone belongs to.
+ */
+export function setAppliedFromWorld(bone: Bone, skeleton: Skeleton): void {
+	const parent = bone.parent;
+	const skeletonScaleX = skeleton.scaleX;
+	const skeletonScaleY = skeleton.scaleY;
+	const parentA = parent ? parent.a : skeletonScaleX;
+	const parentB = parent ? parent.b : 0;
+	const parentC = parent ? parent.c : 0;
+	const parentD = parent ? parent.d : skeletonScaleY;
+	const determinant = parentA * parentD - parentB * parentC;
+	if (Math.abs(determinant) < EPSILON) {
+		return;
+	}
+	const mode = bone.data.transformMode;
+	if (mode !== "normal" && (skeletonScaleX === 0 || skeletonScaleY === 0)) {
+		return;
+	}
+	// The other modes work on the world and parent bases with the skeleton's scale taken off, as `updateBone` does.
+	const inverseX = mode === "normal" ? 1 : 1 / skeletonScaleX;
+	const inverseY = mode === "normal" ? 1 : 1 / skeletonScaleY;
+	const wa = bone.a * inverseX;
+	const wb = bone.b * inverseX;
+	const wc = bone.c * inverseY;
+	const wd = bone.d * inverseY;
+	const pa = parentA * inverseX;
+	const pb = parentB * inverseX;
+	const pc = parentC * inverseY;
+	const pd = parentD * inverseY;
+	let la = wa;
+	let lb = wb;
+	let lc = wc;
+	let ld = wd;
+	if (mode === "normal" || mode === "noScale" || mode === "noScaleOrReflection") {
+		const inner = pa * pd - pb * pc;
+		if (Math.abs(inner) < EPSILON) {
+			return;
+		}
+		la = (pd * wa - pb * wc) / inner;
+		lc = (pa * wc - pc * wa) / inner;
+		lb = (pd * wb - pb * wd) / inner;
+		ld = (pa * wd - pc * wb) / inner;
+		if (mode !== "normal") {
+			// `updateBone` keeps only each column's direction through the parent, so the local axis is that direction at the world length.
+			// `noScaleOrReflection` negates the Y column under a reflected parent, so the local Y axis is negated to match.
+			const worldX = Math.sqrt(wa * wa + wc * wc);
+			const mappedX = Math.sqrt(la * la + lc * lc);
+			const scaleX = mappedX > EPSILON ? worldX / mappedX : 0;
+			la *= scaleX;
+			lc *= scaleX;
+			const worldY = Math.sqrt(wb * wb + wd * wd);
+			const mappedY = Math.sqrt(lb * lb + ld * ld);
+			const scaleY = (mappedY > EPSILON ? worldY / mappedY : 0) * (mode === "noScaleOrReflection" && inner < 0 ? -1 : 1);
+			lb *= scaleY;
+			ld *= scaleY;
+		}
+	} else if (mode === "noRotationOrReflection") {
+		const lengthX = Math.sqrt(pa * pa + pc * pc);
+		const lengthY = Math.sqrt(pb * pb + pd * pd);
+		if (lengthX < EPSILON || lengthY < EPSILON) {
+			return;
+		}
+		la = wa / lengthX;
+		lb = wb / lengthX;
+		lc = wc / lengthY;
+		ld = wd / lengthY;
+	}
+
+	const dx = bone.worldX - (parent ? parent.worldX : skeleton.x);
+	const dy = bone.worldY - (parent ? parent.worldY : skeleton.y);
+	bone.appliedX = (parentD * dx - parentB * dy) / determinant;
+	bone.appliedY = (parentA * dy - parentC * dx) / determinant;
+	// Split `L`: the X axis gives rotation and scale X. The Y axis gives a scale Y signed by the basis's reflection, and its angle beyond
+	// rotation + 90 is the shear Y.
+	const rotation = Math.atan2(lc, la);
+	const flip = la * ld - lb * lc < 0 ? -1 : 1;
+	const shear = Math.atan2(ld * flip, lb * flip) - rotation - Math.PI / 2;
+	bone.appliedRotation = rotation * RAD_TO_DEG;
+	bone.appliedScaleX = Math.sqrt(la * la + lc * lc);
+	bone.appliedScaleY = Math.sqrt(lb * lb + ld * ld) * flip;
+	bone.appliedShearX = 0;
+	bone.appliedShearY = (shear - TURN * Math.ceil((shear - Math.PI) / TURN)) * RAD_TO_DEG;
 }

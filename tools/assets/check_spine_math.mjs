@@ -2,8 +2,8 @@
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
  * transforms, setup-pose attachments, live slot state, `src/spine/geometry.ts` triangles, `src/spine/animation.ts` curves, key search,
- * bone, slot and draw order timelines, IK constraints and IK timelines, deform timelines, and the `src/spine/renderer.ts` two-color tint
- * and blend factors against hand-worked values.
+ * bone, slot and draw order timelines, IK constraints and IK timelines, transform constraints and their timelines, deform timelines, and
+ * the `src/spine/renderer.ts` two-color tint and blend factors against hand-worked values.
  * `MATH.md` explains each formula the cases pin down.
  *
  * Usage:
@@ -20,6 +20,14 @@ import { startVite } from "./spine_tools.mjs";
 
 /** Largest difference allowed between an expected and an actual number. */
 const TOLERANCE = 1e-4;
+
+/** The skeleton scales the round trip cases cycle through: plain, flipped, and two where `1 / s` differs from `s`. */
+const SKELETON_SCALES = [
+	[1, 1],
+	[2, 0.5],
+	[-1, 1],
+	[-1.5, 0.7]
+];
 
 /** The parent bone every inherit case shares: a root at the origin with world basis `[0 -1; 2 0]`. */
 const ROTATED_PARENT = { rotation: 90, scaleX: 2, scaleY: 1 };
@@ -1058,6 +1066,200 @@ function checkIk(skeletonModule, animationModule) {
 }
 
 /**
+ * Builds a rig for the transform constraint cases and poses it. Bone 0 is an identity root. Bone 1 is the target and bone 2 the
+ * constrained bone, both children of the root unless `parent` is given, which puts a parent bone (index 2) above the constrained bone
+ * (index 3). A child of the constrained bone at local `(5, 0)` comes last.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} rig The rig: `target` and `bone` overrides, an optional `parent`, `constraint` overrides, `skeleton` settings and
+ *   `ik` constraints to add.
+ * @returns {import("../../src/spine/skeleton.ts").Skeleton} The skeleton, with `updateWorldTransform` run.
+ */
+function transformRig(skeletonModule, rig) {
+	const bones = [{}, { parentIndex: 0, ...rig.target }];
+	if (rig.parent) {
+		bones.push({ parentIndex: 0, ...rig.parent });
+	}
+	const boneIndex = bones.length;
+	bones.push({ parentIndex: rig.parent ? 2 : 0, length: 10, ...rig.bone }, { parentIndex: boneIndex, x: 5 });
+	const data = skeletonData(bones);
+	const constraint = {
+		name: "tc",
+		order: 0,
+		skinRequired: false,
+		bones: [boneIndex],
+		target: 1,
+		local: false,
+		relative: false,
+		offsetRotation: 0,
+		offsetX: 0,
+		offsetY: 0,
+		offsetScaleX: 0,
+		offsetScaleY: 0,
+		offsetShearY: 0,
+		rotateMix: 0,
+		translateMix: 0,
+		scaleMix: 0,
+		shearMix: 0
+	};
+	data.transform = [{ ...constraint, ...rig.constraint }];
+	data.ik = rig.ik ?? [];
+	const skeleton = new skeletonModule.Skeleton(data);
+	Object.assign(skeleton, rig.skeleton ?? {});
+	skeleton.setToSetupPose();
+	skeleton.updateWorldTransform();
+	return skeleton;
+}
+
+/**
+ * A small seeded random number generator, so the round trip cases are the same on every run.
+ *
+ * @param {number} seed The starting state.
+ * @returns {() => number} A function giving the next number in [0, 1).
+ */
+function seededRandom(seed) {
+	let state = seed >>> 0;
+	return () => {
+		state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+		return state / 4294967296;
+	};
+}
+
+/**
+ * Checks `setAppliedFromWorld` inverts `updateBone` for one transform mode: 50 seeded random bones under random parents, and 50 random
+ * root bones, each posed, then given applied values from its world transform and recomputed. The skeleton's scale cycles through
+ * `SKELETON_SCALES`, so the skeleton frame's inverse is not the frame itself. Every world value must come back within 1e-9, relative to
+ * its size.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} constraintsModule The loaded `constraints.ts` module.
+ * @param {string} mode The transform mode to test.
+ * @returns {number} How many of the 100 bones round trip.
+ */
+function roundTrips(skeletonModule, constraintsModule, mode) {
+	const random = seededRandom(mode.length * 7919 + 17);
+	const scale = () => {
+		const value = 0.05 + random() * 1.95;
+		return random() < 0.5 ? -value : value;
+	};
+	const pose = () => ({ x: random() * 40 - 20, y: random() * 40 - 20, rotation: random() * 360 - 180, scaleX: scale(), scaleY: scale(), shearX: random() * 80 - 40, shearY: random() * 80 - 40 });
+	let passed = 0;
+	for (let i = 0; i < 100; i++) {
+		// The first 50 are the third bone of a chain, the rest a lone root, whose parent frame is the skeleton's own.
+		const bones = i < 50 ? [pose(), pose(), { ...pose(), transformMode: mode }] : [{ ...pose(), transformMode: mode }];
+		const skeleton = new skeletonModule.Skeleton(skeletonData(bones));
+		[skeleton.scaleX, skeleton.scaleY] = SKELETON_SCALES[i % SKELETON_SCALES.length];
+		skeleton.x = random() * 20 - 10;
+		skeleton.y = random() * 20 - 10;
+		skeleton.setToSetupPose();
+		skeleton.updateWorldTransform();
+		const bone = skeleton.bones[bones.length - 1];
+		const before = [bone.a, bone.b, bone.c, bone.d, bone.worldX, bone.worldY];
+		constraintsModule.setAppliedFromWorld(bone, skeleton);
+		skeletonModule.updateBone(bone, skeleton);
+		const after = [bone.a, bone.b, bone.c, bone.d, bone.worldX, bone.worldY];
+		passed += before.every((value, index) => Math.abs(value - after[index]) <= 1e-9 * Math.max(1, Math.abs(value))) ? 1 : 0;
+	}
+	return passed;
+}
+
+/**
+ * Runs the transform constraint cases: each channel at mix 1 and 0.5, the offsets, a constrained bone under a turned parent and its child,
+ * local mode, the round trip for each transform mode, the order against IK, a skeleton flip and a timeline on the rotate mix.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} animationModule The loaded `animation.ts` module.
+ * @param {object} constraintsModule The loaded `constraints.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkTransform(skeletonModule, animationModule, constraintsModule) {
+	const TARGET = { x: 10, y: 5, rotation: 30 };
+	const rig = (options) => transformRig(skeletonModule, { target: TARGET, ...options });
+	const constrained = (skeleton) => skeleton.bones[skeleton.bones.length - 2];
+	const origin = (bone) => [bone.worldX, bone.worldY];
+	const angle = (bone) => (Math.atan2(bone.c, bone.a) * 180) / Math.PI;
+	const shearAngle = (bone) => (Math.atan2(bone.d, bone.b) * 180) / Math.PI - angle(bone);
+	const axisLength = (bone) => Math.hypot(bone.a, bone.c);
+	// The IK and the transform constraint both turn the bone: IK toward a target straight above, the transform constraint to 30.
+	const ordered = (ikOrder, transformOrder) => {
+		const ik = { name: "ik", order: ikOrder, skinRequired: false, bones: [2], target: 4, mix: 1, softness: 0, bendDirection: 1, compress: false, stretch: false, uniform: false };
+		const data = skeletonData([{}, { parentIndex: 0, ...TARGET }, { parentIndex: 0, length: 10 }, { parentIndex: 2, x: 5 }, { parentIndex: 0, y: 10 }]);
+		data.transform = [{ ...transformRig(skeletonModule, { constraint: {} }).data.transform[0], order: transformOrder, bones: [2], rotateMix: 1 }];
+		data.ik = [ik];
+		const skeleton = new skeletonModule.Skeleton(data);
+		skeleton.setToSetupPose();
+		skeleton.updateWorldTransform();
+		return angle(skeleton.bones[2]);
+	};
+	const mixTimeline = { type: "transform", constraintIndex: 0, times: [0, 1], rotateMixes: [1, 0], translateMixes: [0, 0], scaleMixes: [0, 0], shearMixes: [0, 0], curves: ["linear"] };
+	const cases = [
+		["translate mix 1 moves the origin onto the target", () => [[10, 5], origin(constrained(rig({ constraint: { translateMix: 1 } })))]],
+		["translate mix 1 leaves the rotation", () => [0, angle(constrained(rig({ constraint: { translateMix: 1 } })))]],
+		["translate mix 0.5 moves half way", () => [[5, 2.5], origin(constrained(rig({ constraint: { translateMix: 0.5 } })))]],
+		["rotate mix 1 turns to the target's angle", () => [30, angle(constrained(rig({ constraint: { rotateMix: 1 } })))]],
+		["rotate mix 0.5 turns half way", () => [15, angle(constrained(rig({ constraint: { rotateMix: 0.5 } })))]],
+		["rotate offset 10 adds to the target's angle", () => [40, angle(constrained(rig({ constraint: { rotateMix: 1, offsetRotation: 10 } })))]],
+		["the translate offset is in the target's axes", () => [[10, 7], origin(constrained(rig({ target: { x: 10, y: 5, rotation: 90 }, constraint: { translateMix: 1, offsetX: 2 } })))]],
+		["scale mix 1 takes the target's axis length", () => [2, axisLength(constrained(rig({ target: { ...TARGET, scaleX: 2 }, constraint: { scaleMix: 1 } })))]],
+		["the scale offset adds to the target's length", () => [2.5, axisLength(constrained(rig({ target: { ...TARGET, scaleX: 2 }, constraint: { scaleMix: 1, offsetScaleX: 0.5 } })))]],
+		["shear mix 1 puts the Y axis 110 from the X axis", () => [110, shearAngle(constrained(rig({ target: { ...TARGET, shearY: 20 }, constraint: { shearMix: 1 } })))]],
+		[
+			"shear mix 1 leaves the X axis",
+			() => {
+				const bone = constrained(rig({ target: { ...TARGET, shearY: 20 }, constraint: { shearMix: 1 } }));
+				return [
+					[0, 1],
+					[angle(bone), axisLength(bone)]
+				];
+			}
+		],
+		["under a parent turned 90 the world angle is the target's", () => [30, angle(constrained(rig({ parent: { rotation: 90 }, constraint: { rotateMix: 1 } })))]],
+		["under a parent turned 90 the applied rotation is -60", () => [-60, constrained(rig({ parent: { rotation: 90 }, constraint: { rotateMix: 1 } })).appliedRotation]],
+		[
+			"a child follows the constrained bone",
+			() => {
+				const skeleton = rig({ parent: { rotation: 90 }, constraint: { rotateMix: 1 } });
+				const bone = constrained(skeleton);
+				const child = skeleton.bones[skeleton.bones.length - 1];
+				const radians = Math.PI / 6;
+				return [
+					[bone.worldX + 5 * Math.cos(radians), bone.worldY + 5 * Math.sin(radians)],
+					[child.worldX, child.worldY]
+				];
+			}
+		],
+		["the constrained bone keeps its local rotation", () => [0, constrained(rig({ parent: { rotation: 90 }, constraint: { rotateMix: 1 } })).rotation]],
+		["local mode, rotate mix 1 copies the target's rotation", () => [30, constrained(rig({ target: { x: 4, rotation: 30 }, constraint: { local: true, rotateMix: 1 } })).appliedRotation]],
+		["local mode, translate mix 0.5 moves x half way", () => [2, constrained(rig({ target: { x: 4, rotation: 30 }, constraint: { local: true, translateMix: 0.5 } })).appliedX]],
+		["a skeleton flip mirrors the offset rotation", () => [140, angle(constrained(rig({ constraint: { rotateMix: 1, offsetRotation: 10 }, skeleton: { scaleX: -1 } })))]],
+		...["normal", "onlyTranslation", "noRotationOrReflection", "noScale", "noScaleOrReflection"].map((mode) => [
+			`setAppliedFromWorld round trips 50 random ${mode} bones and 50 roots under varied skeleton scales`,
+			() => [100, roundTrips(skeletonModule, constraintsModule, mode)]
+		]),
+		["a transform constraint after IK decides the rotation", () => [30, ordered(0, 1)]],
+		["IK after a transform constraint decides the rotation", () => [90, ordered(1, 0)]],
+		[
+			"a transform timeline blends the live rotate mix",
+			() => {
+				const skeleton = rig({ constraint: { rotateMix: 1 } });
+				animationModule.applyAnimation(skeleton, { name: "tc", duration: 1, timelines: [mixTimeline] }, 0.5);
+				return [0.5, skeleton.transformConstraints[0].rotateMix];
+			}
+		],
+		[
+			"setToSetupPose restores the data rotate mix",
+			() => {
+				const skeleton = rig({ constraint: { rotateMix: 1 } });
+				animationModule.applyAnimation(skeleton, { name: "tc", duration: 1, timelines: [mixTimeline] }, 0.5);
+				skeleton.setToSetupPose();
+				return [1, skeleton.transformConstraints[0].rotateMix];
+			}
+		]
+	];
+	return runCases("transform", cases);
+}
+
+/**
  * Builds a one-slot rig for the deform cases, plays one animation at a time and gives the slot's world vertex positions.
  *
  * @param {object} modules The loaded `skeleton.ts`, `geometry.ts` and `animation.ts` modules, as `skeleton`, `geometry` and `animation`.
@@ -1252,6 +1454,13 @@ try {
 		failures.push(...checkAnimation(skeletonModule, animationModule), ...checkSlotTimelines(skeletonModule, animationModule), ...checkIk(skeletonModule, animationModule));
 	} catch (error) {
 		failures.push(`animation: could not run: ${error.message}`);
+	}
+	try {
+		const animationModule = await server.ssrLoadModule("/src/spine/animation.ts");
+		const constraintsModule = await server.ssrLoadModule("/src/spine/constraints.ts");
+		failures.push(...checkTransform(skeletonModule, animationModule, constraintsModule));
+	} catch (error) {
+		failures.push(`transform: could not run: ${error.message}`);
 	}
 	try {
 		const geometryModule = await server.ssrLoadModule("/src/spine/geometry.ts");

@@ -55,8 +55,8 @@ const STAGE_ADDS: readonly (readonly Feature[])[] = [
 /** Each planned stage's full feature set, keyed by stage number from 1: `ALWAYS_SUPPORTED` plus everything stages 1 through it add. */
 export const STAGE_FEATURES: ReadonlyMap<number, ReadonlySet<Feature>> = new Map(STAGE_ADDS.map((_, index) => [index + 1, new Set([...ALWAYS_SUPPORTED, ...STAGE_ADDS.slice(0, index + 1).flat()])]));
 
-/** The features the runtime can draw now: stage 2's set (meshes, draw order, two-color tint, every blend mode) plus IK and deform timelines. */
-export const SUPPORTED: ReadonlySet<Feature> = new Set<Feature>([...(STAGE_FEATURES.get(2) ?? []), "ik", "deform"]);
+/** The features the runtime can draw now: stage 2's set (meshes, draw order, two-color tint, blend modes), IK, transform constraints and deform. */
+export const SUPPORTED: ReadonlySet<Feature> = new Set<Feature>([...(STAGE_FEATURES.get(2) ?? []), "ik", "transformConstraint", "deform"]);
 
 /**
  * Finds every feature a skeleton uses.

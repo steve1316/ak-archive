@@ -384,10 +384,11 @@ export function loopTime(animation: Animation, time: number, loop: boolean): num
  * Poses a skeleton at a time in an animation, applying its timelines in file order. Each bone timeline writes its bone's local transform
  * from the setup values: rotate, translate and shear add to them, scale multiplies them. Slot timelines set a slot's attachment or replace
  * its colors, and a draw order timeline rewrites the draw order in place. An IK timeline sets its constraint's mix, softness, bend
- * direction, compress and stretch. A deform timeline writes its slot's vertex offsets. A timeline whose first key is after `time` leaves
- * its bone, slot, constraint or draw order alone. Transform, path and event timelines are skipped. Once each timeline and skeleton has
- * been seen, it allocates nothing: the eased fraction lives in a typed array, no hot helper returns a number, and the draw order work
- * arrays are kept per skeleton. Colors and deform offsets are written into the slot's own objects. Call `updateWorldTransform` after.
+ * direction, compress and stretch. A transform timeline sets its constraint's four mixes. A deform timeline writes its slot's vertex
+ * offsets. A timeline whose first key is after `time` leaves its bone, slot, constraint or draw order alone. Path and event timelines are
+ * skipped. Once each timeline and skeleton has been seen, it allocates nothing: the eased fraction lives in a typed array, no hot helper
+ * returns a number, and the draw order work arrays are kept per skeleton. Colors and deform offsets are written into the slot's own
+ * objects. Call `updateWorldTransform` after.
  *
  * @param skeleton The skeleton, just reset by `setToSetupPose`.
  * @param animation The animation to sample.
@@ -506,11 +507,39 @@ export function applyAnimation(skeleton: Skeleton, animation: Animation, time: n
 				constraint.stretch = timeline.stretch[index]!;
 				break;
 			}
+			case "transform": {
+				const index = keyFraction(timeline.times, timeline.curves, time);
+				if (index < 0) {
+					break;
+				}
+				// All four mixes blend along the one curve.
+				const fraction = found[FRACTION]!;
+				const rotateMixes = timeline.rotateMixes;
+				const translateMixes = timeline.translateMixes;
+				const scaleMixes = timeline.scaleMixes;
+				const shearMixes = timeline.shearMixes;
+				let rotate = rotateMixes[index]!;
+				let translate = translateMixes[index]!;
+				let scale = scaleMixes[index]!;
+				let shear = shearMixes[index]!;
+				if (fraction !== 0) {
+					rotate += (rotateMixes[index + 1]! - rotate) * fraction;
+					translate += (translateMixes[index + 1]! - translate) * fraction;
+					scale += (scaleMixes[index + 1]! - scale) * fraction;
+					shear += (shearMixes[index + 1]! - shear) * fraction;
+				}
+				const constraint = skeleton.transformConstraints[timeline.constraintIndex]!;
+				constraint.rotateMix = rotate;
+				constraint.translateMix = translate;
+				constraint.scaleMix = scale;
+				constraint.shearMix = shear;
+				break;
+			}
 			case "deform":
 				applyDeform(skeleton, timeline, time);
 				break;
 			default:
-				// Transform, path and event timelines are skipped.
+				// Path and event timelines are skipped.
 				break;
 		}
 	}

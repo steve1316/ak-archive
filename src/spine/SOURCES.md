@@ -76,3 +76,11 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
   `MATH.md` ("Deform timelines") records the rules taken from these and the corpus evidence for reading the values as offsets.
 - `FORMAT-3.8.md` point 4 and the staged rig bytes, for the deform key layout and for every key's `start + count` fitting the target's
   vertex count.
+- https://esotericsoftware.com/spine-transform-constraints - fetched with curl into the plan workspace. Used for what a transform
+  constraint does: it copies a target bone's world rotation, translation, scale and shear onto the constrained bones. "Local" changes the
+  local transform instead of the world one. "Relative" adds the target's transform, while without it the bones match the target, so at
+  mix 100 their own transform has no effect. The offsets are added to the target's values, and each channel's mix can be keyed.
+  `MATH.md` ("Transform constraints") records how each became maths and the corpus evidence behind the offset readings. The page gives no
+  formulas, and none were copied.
+- The staged Arknights rig files again, as the oracle for the transform constraint offsets: each setup bone at mix 1 was compared with
+  each reading of the offsets.
