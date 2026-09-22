@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * The maths gate for the Spine runtime: builds tiny synthetic skeletons, poses them with `src/spine/skeleton.ts`, and checks the bone world
- * transforms and setup-pose attachments against hand-worked values. `MATH.md` explains each formula the cases pin down.
+ * transforms, setup-pose attachments and `src/spine/geometry.ts` triangles against hand-worked values. `MATH.md` explains each formula the
+ * cases pin down.
  *
  * Usage:
  *     node tools/assets/check_spine_math.mjs
@@ -107,6 +108,54 @@ const BONE_CASES = [
 		unitY: [-1.99087, 0.93185]
 	}
 ];
+
+/** The page every geometry case draws from, in pixels. */
+const GEOMETRY_PAGE = { width: 256, height: 128 };
+
+/** The unstripped atlas region the geometry cases draw from: a 20 x 10 image packed at (100, 50). */
+const REGION_I = { name: "I", x: 100, y: 50, width: 20, height: 10, offsetX: 0, offsetY: 0, originalWidth: 20, originalHeight: 10, rotate: 0, index: -1 };
+
+/** The same 20 x 10 image with its left 10 columns stripped as whitespace, leaving a 10 x 10 packed box at (100, 50). */
+const REGION_J = { ...REGION_I, name: "J", width: 10, height: 10, offsetX: 10 };
+
+/**
+ * Region I packed turned 90 degrees counterclockwise, so its box on the page is 10 x 20 at (100, 50). The image's bottom-left corner lands on
+ * the box's bottom-right, its bottom-right on the top-right, and so on round.
+ */
+const REGION_R = { ...REGION_I, name: "R", rotate: 90 };
+
+/**
+ * A 20 x 10 image stripped to a 12 x 6 packed box at (100, 50) and stored upside down. It has 3 columns stripped on the left, 5 on the right,
+ * 1 row at the bottom and 3 at the top.
+ */
+const REGION_X = { ...REGION_I, name: "X", width: 12, height: 6, offsetX: 3, offsetY: 1, rotate: 180 };
+
+/** Region X's image stored at 270 instead, so its box on the page is 6 x 12. */
+const REGION_X270 = { ...REGION_X, name: "X270", rotate: 270 };
+
+/** The region attachment cases I and J share: a 20 x 10 image centred 5 units right of the bone. */
+const REGION_ATTACHMENT = { type: "region", path: null, rotation: 0, x: 5, y: 0, scaleX: 1, scaleY: 1, width: 20, height: 10, color: { r: 1, g: 1, b: 1, a: 1 } };
+
+/** Case L's mesh: three bone-local vertices on region I. */
+const MESH_L = {
+	type: "mesh",
+	name: "I",
+	path: null,
+	color: { r: 1, g: 1, b: 1, a: 1 },
+	uvs: new Float32Array([0, 1, 1, 1, 0, 0]),
+	triangles: new Uint16Array([0, 1, 2]),
+	vertices: { weighted: false, values: new Float32Array([0, 0, 10, 0, 0, 10]) },
+	hullCount: 3,
+	edges: null,
+	width: null,
+	height: null
+};
+
+/** Case L's expected world positions and page UVs. */
+const MESH_L_EXPECTED = {
+	positions: [0, 0, 10, 0, 0, 10],
+	uvs: [0.390625, 0.46875, 0.46875, 0.46875, 0.390625, 0.390625]
+};
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -321,6 +370,137 @@ function checkAttachments(skeletonModule) {
 	return failures;
 }
 
+/**
+ * Builds a one-slot skeleton on a root bone at the origin, with the given attachments in the default skin and the first one shown.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object[]} bones Per-bone overrides, in parent-first order. The slot sits on the first bone.
+ * @param {[string, object][]} attachments The slot's attachments as `[placeholder, attachment]` pairs.
+ * @returns {object} The skeleton, posed and with world transforms computed.
+ */
+function geometrySkeleton(skeletonModule, bones, attachments) {
+	const skins = [{ name: "default", attachments: new Map([[0, new Map(attachments)]]) }];
+	const skeleton = new skeletonModule.Skeleton(skeletonData(bones, [slotData("slot", attachments[0][0])], skins));
+	skeleton.updateWorldTransform();
+	return skeleton;
+}
+
+/**
+ * Runs every geometry case: plain, stripped, rotated and scaled regions, weighted vertices, a plain mesh and a linked mesh.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkGeometry(skeletonModule, geometryModule) {
+	const { slotTriangles } = geometryModule;
+	const atlas = {
+		pages: [{ name: "page.png", width: 0, height: 0, format: "RGBA8888", filter: ["Linear", "Linear"], repeat: "none", pma: false, regions: [REGION_I, REGION_J, REGION_R, REGION_X, REGION_X270] }]
+	};
+	const pages = [GEOMETRY_PAGE];
+	const linked = { type: "linkedmesh", name: "M", path: "I", color: { r: 1, g: 1, b: 1, a: 1 }, parentSkin: null, parentName: "L", deform: true, width: null, height: null };
+	const weighted = {
+		...MESH_L,
+		uvs: new Float32Array([0, 0]),
+		triangles: new Uint16Array([]),
+		vertices: { weighted: true, bones: new Int32Array([2, 0, 1]), values: new Float32Array([1, 0, 0.5, 1, 0, 0.5]) },
+		hullCount: 1
+	};
+	const centreMesh = (name) => ({
+		...MESH_L,
+		name,
+		uvs: new Float32Array([0.5, 0.5]),
+		triangles: new Uint16Array([]),
+		vertices: { weighted: false, values: new Float32Array([1, 2]) },
+		hullCount: 1
+	});
+	// Bone 0 carries the slot at x 100 but has no influence. Bones 1-3 are its chain: (100, 10), then (105, 10) turned 90, then scale X 2.
+	const threeInfluences = {
+		...weighted,
+		vertices: { weighted: true, bones: new Int32Array([3, 1, 2, 3]), values: new Float32Array([1, 2, 0.2, 1, 0, 0.3, 1, 1, 0.5]) }
+	};
+	const cases = [
+		{
+			name: "I region",
+			skeleton: geometrySkeleton(skeletonModule, [{}], [["I", { ...REGION_ATTACHMENT, name: "I" }]]),
+			positions: [-5, -5, 15, -5, 15, 5, -5, 5],
+			uvs: [0.390625, 0.46875, 0.46875, 0.46875, 0.46875, 0.390625, 0.390625, 0.390625]
+		},
+		{
+			name: "J stripped region",
+			skeleton: geometrySkeleton(skeletonModule, [{}], [["J", { ...REGION_ATTACHMENT, name: "J" }]]),
+			positions: [5, -5, 15, -5, 15, 5, 5, 5],
+			uvs: [0.390625, 0.46875, 0.4296875, 0.46875, 0.4296875, 0.390625, 0.390625, 0.390625]
+		},
+		{
+			name: "R region packed at 90",
+			skeleton: geometrySkeleton(skeletonModule, [{}], [["R", { ...REGION_ATTACHMENT, name: "R" }]]),
+			positions: [-5, -5, 15, -5, 15, 5, -5, 5],
+			uvs: [0.4296875, 0.546875, 0.4296875, 0.390625, 0.390625, 0.390625, 0.390625, 0.546875]
+		},
+		{
+			name: "X stripped region packed at 180",
+			skeleton: geometrySkeleton(skeletonModule, [{}], [["X", { ...REGION_ATTACHMENT, name: "X", x: 0 }]]),
+			positions: [-7, -4, 5, -4, 5, 2, -7, 2],
+			uvs: [0.4375, 0.390625, 0.390625, 0.390625, 0.390625, 0.4375, 0.4375, 0.4375]
+		},
+		{ name: "X mesh centre at 180", skeleton: geometrySkeleton(skeletonModule, [{}], [["X", centreMesh("X")]]), positions: [1, 2], uvs: [0.41015625, 0.421875] },
+		{
+			name: "X mesh centre at 270",
+			skeleton: geometrySkeleton(skeletonModule, [{}], [["X270", centreMesh("X270")]]),
+			positions: [1, 2],
+			uvs: [0.40625, 0.4453125]
+		},
+		{
+			name: "S scaled and rotated region",
+			skeleton: geometrySkeleton(skeletonModule, [{}], [["I", { ...REGION_ATTACHMENT, name: "I", scaleX: 2, scaleY: 0.5, rotation: 90, x: 5, y: 3 }]]),
+			positions: [7.5, -17, 7.5, 23, 2.5, 23, 2.5, -17]
+		},
+		{
+			name: "W three influences, slot bone left out",
+			skeleton: geometrySkeleton(skeletonModule, [{ x: 100 }, { y: 10 }, { x: 5, rotation: 90 }, { scaleX: 2 }], [["W", threeInfluences]]),
+			positions: [103.7, 11.7]
+		},
+		{
+			name: "K weighted vertex",
+			skeleton: geometrySkeleton(skeletonModule, [{}, { x: 10, rotation: 90 }], [["K", weighted]]),
+			positions: [5.5, 0.5]
+		},
+		{ name: "L plain mesh", skeleton: geometrySkeleton(skeletonModule, [{}], [["L", MESH_L]]), ...MESH_L_EXPECTED },
+		{
+			name: "M linked mesh",
+			skeleton: geometrySkeleton(
+				skeletonModule,
+				[{}],
+				[
+					["M", linked],
+					["L", MESH_L]
+				]
+			),
+			...MESH_L_EXPECTED
+		}
+	];
+
+	const failures = [];
+	for (const testCase of cases) {
+		const list = slotTriangles(testCase.skeleton, testCase.skeleton.slots[0], atlas, pages);
+		const caseFailures = [];
+		if (!list) {
+			caseFailures.push(`${testCase.name}: no triangle list`);
+		} else {
+			for (const field of ["positions", "uvs"]) {
+				const expected = testCase[field];
+				if (expected && (list[field].length !== expected.length || !close(expected, [...list[field]]))) {
+					caseFailures.push(`${testCase.name}: ${field} expected ${shown(expected)}, got ${shown([...list[field]])}`);
+				}
+			}
+		}
+		failures.push(...caseFailures);
+		console.log(`${caseFailures.length === 0 ? "ok  " : "FAIL"} geometry: ${testCase.name}`);
+	}
+	return failures;
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -330,6 +510,11 @@ let failures = [];
 try {
 	const skeletonModule = await server.ssrLoadModule("/src/spine/skeleton.ts");
 	failures = [...checkBones(skeletonModule), ...checkReset(skeletonModule), ...checkAttachments(skeletonModule)];
+	try {
+		failures.push(...checkGeometry(skeletonModule, await server.ssrLoadModule("/src/spine/geometry.ts")));
+	} catch (error) {
+		failures.push(`geometry: could not run: ${error.message}`);
+	}
 } catch (error) {
 	failures = [`could not run: ${error.message}`];
 } finally {

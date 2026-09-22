@@ -95,3 +95,83 @@ What the bones page says behind each one (https://esotericsoftware.com/spine-bon
   nothing. The setup pose resets every bone's local transform to its data, puts the draw order back to slot order, and sets each slot's
   attachment from its setup name.
 - A handful of staged rigs keep some setup attachments only in a named skin, so with no skin chosen those slots show nothing until one is.
+
+## Geometry
+
+`geometry.ts` turns each slot's attachment into world positions, page UVs and triangle indices. The maths gate's geometry cases pin each
+rule below with a 256 x 128 page.
+
+### Finding the region
+
+An attachment draws the atlas region named by its `path`, or by its own name when `path` is null. Names are matched exactly, trailing spaces
+included. The first region with that name across the pages wins.
+
+### The region quad
+
+A region attachment is a `width x height` rectangle centred on its own origin. Its corners are scaled by `scaleX, scaleY` along the
+attachment's own axes, turned by `rotation` (counterclockwise, in degrees), moved to `(x, y)` in the bone's space, then put in the world with
+`localToWorld`. Corners run bottom-left, bottom-right, top-right, top-left, drawn as triangles `0 1 2` and `2 3 0`.
+
+### Whitespace stripping
+
+The packed image covers only part of the original `originalWidth x originalHeight` image. The atlas format page says `offset` is the
+whitespace stripped from the left and bottom edges (https://esotericsoftware.com/spine-atlas-format, "Region sections"). So in the
+attachment's y-up space:
+
+```
+unitX  = width  / originalWidth         unitY = height / originalHeight
+left   = -width/2  + offsetX * unitX    right = left   + packedWidth  * unitX
+bottom = -height/2 + offsetY * unitY    top   = bottom + packedHeight * unitY
+```
+
+The whitespace above the packed image is `originalHeight - packedHeight - offsetY`, which the same page gives as `offsetTop`.
+
+### UVs and the packed rotation
+
+A point in the packed image is `(px, py)` in pixels, with y pointing down like the page's rows. A region corner uses `(0, h)` for
+bottom-left through `(0, 0)` for top-left, where `w x h` is the packed size before rotation. That point lands in the page box at `(qx, qy)`:
+
+| `rotate` | `qx` | `qy` | Box on the page |
+|---|---|---|---|
+| 0 | `px` | `py` | `w x h` |
+| 90 | `py` | `w - px` | `h x w` |
+| 180 | `w - px` | `h - py` | `w x h` |
+| 270 | `h - py` | `px` | `h x w` |
+
+Then `u = (x + qx) / pageWidth` and `v = (y + qy) / pageHeight`, with the page size read from the PNG.
+
+- **Direction.** The atlas format page says a region with `rotate: true` was "stored in the page image rotated by 90 degrees counter
+  clockwise" (https://esotericsoftware.com/spine-atlas-format, "Region sections"). So at 90 the image's top edge becomes the box's left
+  edge and its bottom-left corner lands on the box's bottom-right. 270 is the same turn the other way and 180 is upside down. The texture
+  packer page only says some images are rotated 90 degrees and gives no direction. **Confirm against PRTS**: a wrong direction draws the
+  part upside down.
+  Only the maths gate's rotated case and PRTS can catch a wrong direction. The corpus gate cannot: a turned region keeps its box on the page
+  and its quad in the world, so every UV range and bounds number stays the same.
+
+### Mesh UVs
+
+A mesh's `uvs` run 0 to 1 across the region's original image, with v = 0 at the top edge, pointing down. Each maps to the packed image as
+`px = u * originalWidth - offsetX` and `py = v * originalHeight - offsetTop`, then through the same table, so a mesh and a region on one
+image line up. The meshes page is silent on the v direction. **Confirm against PRTS**: a wrong reading draws the mesh upside down.
+
+The corpus backs this reading. The texture packer strips whitespace down to the mesh hull (https://esotericsoftware.com/spine-texture-packer,
+the setting that uses mesh UVs to strip whitespace). Across the stripped meshes in every 4th staged rig, 2,906 of 2,934 hulls meet the packed
+box's edges within 3 pixels under this reading, none do with v pointing up, and none span the full 0-1 range.
+
+The corpus gate keeps checking this. Every mesh on a stripped region, with its UVs mapped by `slotTriangles`, must have its hull meet all
+four edges of the packed box within 3 page pixels. At least 95% of meshes must fit overall, and 90% in each `rotate` group of 20 or more. A
+flipped v or a wrong strip offset moves the hull off the box. A wrong rotate direction does not, since it turns the whole box onto itself.
+
+### Mesh vertices
+
+- **Plain vertices** are in the slot bone's space: `localToWorld(slot.bone, vx, vy)`.
+- **Weighted vertices** add up each influence: `sum(weight * localToWorld(bones[index], bindX, bindY))`. The weights page says each vertex
+  carries a weight per bound bone and that the weights sum to 100% (https://esotericsoftware.com/spine-weights, "Adjusting weights"). The
+  slot's own bone plays no part.
+- **Linked meshes** share the source mesh's vertices, UVs, triangles and weights, but can use a different image
+  (https://esotericsoftware.com/spine-meshes, "Linked meshes"). The source is looked up in the same slot, in the skin the linked mesh names or
+  the default skin when it names none. Its region comes from the linked mesh's own `path ?? name`.
+
+### Color
+
+A list's tint is the slot's setup color times the attachment's color, channel by channel.

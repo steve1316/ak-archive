@@ -22,3 +22,12 @@ copies of the pages below live in the plan workspace under `docs/` for reading, 
 - https://esotericsoftware.com/spine-tools - the "Axes", "Rotate tool", "Scale tool", "Scale examples" and "Shear tool" sections: rotation
   is counterclockwise from the parent's X axis, translation is stored in the parent's axes, scale applies along the bone's own axes, and
   shear changes the angle between the X and Y axes. These give the local basis and world transform in `MATH.md`.
+- https://esotericsoftware.com/spine-atlas-format - read again for geometry: the `offset` field is the whitespace stripped from the left and
+  bottom edges, `offsetTop` follows from the original and packed heights, and a `rotate: true` region is stored turned 90 degrees
+  counterclockwise. These give the strip and the UV table in `MATH.md`.
+- https://esotericsoftware.com/spine-texture-packer - the "Strip whitespace X/Y" and "Rotation" settings, and the setting that strips
+  whitespace down to mesh hulls, which backs the mesh UV reading in `MATH.md`. The page gives no rotation direction.
+- https://esotericsoftware.com/spine-meshes - the "Linked meshes" section: a linked mesh shares its source mesh's vertices, UVs and weights,
+  lives in the same slot, and may use its own image.
+- https://esotericsoftware.com/spine-weights - bound bones carry a weight per vertex, and the weights for a vertex sum to 100%. This gives the
+  weighted vertex sum in `MATH.md`.
