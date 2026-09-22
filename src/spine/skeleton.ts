@@ -7,8 +7,18 @@
  * and the skeleton's own position and scale. `MATH.md` explains the bone world transform formulas and the user guide text behind them.
  */
 
-import { createIkConstraint, createTransformConstraint, setIkToSetupPose, setTransformToSetupPose, solveIk, solveTransform } from "./constraints.js";
-import type { IkConstraint, TransformConstraint } from "./constraints.js";
+import {
+	createIkConstraint,
+	createPathConstraint,
+	createTransformConstraint,
+	setIkToSetupPose,
+	setPathToSetupPose,
+	setTransformToSetupPose,
+	solveIk,
+	solvePath,
+	solveTransform
+} from "./constraints.js";
+import type { IkConstraint, PathConstraint, TransformConstraint } from "./constraints.js";
 import type { Attachment, BoneData, Color, LinkedMeshAttachment, MeshVertices, Skin, SkeletonData, SlotData } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -102,12 +112,14 @@ export interface Slot {
 	deform: Float32Array;
 }
 
-/** One constraint in the order they run, with the bones to recompute after it. Exactly one of `ik` and `transform` is set. */
+/** One constraint in the order they run, with the bones to recompute after it. Exactly one of `ik`, `transform` and `path` is set. */
 interface ConstraintStep {
 	/** The IK constraint this step solves, or null. */
 	ik: IkConstraint | null;
 	/** The transform constraint this step solves, or null. */
 	transform: TransformConstraint | null;
+	/** The path constraint this step solves, or null. */
+	path: PathConstraint | null;
 	/** The constrained bones and every descendant, parents first. */
 	bones: Bone[];
 }
@@ -443,6 +455,8 @@ export class Skeleton {
 	readonly ikConstraints: IkConstraint[];
 	/** Every transform constraint, in data order. */
 	readonly transformConstraints: TransformConstraint[];
+	/** Every path constraint, in data order. */
+	readonly pathConstraints: PathConstraint[];
 	/** The active skin, or null to use only the default skin. */
 	skin: Skin | null = null;
 	/** World X of the skeleton's origin. */
@@ -457,8 +471,8 @@ export class Skeleton {
 	/** The default skin, or null when the data has none. */
 	private readonly defaultSkin: Skin | null;
 	/**
-	 * The IK and transform constraints in the order they run, ascending `order` with ties in file order (IK before transform), each with
-	 * the bones to recompute after it: its constrained bones and every descendant, parents first. Path constraints can join this list later.
+	 * The IK, transform and path constraints in the order they run, ascending `order` with ties in file order (IK, then transform, then
+	 * path), each with the bones to recompute after it: its constrained bones and every descendant, parents first.
 	 */
 	private readonly constraintSteps: ConstraintStep[];
 
@@ -497,10 +511,12 @@ export class Skeleton {
 		this.drawOrder = [];
 		this.ikConstraints = data.ik.map((ikData) => createIkConstraint(ikData, this));
 		this.transformConstraints = data.transform.map((transformData) => createTransformConstraint(transformData, this));
+		this.pathConstraints = data.path.map((pathData) => createPathConstraint(pathData, this));
 		// `sort` is stable, so equal orders keep this file order.
 		const steps: { order: number; step: ConstraintStep }[] = [
-			...this.ikConstraints.map((ik) => ({ order: ik.data.order, step: { ik, transform: null, bones: this.subtree([ik.bones[0]!]) } })),
-			...this.transformConstraints.map((transform) => ({ order: transform.data.order, step: { ik: null, transform, bones: this.subtree(transform.bones) } }))
+			...this.ikConstraints.map((ik) => ({ order: ik.data.order, step: { ik, transform: null, path: null, bones: this.subtree([ik.bones[0]!]) } })),
+			...this.transformConstraints.map((transform) => ({ order: transform.data.order, step: { ik: null, transform, path: null, bones: this.subtree(transform.bones) } })),
+			...this.pathConstraints.map((path) => ({ order: path.data.order, step: { ik: null, transform: null, path, bones: this.subtree(path.bones) } }))
 		];
 		this.constraintSteps = steps.sort((first, second) => first.order - second.order).map((entry) => entry.step);
 		this.defaultSkin = data.skins.find((skin) => skin.name === DEFAULT_SKIN_NAME) ?? null;
@@ -585,6 +601,10 @@ export class Skeleton {
 		for (let i = 0; i < transformConstraints.length; i++) {
 			setTransformToSetupPose(transformConstraints[i]!);
 		}
+		const pathConstraints = this.pathConstraints;
+		for (let i = 0; i < pathConstraints.length; i++) {
+			setPathToSetupPose(pathConstraints[i]!);
+		}
 		const slots = this.slots;
 		this.drawOrder.length = slots.length;
 		for (let index = 0; index < slots.length; index++) {
@@ -607,7 +627,7 @@ export class Skeleton {
 
 	/**
 	 * Computes every bone's world transform, then applies the constraints. Each bone's applied transform starts as its local one, and one
-	 * pass in parent-first order covers the tree. Each IK or transform constraint then runs in `order`, and its bones and their descendants
+	 * pass in parent-first order covers the tree. Each IK, transform or path constraint then runs in `order`, and its bones and their descendants
 	 * are recomputed after it. Only applied values change, so running it twice on the same pose gives the same result. Creates no objects.
 	 */
 	updateWorldTransform(): void {
@@ -624,6 +644,8 @@ export class Skeleton {
 				solveIk(step.ik);
 			} else if (step.transform !== null) {
 				solveTransform(step.transform, this);
+			} else if (step.path !== null) {
+				solvePath(step.path, this);
 			}
 			const recompute = step.bones;
 			for (let j = 0; j < recompute.length; j++) {

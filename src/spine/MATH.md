@@ -834,3 +834,29 @@ falls back to the neighbouring knot. A closed path wraps the distance into its l
 
 The 8 paths with constant speed off are measured the same way. The paths page describes turning it off as fewer calculations and less
 accurate placement, so constant-speed placement is the intended result. Confirm against PRTS.
+
+### Path constraints
+
+The path constraints page describes every mode in words and gives no formulas. The readings below turn each into maths.
+
+- **Places along the path.** The first bone's place is the position: a distance in fixed mode, a fraction of the path's length in percent
+  mode. Percent values are fractions, as the JSON format page's keys show (a keyed position of 0.7). Each next place is a gap further on:
+  for length spacing the previous bone's length plus the spacing, for fixed spacing the spacing, and for percent spacing that fraction of the
+  path's length. One more place past the last bone is found for the chain modes to aim at.
+- **Bone length.** Length spacing and chainScale read the bone's world length before the solve, its setup length times the length of its
+  world X axis.
+- **Tangent.** Each bone goes to its place and turns to the path's direction there.
+- **Chain.** The first bone goes to its place. Each later bone goes to the previous bone's tip after that bone was placed, and every bone
+  turns to aim at the next place. The page says the chain translation is not applied when the rotation offset is not zero. Then each bone
+  goes to its own place instead. Confirm against PRTS.
+- **ChainScale.** Each bone goes to its place, turns to aim at the next place, and its X axis stretches by the distance between the two
+  places over its world length. A bone with no length is not stretched.
+- **Offset.** The rotation offset adds to each angle. When the target slot's bone is reflected it is negated, the same rule the world
+  transform constraint uses. Confirm against PRTS.
+- **Mixes.** The translate mix moves the bone's world origin toward its place. The rotate mix turns both world axes toward the angle the
+  short way round, and blends chainScale's stretch from 1. Nothing happens when the slot shows no path, when both mixes are 0, or when the
+  path has no length.
+- **Applied values.** The solve writes world transforms in path order, then derives each bone's applied values with
+  `setAppliedFromWorld` in skeleton order, so a parent's new world transform is in place before its child's applied values are taken. A
+  second `updateWorldTransform` on the same pose gives the same world transforms.
+- **Order.** Path constraints join the constraint steps by `order`, with ties in file order: IK, then transform, then path.

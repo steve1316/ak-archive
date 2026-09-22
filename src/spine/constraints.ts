@@ -4,12 +4,15 @@
 
 /**
  * IK constraints: turning one bone to point at a target, or two bones so the child's tip reaches it. Transform constraints: moving bones
- * toward a target bone's rotation, position, scale and shear. Every solve writes the bones' applied values, never the local values
- * animation writes. `MATH.md` ("IK constraints" and "Transform constraints") derives each step and names the corpus evidence behind it.
+ * toward a target bone's rotation, position, scale and shear. Path constraints: placing bones along a path attachment. Every solve writes
+ * the bones' applied values, never the local values animation writes. `MATH.md` ("IK constraints", "Transform constraints" and "Paths")
+ * derives each step and names the corpus evidence behind it.
  */
 
-import type { Bone, Skeleton } from "./skeleton.js";
-import type { IkConstraintData, TransformConstraintData } from "./types.js";
+import { createPathSampler, pointAt, samplePath } from "./paths.js";
+import type { PathSampler } from "./paths.js";
+import type { Bone, Skeleton, Slot } from "./skeleton.js";
+import type { IkConstraintData, PathAttachment, PathConstraintData, TransformConstraintData } from "./types.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -53,6 +56,32 @@ export interface TransformConstraint {
 	scaleMix: number;
 	/** Current shear influence. */
 	shearMix: number;
+}
+
+/** A live path constraint: its setup data, the bones it places, the path it reads and the values timelines can key. */
+export interface PathConstraint {
+	/** The constraint's setup data. */
+	data: PathConstraintData;
+	/** The constrained bones in path order: the first sits at the path position, and each next one a spacing further along. */
+	bones: Bone[];
+	/** The same bones in skeleton order, so applied values are derived parent first. */
+	parentFirst: Bone[];
+	/** The slot whose path attachment the bones follow. */
+	target: Slot;
+	/** Current position along the path, a distance or a fraction of the length by the position mode. */
+	position: number;
+	/** Current spacing between bones, read by the spacing mode. */
+	spacing: number;
+	/** Current rotation influence, from 0 (no effect) to 1 (only the constraint). Also blends chainScale's stretch. */
+	rotateMix: number;
+	/** Current translation influence. */
+	translateMix: number;
+	/** A sampler for every path attachment the target slot can show in any skin, made up front so solving allocates nothing. */
+	samplers: Map<PathAttachment, PathSampler>;
+	/** The point and direction at each bone's place along the path, plus one past the last, as `x, y, angle` triplets. */
+	points: Float64Array;
+	/** Each bone's world length before the solve, which length spacing and chainScale read. */
+	lengths: Float64Array;
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -514,6 +543,181 @@ function solveLocal(constraint: TransformConstraint): void {
 			const turn = target.appliedShearY + data.offsetShearY - bone.appliedShearY;
 			bone.appliedShearY += (turn - 360 * Math.ceil((turn - 180) / 360)) * shearMix;
 		}
+	}
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Path constraints
+
+/**
+ * Makes a live path constraint for a skeleton, with its keyable values from the data. A sampler is made for every path attachment the target
+ * slot can show in any skin, so the solve never allocates.
+ *
+ * @param data The constraint's setup data.
+ * @param skeleton The skeleton whose bones and slots it names.
+ * @returns The constraint.
+ */
+export function createPathConstraint(data: PathConstraintData, skeleton: Skeleton): PathConstraint {
+	const bones = data.bones.map((index) => {
+		const bone = skeleton.bones[index];
+		if (!bone) {
+			throw new Error(`Path constraint ${data.name} names bone ${index}, which does not exist`);
+		}
+		return bone;
+	});
+	const target = skeleton.slots[data.target];
+	if (!target) {
+		throw new Error(`Path constraint ${data.name} names slot ${data.target}, which does not exist`);
+	}
+	const samplers = new Map<PathAttachment, PathSampler>();
+	for (const skin of skeleton.data.skins) {
+		for (const attachment of skin.attachments.get(data.target)?.values() ?? []) {
+			if (attachment.type === "path" && !samplers.has(attachment)) {
+				samplers.set(attachment, createPathSampler(attachment));
+			}
+		}
+	}
+	const constraint: PathConstraint = {
+		data,
+		bones,
+		parentFirst: [...bones].sort((first, second) => skeleton.bones.indexOf(first) - skeleton.bones.indexOf(second)),
+		target,
+		position: 0,
+		spacing: 0,
+		rotateMix: 0,
+		translateMix: 0,
+		samplers,
+		points: new Float64Array((bones.length + 1) * 3),
+		lengths: new Float64Array(bones.length)
+	};
+	setPathToSetupPose(constraint);
+	return constraint;
+}
+
+/**
+ * Resets a path constraint's position, spacing and mixes from its data.
+ *
+ * @param constraint The constraint to reset.
+ */
+export function setPathToSetupPose(constraint: PathConstraint): void {
+	const data = constraint.data;
+	constraint.position = data.position;
+	constraint.spacing = data.spacing;
+	constraint.rotateMix = data.rotateMix;
+	constraint.translateMix = data.translateMix;
+}
+
+/**
+ * Solves one path constraint. The target slot's bone, every bone a weighted path follows, and each constrained bone's parent must be up to
+ * date. The caller then recomputes the constrained bones and their descendants from their applied values.
+ *
+ * The path is measured, then walked: the first bone's place is the position (a fraction of the length in percent mode), and each next place
+ * is a gap further on, the bone's world length plus the spacing for length spacing, the spacing for fixed, and that fraction of the length
+ * for percent. One extra place past the last bone is found for the chain modes to aim at. Tangent puts each bone on its place, pointing
+ * along the path. Chain aims each bone from the previous bone's tip at the next place, and chainScale aims each bone from its place at the
+ * next one and stretches it to reach. The rotation offset adds to each angle, negated when the target's bone is reflected. The translate mix
+ * blends position, and the rotate mix blends rotation and the stretch. Nothing happens when the slot shows no path, both mixes are 0, or the
+ * path has no length.
+ *
+ * @param constraint The constraint to solve.
+ * @param skeleton The skeleton the bones belong to.
+ */
+export function solvePath(constraint: PathConstraint, skeleton: Skeleton): void {
+	const attachment = constraint.target.attachment;
+	if (attachment === null || attachment.type !== "path") {
+		return;
+	}
+	const rotateMix = constraint.rotateMix;
+	const translateMix = constraint.translateMix;
+	const sampler = constraint.samplers.get(attachment);
+	if ((rotateMix === 0 && translateMix === 0) || sampler === undefined) {
+		return;
+	}
+	samplePath(sampler, skeleton, constraint.target, attachment);
+	const total = sampler.total;
+	if (total <= EPSILON) {
+		return;
+	}
+
+	const data = constraint.data;
+	const bones = constraint.bones;
+	const points = constraint.points;
+	const lengths = constraint.lengths;
+	const count = bones.length;
+	for (let i = 0; i < count; i++) {
+		const bone = bones[i]!;
+		lengths[i] = bone.data.length * Math.sqrt(bone.a * bone.a + bone.c * bone.c);
+	}
+	let distance = data.positionMode === "percent" ? constraint.position * total : constraint.position;
+	for (let i = 0; i <= count; i++) {
+		pointAt(sampler, distance, points, i * 3);
+		if (i < count) {
+			if (data.spacingMode === "length") {
+				distance += lengths[i]! + constraint.spacing;
+			} else if (data.spacingMode === "fixed") {
+				distance += constraint.spacing;
+			} else {
+				distance += constraint.spacing * total;
+			}
+		}
+	}
+
+	const owner = constraint.target.bone;
+	const offset = data.offsetRotation * DEG_TO_RAD * (owner.a * owner.d - owner.b * owner.c < 0 ? -1 : 1);
+	const mode = data.rotateMode;
+	for (let i = 0; i < count; i++) {
+		const bone = bones[i]!;
+		const place = i * 3;
+		let targetX = points[place]!;
+		let targetY = points[place + 1]!;
+		let angle: number;
+		let stretch = 1;
+		if (mode === "tangent") {
+			angle = points[place + 2]! + offset;
+		} else {
+			if (mode === "chain" && i > 0 && offset === 0) {
+				const previous = bones[i - 1]!;
+				const length = previous.data.length;
+				targetX = previous.worldX + previous.a * length;
+				targetY = previous.worldY + previous.c * length;
+			}
+			const nextX = points[place + 3]!;
+			const nextY = points[place + 4]!;
+			angle = Math.atan2(nextY - targetY, nextX - targetX) + offset;
+			if (mode === "chainScale" && lengths[i]! > EPSILON) {
+				const dx = nextX - points[place]!;
+				const dy = nextY - points[place + 1]!;
+				stretch = Math.sqrt(dx * dx + dy * dy) / lengths[i]!;
+			}
+		}
+		if (translateMix !== 0) {
+			bone.worldX += (targetX - bone.worldX) * translateMix;
+			bone.worldY += (targetY - bone.worldY) * translateMix;
+		}
+		if (rotateMix !== 0) {
+			let turn = angle - Math.atan2(bone.c, bone.a);
+			turn = (turn - TURN * Math.ceil((turn - Math.PI) / TURN)) * rotateMix;
+			const cos = Math.cos(turn);
+			const sin = Math.sin(turn);
+			const a = bone.a;
+			const b = bone.b;
+			const c = bone.c;
+			const d = bone.d;
+			bone.a = cos * a - sin * c;
+			bone.b = cos * b - sin * d;
+			bone.c = sin * a + cos * c;
+			bone.d = sin * b + cos * d;
+			if (stretch !== 1) {
+				const factor = 1 + (stretch - 1) * rotateMix;
+				bone.a *= factor;
+				bone.c *= factor;
+			}
+		}
+	}
+	const parentFirst = constraint.parentFirst;
+	for (let i = 0; i < parentFirst.length; i++) {
+		setAppliedFromWorld(parentFirst[i]!, skeleton);
 	}
 }
 

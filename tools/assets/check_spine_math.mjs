@@ -1697,6 +1697,121 @@ function checkPaths(modules) {
 	return runCases("paths", cases);
 }
 
+/**
+ * Builds and poses the path constraint toy rig: an identity root, three children of it with length 10 set up at the origin, and a slot on
+ * the root showing a straight open path from `(0, 0)` to `(0, 30)`. One path constraint drives the bones named in `bones`.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} constraint Fields to set on top of the default constraint: tangent, percent position 0, length spacing 0, both mixes 1.
+ * @param {object} [options] `bones` (constrained bone indices, default `[1, 2, 3]`), `setup` (per-bone overrides keyed by index),
+ *     `timelines` and `time` (an animation to apply first), and `before` (called with the skeleton before posing).
+ * @returns {object} The posed skeleton.
+ */
+function pathRig(skeletonModule, constraint, options = {}) {
+	const bones = [{}, { parentIndex: 0, length: 10 }, { parentIndex: 0, length: 10 }, { parentIndex: 0, length: 10 }].map((bone, index) => ({ ...bone, ...options.setup?.[index] }));
+	const attachment = pathAttachment([0, -10, 0, 0, 0, 10, 0, 20, 0, 30, 0, 40], false);
+	const skins = [{ name: "default", attachments: new Map([[0, new Map([["path", attachment]])]]) }];
+	const data = skeletonData(bones, [slotData("path", "path")], skins);
+	data.path = [
+		{
+			name: "p",
+			order: 0,
+			skinRequired: false,
+			bones: options.bones ?? [1, 2, 3],
+			target: 0,
+			positionMode: "percent",
+			spacingMode: "length",
+			rotateMode: "tangent",
+			offsetRotation: 0,
+			position: 0,
+			spacing: 0,
+			rotateMix: 1,
+			translateMix: 1,
+			...constraint
+		}
+	];
+	if (options.timelines) {
+		data.animations = [{ name: "a", duration: 1, timelines: options.timelines }];
+	}
+	const skeleton = new skeletonModule.Skeleton(data);
+	options.before?.(skeleton);
+	return skeleton;
+}
+
+/**
+ * Reads a bone's world position and the angle of its world X axis.
+ *
+ * @param {object} bone The posed bone.
+ * @returns {number[]} `[worldX, worldY, angle in degrees]`.
+ */
+function placed(bone) {
+	return [bone.worldX, bone.worldY, (Math.atan2(bone.c, bone.a) * 180) / Math.PI];
+}
+
+/**
+ * Poses the toy rig and reads the constrained bones.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} constraint Constraint overrides, as `pathRig` takes them.
+ * @param {object} [options] Options, as `pathRig` takes them, plus `read` (the bone indices to read, default `[1, 2, 3]`).
+ * @returns {number[]} Each read bone's `placed` values, flattened.
+ */
+function posedPath(skeletonModule, constraint, options = {}) {
+	const skeleton = pathRig(skeletonModule, constraint, options);
+	skeleton.updateWorldTransform();
+	return (options.read ?? [1, 2, 3]).flatMap((index) => placed(skeleton.bones[index]));
+}
+
+/**
+ * Checks path constraints on the toy rig: every position, spacing and rotate mode, the offset, both mixes, a target slot with no path,
+ * bones given out of skeleton order, and a second update on the same pose.
+ *
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkPathConstraints(skeletonModule) {
+	const one = { bones: [1], read: [1] };
+	const cases = [
+		["tangent lays bones along the path by their lengths", () => [[0, 0, 90, 0, 10, 90, 0, 20, 90], posedPath(skeletonModule, {})]],
+		["fixed spacing", () => [[0, 0, 90, 0, 5, 90, 0, 10, 90], posedPath(skeletonModule, { spacingMode: "fixed", spacing: 5 })]],
+		["percent spacing is a fraction of the length", () => [[0, 0, 90, 0, 7.5, 90, 0, 15, 90], posedPath(skeletonModule, { spacingMode: "percent", spacing: 0.25 })]],
+		["fixed position", () => [[0, 3, 90], posedPath(skeletonModule, { positionMode: "fixed", position: 3 }, one)]],
+		["percent position is a fraction of the length", () => [[0, 15, 90], posedPath(skeletonModule, { position: 0.5 }, one)]],
+		["a position before the start follows the start's line", () => [[0, -5, 90], posedPath(skeletonModule, { positionMode: "fixed", position: -5 }, one)]],
+		["the rotation offset adds to the path direction", () => [[0, 0, 180], posedPath(skeletonModule, { offsetRotation: 90 }, one)]],
+		["half translate mix moves halfway", () => [[5, 0], posedPath(skeletonModule, { translateMix: 0.5 }, { ...one, setup: { 1: { x: 10 } } }).slice(0, 2)]],
+		["zero rotate mix keeps the rotation", () => [[0, 0, 0], posedPath(skeletonModule, { rotateMix: 0 }, one)]],
+		[
+			"chainScale stretches each bone to the next position",
+			() => {
+				const skeleton = pathRig(skeletonModule, { rotateMode: "chainScale", spacingMode: "fixed", spacing: 15 });
+				skeleton.updateWorldTransform();
+				return [
+					[1.5, 90, 1.5, 90, 1.5, 90],
+					[1, 2, 3].flatMap((index) => {
+						const bone = skeleton.bones[index];
+						return [Math.sqrt(bone.a * bone.a + bone.c * bone.c), (Math.atan2(bone.c, bone.a) * 180) / Math.PI];
+					})
+				];
+			}
+		],
+		["chain lays bones end to end", () => [[0, 0, 90, 0, 10, 90, 0, 20, 90], posedPath(skeletonModule, { rotateMode: "chain" })]],
+		["a target slot showing no path leaves the bones alone", () => [[0, 0, 0], posedPath(skeletonModule, {}, { ...one, before: (skeleton) => skeleton.setAttachment(0, null) })]],
+		["bones in path order out of skeleton order", () => [[0, 0, 90, 0, 10, 90, 0, 20, 90], posedPath(skeletonModule, {}, { bones: [3, 1, 2], read: [3, 1, 2] })]],
+		[
+			"a second update on the same pose gives the same world",
+			() => {
+				const skeleton = pathRig(skeletonModule, { rotateMode: "chainScale", spacingMode: "fixed", spacing: 15 }, { bones: [3, 1, 2] });
+				skeleton.updateWorldTransform();
+				const first = [1, 2, 3].flatMap((index) => [...placed(skeleton.bones[index]), skeleton.bones[index].a]);
+				skeleton.updateWorldTransform();
+				return [first, [1, 2, 3].flatMap((index) => [...placed(skeleton.bones[index]), skeleton.bones[index].a])];
+			}
+		]
+	];
+	return runCases("path constraints", cases);
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -1745,6 +1860,7 @@ try {
 	}
 	try {
 		failures.push(...checkPaths({ skeleton: skeletonModule, paths: await server.ssrLoadModule("/src/spine/paths.ts") }));
+		failures.push(...checkPathConstraints(skeletonModule));
 	} catch (error) {
 		failures.push(`paths: could not run: ${error.message}`);
 	}
