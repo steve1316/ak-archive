@@ -19,6 +19,9 @@ import { theme } from "./theme.js";
 /** The art viewer loads on first visit. Few readers open it, and it would otherwise add its zoom and pan code to every route. */
 const OperatorArt = lazy(() => import("./pages/operator_art/operator_art.js"));
 
+/** The dev-only Spine rig lab. Guarded here too, not just at the route, so a production build's tree-shaking drops the import entirely. */
+const SpineLab = import.meta.env.DEV ? lazy(() => import("./pages/spine_lab/spine_lab.js")) : null;
+
 /** The drawer's destinations. Icons resolve to asset-host paths that 404 until the A3 pipeline publishes the class icons. */
 const NAV_ITEMS: readonly NavItem[] = [
 	{ title: "Home", link: "/", icon: classIconUrl("Guard") },
@@ -67,6 +70,16 @@ export default function App() {
 								</CanonicalOperatorRoute>
 							}
 						/>
+						{import.meta.env.DEV && SpineLab ? (
+							<Route
+								path="/spine-lab"
+								element={
+									<Suspense>
+										<SpineLab />
+									</Suspense>
+								}
+							/>
+						) : null}
 						<Route path="/404" element={<NotFound404 />} />
 						{/* Anything unmatched shows the 404 in place, keeping the mistyped address visible. */}
 						<Route path="*" element={<NotFound404 />} />

@@ -1,14 +1,92 @@
+import fs from "node:fs/promises";
+import type { ServerResponse } from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import type { Plugin } from "vite";
 
 import { baseTrailingSlash, spaFallback } from "archive-kit/config";
 
 // Pages serves the site from /ak-archive/, while Docker and local previews serve it from the root. VITE_BASE lets the same source produce both.
 const BASE = process.env.VITE_BASE ?? "/ak-archive/";
 
+/** This config file's own folder, which is the repo root. Resolved from the file's URL rather than `process.cwd()`, so it holds regardless of where `vite` was launched from. */
+const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
+
+/** Where the offline pipeline stages Spine rig files for local development, as `.skel`, `.atlas` and `.png` per operator, form and kind. Never bundled: the dev-only rig lab reads it through the middleware below. */
+const SPINE_STAGING_ROOT = path.join(REPO_ROOT, "tools/assets/.staging/assets/spine");
+
+/** Content type served for each staged Spine file extension. */
+const SPINE_CONTENT_TYPES: Record<string, string> = {
+	".png": "image/png",
+	".atlas": "text/plain; charset=utf-8",
+	".skel": "application/octet-stream"
+};
+
+/**
+ * Resolves one staged Spine file under `SPINE_STAGING_ROOT` and writes it to the response. Answers 403 for a path that resolves outside
+ * the staging folder and 404 for one that does not exist.
+ *
+ * @param rawPath The request path after the `__spine/` prefix, still URL-encoded and possibly carrying a query string.
+ * @param res The response to write to.
+ * @param headOnly True for a HEAD request, which gets the same status and headers but no body.
+ */
+async function serveStagedSpineFile(rawPath: string, res: ServerResponse, headOnly: boolean): Promise<void> {
+	let relative: string;
+	try {
+		relative = decodeURIComponent(rawPath.split("?")[0] ?? "");
+	} catch {
+		res.statusCode = 400;
+		res.end("Bad request");
+		return;
+	}
+	const resolved = path.resolve(SPINE_STAGING_ROOT, relative);
+	if (resolved !== SPINE_STAGING_ROOT && !resolved.startsWith(SPINE_STAGING_ROOT + path.sep)) {
+		res.statusCode = 403;
+		res.end("Forbidden");
+		return;
+	}
+	try {
+		const data = await fs.readFile(resolved);
+		res.setHeader("Content-Type", SPINE_CONTENT_TYPES[path.extname(resolved).toLowerCase()] ?? "application/octet-stream");
+		res.end(headOnly ? undefined : data);
+	} catch {
+		res.statusCode = 404;
+		res.end("Not found");
+	}
+}
+
+/**
+ * Dev-only middleware serving staged Spine rig files under `<base>__spine/`, straight from the offline pipeline's staging folder. The
+ * `apply: "serve"` guard keeps this out of `vite build` entirely, so a production build never touches the staging folder.
+ *
+ * @returns The Vite plugin.
+ */
+function spineStagingPlugin(): Plugin {
+	return {
+		name: "spine-staging",
+		apply: "serve",
+		configureServer(server) {
+			const prefix = `${server.config.base}__spine/`;
+			server.middlewares.use((req, res, next) => {
+				const method = req.method ?? "";
+				if (!req.url || (method !== "GET" && method !== "HEAD") || !req.url.startsWith(prefix)) {
+					next();
+					return;
+				}
+				void serveStagedSpineFile(req.url.slice(prefix.length), res, method === "HEAD");
+			});
+		}
+	};
+}
+
 export default defineConfig({
 	base: BASE,
-	plugins: [react(), spaFallback(), baseTrailingSlash()],
+	// spineStagingPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
+	// unmatched dev request with index.html before the staging route ever saw it.
+	plugins: [spineStagingPlugin(), react(), spaFallback(), baseTrailingSlash()],
 	build: {
 		outDir: "build",
 		sourcemap: true
