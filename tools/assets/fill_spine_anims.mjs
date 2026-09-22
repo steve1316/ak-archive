@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * Fills the Spine index's empty `anims` lists with each rig's animation names, and records each rig's `stage`, both read from its staged
- * `.skel` file.
+ * Fills the Spine index's empty `anims` lists with each rig's animation names, and records each rig's `stage`, both read from its staged `.skel` file.
  *
  * `build_spine_index.py` walks the staged tree and writes the index with every rig's `anims` empty. This script reads each indexed
  * rig's skeleton with `src/spine/binary.ts`, sets `anims` to its animation names in file order, and sets `stage` to the lowest runtime
@@ -16,8 +15,7 @@
  *     node tools/assets/fill_spine_anims.mjs [--staging PATH]
  *
  * Reads and rewrites src/data/spine-index.json. Scans the staged tree under `<staging>/assets/spine`. `--staging` defaults to
- * `tools/assets/.staging`. A missing or unparseable rig, or one no planned stage covers, prints its path and exits 1 before the file
- * is written.
+ * `tools/assets/.staging`. A missing or unparseable rig, or one no planned stage covers, prints its path and exits 1 before the file is written.
  */
 
 import fs from "node:fs";

@@ -10,6 +10,27 @@ import { SECTION_HEADING_GAP, SECTION_HEADING_SX, SECTION_SX, TIGHT_RADIUS } fro
 /** Which of an operator's two chibi rigs is on the stage. Named after upstream's own split: `build_<id>` is battle, `<id>/Back` is dorm. */
 export type RigKind = "battle" | "dorm";
 
+/** Which way the battle chibi faces: `front` plays the index's `battle` rig, `back` its `back` rig. */
+export type RigFacing = "front" | "back";
+
+/** What the stage reports back to the card, for the controls and the caption around it. */
+export interface StageStatus {
+	/** Whether the selected form has a back-facing battle rig, which enables the Back toggle. */
+	hasBack: boolean;
+	/** The caption's first line, such as "Attack - 2 / 7", or null when nothing is playing. */
+	caption: string | null;
+}
+
+/** What the card asks its stage to draw. */
+export interface StageRequest {
+	/** The selected rig kind. */
+	kind: RigKind;
+	/** The selected facing, already set back to `front` when the form has no back rig. */
+	facing: RigFacing;
+	/** Stable callback the stage calls whenever its status changes. */
+	onStatus: (status: StageStatus) => void;
+}
+
 /**
  * The stage. Takes every pixel the card has left, which is what lets row 1's slack land here instead of in an empty box. The tight radius
  * matches the art card beside it in row 1.
@@ -29,8 +50,17 @@ const STAGE_SX: SxProps<Theme> = {
 /** The Battle/Dorm switch. */
 const KIND_SX: SxProps<Theme> = { flex: "none", mb: SECTION_HEADING_GAP };
 
-/** The interaction hint under the stage. */
-const CAPTION_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center" };
+/** The Front/Back switch under the Battle tab. */
+const FACING_SX: SxProps<Theme> = { flex: "none", alignSelf: "center", mb: SECTION_HEADING_GAP };
+
+/** The caption block under the stage: the playing animation, then the interaction hint. */
+const CAPTION_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center", display: "flex", flexDirection: "column" };
+
+/** The caption block while nothing plays: hidden, but still holding its height. */
+const CAPTION_HIDDEN_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center", display: "flex", flexDirection: "column", visibility: "hidden" };
+
+/** The status the card starts with, before the stage reports. */
+const INITIAL_STATUS: StageStatus = { hasBack: false, caption: null };
 
 /** The placeholder's class icon, greyed so it reads as absent rather than as content. */
 const PLACEHOLDER_ICON_SX: SxProps<Theme> = { width: 70, display: "block", mx: "auto", mb: 1.125, opacity: 0.45, filter: "grayscale(1)" };
@@ -39,46 +69,58 @@ const PLACEHOLDER_ICON_SX: SxProps<Theme> = { width: 70, display: "block", mx: "
 interface AnimationsCardProps {
 	/** Whether the stage responds to clicks, wheel and drags. The caption describing them is only shown when it does. */
 	interactive: boolean;
-	/** Draws the stage for the selected rig kind. */
-	renderStage: (kind: RigKind) => ReactNode;
+	/** Draws the stage for the selected rig kind and facing. */
+	renderStage: (request: StageRequest) => ReactNode;
 }
 
 /** Props for StagePlaceholder. */
 interface StagePlaceholderProps {
 	/** The operator's class, whose icon stands in for the chibi. */
 	profession: string;
+	/** Why no chibi is playing. */
+	message: string;
 }
 
 /**
- * What the stage shows until the operator's Spine rig is published.
+ * What the stage shows when no chibi plays: the operator's class icon and the reason.
  *
  * @param props Component props.
  * @returns The placeholder.
  */
-export function StagePlaceholder({ profession }: StagePlaceholderProps) {
+export function StagePlaceholder({ profession, message }: StagePlaceholderProps) {
 	return (
 		<Box sx={{ textAlign: "center", px: 2 }}>
 			<Box component="img" src={classIconUrl(profession)} alt="" sx={PLACEHOLDER_ICON_SX} />
 			<Typography variant="body2" color="text.secondary">
-				Chibi animations are on their way.
+				{message}
 			</Typography>
 		</Box>
 	);
 }
 
 /**
- * The Animations card from gfl's doll page: Battle and Dorm, then a stage that fills the card. No zoom buttons - the stage zooms on the wheel
- * and pans on a drag, as gfl's does, and a click cycles to the next animation.
+ * The Animations card from gfl's doll page: Battle and Dorm, a Front/Back switch under Battle, then a stage that fills the card. No zoom
+ * buttons - the stage zooms on the wheel and pans on a drag, as gfl's does, and a click cycles to the next animation.
  *
  * @param props Component props.
  * @returns The card.
  */
 export default function AnimationsCard({ interactive, renderStage }: AnimationsCardProps) {
 	const [kind, setKind] = useState<RigKind>("battle");
+	const [chosenFacing, setChosenFacing] = useState<RigFacing>("front");
+	const [status, setStatus] = useState<StageStatus>(INITIAL_STATUS);
+	// A form without a back rig shows the front one, without forgetting that the reader chose Back for the forms that have it.
+	const facing: RigFacing = status.hasBack ? chosenFacing : "front";
 
 	const handleKindChange = useCallback((_event: MouseEvent<HTMLElement>, value: RigKind | null) => {
 		if (value !== null) {
 			setKind(value);
+		}
+	}, []);
+
+	const handleFacingChange = useCallback((_event: MouseEvent<HTMLElement>, value: RigFacing | null) => {
+		if (value !== null) {
+			setChosenFacing(value);
 		}
 	}, []);
 
@@ -91,11 +133,25 @@ export default function AnimationsCard({ interactive, renderStage }: AnimationsC
 				<ToggleButton value="battle">Battle</ToggleButton>
 				<ToggleButton value="dorm">Dorm</ToggleButton>
 			</ToggleButtonGroup>
-			<Box sx={STAGE_SX}>{renderStage(kind)}</Box>
+			{kind === "battle" ? (
+				<ToggleButtonGroup value={facing} exclusive size="small" onChange={handleFacingChange} aria-label="Battle chibi facing" sx={FACING_SX}>
+					<ToggleButton value="front">Front</ToggleButton>
+					<ToggleButton value="back" disabled={!status.hasBack}>
+						Back
+					</ToggleButton>
+				</ToggleButtonGroup>
+			) : null}
+			<Box sx={STAGE_SX}>{renderStage({ kind, facing, onStatus: setStatus })}</Box>
 			{interactive ? (
-				<Typography variant="caption" color="text.secondary" sx={CAPTION_SX}>
-					Click to cycle · scroll to zoom · drag to pan
-				</Typography>
+				// Both lines keep their height while nothing plays, so the stage does not jump when a chibi loads.
+				<Box sx={status.caption === null ? CAPTION_HIDDEN_SX : CAPTION_SX}>
+					<Typography variant="caption" color="text.primary" aria-live="polite">
+						{status.caption ?? "\u00a0"}
+					</Typography>
+					<Typography variant="caption" color="text.secondary">
+						Click to cycle · scroll to zoom · drag to pan
+					</Typography>
+				</Box>
 			) : null}
 		</Paper>
 	);

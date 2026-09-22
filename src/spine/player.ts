@@ -155,6 +155,12 @@ export class SpinePlayer {
 	private currentTime = 0;
 	/** True while `update` does not advance the time. */
 	private isPaused = false;
+	/** The zoom `setViewTransform` set, applied on top of the fitted framing. 1 shows the framing as fitted. */
+	private viewScale = 1;
+	/** The horizontal pan `setViewTransform` set, in CSS pixels, positive to the right. */
+	private viewOffsetX = 0;
+	/** The vertical pan `setViewTransform` set, in CSS pixels, positive downwards. */
+	private viewOffsetY = 0;
 
 	/**
 	 * Gets a WebGL2 context on the canvas and builds the renderer.
@@ -349,6 +355,20 @@ export class SpinePlayer {
 	}
 
 	/**
+	 * Zooms and pans the drawing on top of the fitted framing, the way a CSS `translate(offsetX, offsetY) scale(scale)` about the canvas
+	 * centre would, but by changing the view so the drawing stays sharp. Takes effect on the next `render`.
+	 *
+	 * @param scale The zoom, where 1 is the fitted framing.
+	 * @param offsetX The horizontal pan in CSS pixels, positive to the right.
+	 * @param offsetY The vertical pan in CSS pixels, positive downwards.
+	 */
+	setViewTransform(scale: number, offsetX: number, offsetY: number): void {
+		this.viewScale = scale > 0 ? scale : 1;
+		this.viewOffsetX = offsetX;
+		this.viewOffsetY = offsetY;
+	}
+
+	/**
 	 * Resizes the canvas's backing store to its displayed size and draws the current pose in the framing `refit` set. Draws nothing when no
 	 * rig is loaded.
 	 */
@@ -369,7 +389,11 @@ export class SpinePlayer {
 		}
 		rig.skeleton.updateWorldTransform();
 		const lists = skeletonTriangles(rig.skeleton, rig.atlas, rig.pageSizes);
-		this.lastView = rig.framedBox ? fitView(rig.framedBox, width, height) : null;
+		const view = rig.framedBox ? fitView(rig.framedBox, width, height) : null;
+		if (view) {
+			this.applyViewTransform(view, width / ratio);
+		}
+		this.lastView = view;
 		this.renderer.draw(lists, rig.textures, this.lastView ?? { minX: 0, minY: 0, maxX: 1, maxY: 1 }, width, height);
 	}
 
@@ -390,6 +414,30 @@ export class SpinePlayer {
 			applyAnimation(rig.skeleton, this.current, this.currentTime);
 		}
 		this.render();
+	}
+
+	/**
+	 * Applies the zoom and pan from `setViewTransform` to a fitted view, in place. A screen point at CSS offset `q` from the centre shows what
+	 * the fitted view had at `(q - offset) / scale`, so the view's centre moves by `-offset / scale` in CSS pixels and its extent shrinks by `scale`.
+	 *
+	 * @param view The fitted view, changed in place.
+	 * @param cssWidth The canvas width in CSS pixels.
+	 */
+	private applyViewTransform(view: View, cssWidth: number): void {
+		const scale = this.viewScale;
+		if (scale === 1 && this.viewOffsetX === 0 && this.viewOffsetY === 0) {
+			return;
+		}
+		// World units per CSS pixel. The fit keeps the aspect, so one unit serves both axes. World Y points up, screen Y down.
+		const unit = (view.maxX - view.minX) / cssWidth;
+		const centerX = (view.minX + view.maxX) / 2 - (this.viewOffsetX * unit) / scale;
+		const centerY = (view.minY + view.maxY) / 2 + (this.viewOffsetY * unit) / scale;
+		const halfWidth = (view.maxX - view.minX) / 2 / scale;
+		const halfHeight = (view.maxY - view.minY) / 2 / scale;
+		view.minX = centerX - halfWidth;
+		view.maxX = centerX + halfWidth;
+		view.minY = centerY - halfHeight;
+		view.maxY = centerY + halfHeight;
 	}
 
 	/** Drops the loaded rig and frees its textures. */

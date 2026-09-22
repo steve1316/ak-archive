@@ -12,12 +12,14 @@ import { operatorPath, resolveOperatorParam } from "../../lib/routes.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Controls, OperatorFull } from "../../types/operator.js";
 import AbilitiesCard from "./AbilitiesCard.js";
-import AnimationsCard, { StagePlaceholder } from "./AnimationsCard.js";
+import AnimationsCard from "./AnimationsCard.js";
+import type { StageRequest } from "./AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import HandbookSection from "./HandbookSection.js";
 import IdentityBlock from "./IdentityBlock.js";
 import { NAVBAR_HEIGHT } from "./layout.js";
 import RecordBlock from "./RecordBlock.js";
+import SpineStage from "./SpineStage.js";
 import StatsPanel from "./StatsPanel.js";
 
 /** Controls held before any operator has loaded. Never rendered, since the grid does not appear until the operator is set. */
@@ -172,6 +174,18 @@ export default function Operator() {
 		[forms, setSearchParams]
 	);
 
+	/**
+	 * Draws the Animations card's stage: the live chibi for the selected form.
+	 *
+	 * @param request The card's selected kind and facing, and its status callback.
+	 * @returns The stage, or nothing before the operator loads.
+	 */
+	const renderStage = useCallback(
+		({ kind, facing, onStatus }: StageRequest) =>
+			operator ? <SpineStage operatorId={operator.id} formKey={formKey} kind={kind} facing={facing} profession={operator.profession} onStatus={onStatus} /> : null,
+		[operator, formKey]
+	);
+
 	if (missing) {
 		return <NotFound404 />;
 	}
@@ -200,7 +214,7 @@ export default function Operator() {
 									<IdentityBlock operator={operator} forms={forms} formKey={formKey} onFormChange={handleFormChange} />
 									<RecordBlock record={operator.record} affiliation={affiliationOf(operator)} trait={operator.description} />
 								</Box>
-								<AnimationsCard interactive={false} renderStage={() => <StagePlaceholder profession={operator.profession} />} />
+								<AnimationsCard key={operator.id} interactive renderStage={renderStage} />
 							</Box>
 							<Box sx={ROW2_SX}>
 								<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
