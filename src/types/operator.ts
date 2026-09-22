@@ -26,6 +26,8 @@ export interface StatValues {
 export interface StatPhase {
 	/** The highest level this phase reaches. */
 	maxLevel: number;
+	/** This phase's attack range, a key into `src/data/ranges.json`. */
+	rangeId: string;
 	/** Stats at level 1 of this phase, without trust. */
 	min: StatValues;
 	/** Stats at `maxLevel` of this phase, without trust. */
@@ -115,6 +117,8 @@ export interface SkillLevel {
 	initialSp: number;
 	/** Seconds the skill lasts, or 0 for an instant, toggled or ammo skill. */
 	duration: number;
+	/** The range while this skill level is active, a key into `src/data/ranges.json`, or null when it keeps the operator's normal range. */
+	rangeId: string | null;
 }
 
 /** One of an operator's combat skills. */
@@ -157,6 +161,8 @@ export interface Operator {
 	team: string | null;
 	/** The operator's trait, resolved and stripped, or null. */
 	description: string | null;
+	/** The trait's secondary area, such as the Spreadshooter 160% row, a key into `src/data/ranges.json`, or null when the trait has none. */
+	traitRangeId: string | null;
 	/** Talents, each with its candidates. */
 	talents: Talent[];
 	/** Potential ranks 2 through 6. */

@@ -177,6 +177,8 @@ export function buildOperator(id, row, { subProfDict, teams }) {
 		group: teamName(row.groupId),
 		team: teamName(row.teamId),
 		description: traitDescription(row) || null,
+		// The trait's secondary area, such as the Spreadshooter's 160% row. Not the attack range.
+		traitRangeId: asArray(row.trait?.candidates)[0]?.rangeId ?? null,
 		talents: buildTalents(row),
 		potentials: buildPotentials(row),
 		stats: statBlock(row)

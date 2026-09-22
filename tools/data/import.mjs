@@ -25,7 +25,7 @@ import { loadTable, readLock } from "./lib/upstream.mjs";
 const OUT_DIR = "src/data";
 
 /** The tables the import reads. `uniequip_table` rather than `uniequip_data`, which is not localised - see PROJECT.md. */
-const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbook_team_table", "handbook_info_table", "skin_table", "skill_table"];
+const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbook_team_table", "handbook_info_table", "skin_table", "skill_table", "range_table"];
 
 /** The enemy tables. The stats live outside `excel/`, so this one is a path under `gamedata/`. */
 const ENEMY_TABLES = ["enemy_handbook_table", "levels/enemydata/enemy_database"];
@@ -112,7 +112,7 @@ async function main() {
 	const lock = readLock();
 	const dates = readDates();
 	console.log(`upstream ${lock.repo}@${lock.sha.slice(0, 10)} (${lock.server})`);
-	const [characterTable, patchTable, uniequip, teams, handbook, skins, skillTable] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
+	const [characterTable, patchTable, uniequip, teams, handbook, skins, skillTable, rangeTable] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
 	const [enemyHandbook, enemyDatabase] = await Promise.all(ENEMY_TABLES.map((name) => loadTable(name, lock)));
 
 	const context = { subProfDict: uniequip.subProfDict, teams };
@@ -156,6 +156,15 @@ async function main() {
 	const indexBytes = writeJson(path.join(OUT_DIR, "search-index.json"), searchIndex);
 	console.log(`  ${"search-index".padEnd(24)} ${String(searchIndex.length).padStart(3)} entries    ${(indexBytes / 1024).toFixed(0).padStart(5)} KB`);
 
+	// Every range shape once, as [row, col] tiles. Records carry only range ids, so the tiles are not repeated per operator.
+	const ranges = Object.fromEntries(
+		Object.entries(rangeTable)
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+			.map(([id, range]) => [id, range.grids.map((grid) => [grid.row, grid.col])])
+	);
+	const rangeBytes = writeJson(path.join(OUT_DIR, "ranges.json"), ranges);
+	console.log(`  ${"ranges".padEnd(24)} ${String(Object.keys(ranges).length).padStart(3)} shapes     ${(rangeBytes / 1024).toFixed(0).padStart(5)} KB`);
+
 	const enemyBytes = writeEnemies(enemyHandbook, enemyDatabase, dates.enemies);
 	const upstreamBytes = writeJson(path.join(OUT_DIR, "upstream.json"), {
 		repo: lock.repo,
@@ -164,7 +173,7 @@ async function main() {
 		operators: operators.length,
 		enemies: enemyBytes.variants
 	});
-	console.log(`total written: ${((total + indexBytes + enemyBytes.total + upstreamBytes) / 1048576).toFixed(2)} MB`);
+	console.log(`total written: ${((total + indexBytes + rangeBytes + enemyBytes.total + upstreamBytes) / 1048576).toFixed(2)} MB`);
 }
 
 await main();

@@ -119,7 +119,9 @@ export function buildSkills(row, skillTable) {
 						recovery: RECOVERY[level.spData?.spType] ?? null,
 						spCost: level.spData?.spCost ?? 0,
 						initialSp: level.spData?.initSp ?? 0,
-						duration: level.duration ?? 0
+						duration: level.duration ?? 0,
+						// The range while the skill is active. Null means the operator's normal range.
+						rangeId: level.rangeId ?? null
 					};
 				})
 			};

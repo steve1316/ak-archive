@@ -137,6 +137,7 @@ export function statsAt(operator, phase, level, { trust = 100, potential = 1 } =
 export function statBlock(operator) {
 	const phases = operator.phases.map((phase, index) => ({
 		maxLevel: phase.maxLevel,
+		rangeId: phase.rangeId,
 		min: statsAt(operator, index, 1, { trust: 0 }),
 		max: statsAt(operator, index, phase.maxLevel, { trust: 0 })
 	}));
