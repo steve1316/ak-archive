@@ -30,8 +30,11 @@ const SWITCH_SX: SxProps<Theme> = { width: "100%", mb: 1.25, "& .MuiToggleButton
 /** A skill icon inside the switcher. */
 const SWITCH_ICON_SX: SxProps<Theme> = { width: 26, height: 26, borderRadius: TIGHT_RADIUS };
 
-/** The skill card. */
-const CARD_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1.5 };
+/** The panel: fills the rest of the Abilities card so the skill card below can stretch to its bottom. */
+const ROOT_SX: SxProps<Theme> = { flex: 1, display: "flex", flexDirection: "column", minHeight: 0 };
+
+/** The skill card, stretched to the bottom of the Abilities card when the skill's own content is shorter. */
+const CARD_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1.5, flex: 1 };
 
 /** The card's header row: icon, name and badges, then the level field at the right. */
 const HEAD_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1.5 };
@@ -133,7 +136,7 @@ export default function SkillsPanel({ skills, phase, traitRangeId }: SkillsPanel
 	const locked = skill.unlockPhase > phase;
 
 	return (
-		<Box>
+		<Box sx={ROOT_SX}>
 			<ToggleButtonGroup value={Math.min(selected, skills.length - 1)} exclusive size="small" onChange={handleSkill} aria-label="Skill" sx={SWITCH_SX}>
 				{skills.map((item, index) => (
 					<ToggleButton key={item.id} value={index} sx={item.unlockPhase > phase ? { opacity: 0.45 } : undefined}>
