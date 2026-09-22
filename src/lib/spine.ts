@@ -7,6 +7,8 @@
  * `tools/assets/.staging/assets/spine/` under `__spine/`. In production they come from the asset host.
  */
 
+import { createDataStore } from "archive-kit";
+
 import type { EnemySpineIndex, SpineEntry, SpineIndex } from "../types/spine.js";
 import type { RigUrls } from "../spine/player.js";
 import { assets } from "./assets.js";
@@ -20,13 +22,18 @@ export const SPINE_DEV_ROOT = `${import.meta.env.BASE_URL}__spine/`;
 export const ENEMY_SPINE_DEV_ROOT = `${import.meta.env.BASE_URL}__spine-enemies/`;
 
 /**
- * URL of the generated Spine rig index, resolved through Vite's asset-URL glob rather than a plain JSON import. The file is 500 KB, so it is
- * fetched at runtime by the pages that need it instead of bundled into them.
+ * Hosted URLs of the two generated rig indexes, keyed by bare file name, the way `src/lib/data.ts` builds its own map. The glob has to live in
+ * the app rather than in the kit. The files are 515 KB and 246 KB, so they are fetched at runtime by the pages that need them.
  */
-const SPINE_INDEX_URL = Object.values(import.meta.glob<string>("../data/spine-index.json", { query: "?url", import: "default", eager: true }))[0] ?? "";
+const INDEX_URLS = Object.fromEntries(
+	Object.entries(import.meta.glob<string>(["../data/spine-index.json", "../data/enemy-spine-index.json"], { query: "?url", import: "default", eager: true })).map(([path, url]) => [
+		path.replace(/^.*\/|\.json$/g, ""),
+		url
+	])
+);
 
-/** URL of the generated enemy rig index, fetched at runtime by the enemy page like the operator index. */
-const ENEMY_SPINE_INDEX_URL = Object.values(import.meta.glob<string>("../data/enemy-spine-index.json", { query: "?url", import: "default", eager: true }))[0] ?? "";
+/** The store owns fetching an index and the cache that shares one request and drops a failed load so a retry actually retries. */
+const store = createDataStore({ urls: INDEX_URLS });
 
 /** Matches a page form key for an operator's default outfit: a plain elite number, with or without the `plus` suffix. */
 const BASE_FORM_PATTERN = /^\d+(plus)?$/i;
@@ -106,40 +113,19 @@ export function spineFormKey(pageKey: string, entry: SpineEntry): string | null 
 }
 
 /**
- * Builds a loader that fetches one index once and shares the request with every later call. A failed fetch is forgotten, so the next call tries again.
+ * Fetches the operator rig index once and caches it for every later call. Stable, since the stage's effect takes the loader as a dependency.
  *
- * @param url The index's URL.
- * @param what What to call the index in an error.
- * @returns The loader.
+ * @returns The index.
  */
-function cachedIndex<T>(url: string, what: string): () => Promise<T> {
-	let promise: Promise<T> | null = null;
-	return () => {
-		promise ??= fetch(url)
-			.then((response) => {
-				if (!response.ok) {
-					throw new Error(`Fetching the ${what} gave ${response.status}`);
-				}
-				return response.json() as Promise<T>;
-			})
-			.catch((error: unknown) => {
-				promise = null;
-				throw error;
-			});
-		return promise;
-	};
+export function loadSpineIndex(): Promise<SpineIndex> {
+	return store.loadFile<SpineIndex>("spine-index");
 }
 
 /**
- * Fetches the operator rig index once and caches it for every later call.
+ * Fetches the enemy rig index once and caches it for every later call. Stable, for the same reason as `loadSpineIndex`.
  *
  * @returns The index.
  */
-export const loadSpineIndex = cachedIndex<SpineIndex>(SPINE_INDEX_URL, "rig index");
-
-/**
- * Fetches the enemy rig index once and caches it for every later call.
- *
- * @returns The index.
- */
-export const loadEnemySpineIndex = cachedIndex<EnemySpineIndex>(ENEMY_SPINE_INDEX_URL, "enemy rig index");
+export function loadEnemySpineIndex(): Promise<EnemySpineIndex> {
+	return store.loadFile<EnemySpineIndex>("enemy-spine-index");
+}
