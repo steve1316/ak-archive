@@ -45,6 +45,7 @@ const MIN_SKILLED = 398;
  */
 const MIN_PORTRAITS = 391;
 const MIN_ILLUSTRATIONS = 412;
+const MIN_ENEMY_ICONS = 1560;
 
 /**
  * Floors for the Spine index, set to what the first full index produced: 412 operators, 924 forms, 2743 rigs. Exact rather than slack for the
@@ -522,6 +523,72 @@ for (const operator of operators) {
 	}
 }
 
+// Enemies. Every group's variants must have details, every variant exactly one group, and the search index must cover every variant.
+const enemies = read("enemies");
+const enemyDetails = Object.assign({}, ...ENEMY_DETAIL_FILES.map((name) => read(name)));
+const enemyVariantIds = enemies.flatMap((enemy) => enemy.variants.map((variant) => variant.id));
+if (enemies.length < MIN_ENEMY_GROUPS) {
+	fail(`${enemies.length} enemy groups, below the floor of ${MIN_ENEMY_GROUPS}`);
+}
+if (enemyVariantIds.length < MIN_ENEMY_VARIANTS) {
+	fail(`${enemyVariantIds.length} enemy variants, below the floor of ${MIN_ENEMY_VARIANTS}`);
+}
+if (new Set(enemyVariantIds).size !== enemyVariantIds.length) {
+	fail("an enemy variant sits in more than one group");
+}
+for (const enemy of enemies) {
+	if (enemy.variants[0]?.id !== enemy.id) {
+		fail(`${enemy.id} does not list itself as its first variant`);
+	}
+}
+for (const id of enemyVariantIds) {
+	const detail = enemyDetails[id];
+	if (!detail) {
+		fail(`${id} is in enemies.json but has no details entry`);
+		continue;
+	}
+	if (detail.levels.length === 0) {
+		fail(`${id} has no stat levels`);
+	}
+	for (const level of detail.levels) {
+		for (const [field, grade] of Object.entries(level.grades)) {
+			if (!ENEMY_GRADES.includes(grade)) {
+				fail(`${id} grades ${field} as ${JSON.stringify(grade)}, off the handbook scale`);
+			}
+		}
+	}
+}
+if (Object.keys(enemyDetails).length !== enemyVariantIds.length) {
+	fail(`enemy details hold ${Object.keys(enemyDetails).length} variants for ${enemyVariantIds.length} in enemies.json`);
+}
+for (const [data, name] of [
+	[enemies, "enemies"],
+	[enemyDetails, "enemy-details"]
+]) {
+	eachString(data, name, (text, where) => {
+		const hit = MARKUP.exec(text);
+		if (hit) {
+			fail(`markup leaked into ${where}: ${JSON.stringify(hit[0])}`);
+		}
+	});
+}
+const enemySearchIndex = read("enemy-search-index");
+if (enemySearchIndex.length !== enemyVariantIds.length) {
+	fail(`enemy search index has ${enemySearchIndex.length} entries for ${enemyVariantIds.length} variants`);
+}
+for (const fixture of ENEMY_FIXTURES) {
+	const stats = enemyDetails[fixture.id]?.levels[fixture.level]?.stats;
+	if (!stats) {
+		fail(`enemy fixture ${fixture.id} level ${fixture.level} is missing from the data`);
+		continue;
+	}
+	for (const [field, want] of Object.entries(fixture)) {
+		if (field !== "id" && field !== "level" && stats[field] !== want) {
+			fail(`${fixture.id} level ${fixture.level} ${field} is ${stats[field]}, expected ${want}`);
+		}
+	}
+}
+
 // The asset manifest, once A3 has produced one. Guarded because this gate runs on every import, including before any manifest exists. Every
 // id the manifest names in any of its three sections must be an operator this import also knows about - an id the pipeline names that no
 // operator has means the pipeline and the importer disagree about who exists.
@@ -529,11 +596,12 @@ const manifestPath = path.join(OUT_DIR, "assets-manifest.json");
 const hasManifest = fs.existsSync(manifestPath);
 let portraitCount = 0;
 let illustrationCount = 0;
+let enemyIconCount = 0;
 if (hasManifest) {
 	const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 	for (const [section, entries] of Object.entries(manifest)) {
-		// skillIcons is a flat list of icon keys, not a map of operator ids, so it carries no ids to check here.
-		if (section === "skillIcons") {
+		// skillIcons is a flat list of icon keys, not a map of operator ids, so it carries no ids to check here. Enemy ids are checked below.
+		if (section === "skillIcons" || section === "enemies") {
 			continue;
 		}
 		// The variants section has a nested structure with portraits and illustrations keys
@@ -562,6 +630,18 @@ if (hasManifest) {
 	}
 	if (illustrationCount < MIN_ILLUSTRATIONS) {
 		fail(`asset manifest records ${illustrationCount} illustrations, below the floor of ${MIN_ILLUSTRATIONS}`);
+	}
+	// Enemy icons: every id must be a known variant, and the count must hold once enemy icons have been published at all.
+	const enemyIconIds = Object.keys(manifest.enemies ?? {});
+	const knownEnemies = new Set(enemies.flatMap((enemy) => enemy.variants.map((variant) => variant.id)));
+	for (const id of enemyIconIds) {
+		if (!knownEnemies.has(id)) {
+			fail(`asset manifest names ${id} in enemies, which is not a known enemy`);
+		}
+	}
+	enemyIconCount = Object.values(manifest.enemies ?? {}).filter(Boolean).length;
+	if (enemyIconIds.length > 0 && enemyIconCount < MIN_ENEMY_ICONS) {
+		fail(`asset manifest records ${enemyIconCount} enemy icons, below the floor of ${MIN_ENEMY_ICONS}`);
 	}
 	// Every skill a page can show must have its icon published. A missing one would render a broken image in the Skills tab.
 	const skillIcons = new Set(manifest.skillIcons ?? []);
@@ -645,72 +725,6 @@ if (hasSpineIndex) {
 	}
 }
 
-// Enemies. Every group's variants must have details, every variant exactly one group, and the search index must cover every variant.
-const enemies = read("enemies");
-const enemyDetails = Object.assign({}, ...ENEMY_DETAIL_FILES.map((name) => read(name)));
-const enemyVariantIds = enemies.flatMap((enemy) => enemy.variants.map((variant) => variant.id));
-if (enemies.length < MIN_ENEMY_GROUPS) {
-	fail(`${enemies.length} enemy groups, below the floor of ${MIN_ENEMY_GROUPS}`);
-}
-if (enemyVariantIds.length < MIN_ENEMY_VARIANTS) {
-	fail(`${enemyVariantIds.length} enemy variants, below the floor of ${MIN_ENEMY_VARIANTS}`);
-}
-if (new Set(enemyVariantIds).size !== enemyVariantIds.length) {
-	fail("an enemy variant sits in more than one group");
-}
-for (const enemy of enemies) {
-	if (enemy.variants[0]?.id !== enemy.id) {
-		fail(`${enemy.id} does not list itself as its first variant`);
-	}
-}
-for (const id of enemyVariantIds) {
-	const detail = enemyDetails[id];
-	if (!detail) {
-		fail(`${id} is in enemies.json but has no details entry`);
-		continue;
-	}
-	if (detail.levels.length === 0) {
-		fail(`${id} has no stat levels`);
-	}
-	for (const level of detail.levels) {
-		for (const [field, grade] of Object.entries(level.grades)) {
-			if (!ENEMY_GRADES.includes(grade)) {
-				fail(`${id} grades ${field} as ${JSON.stringify(grade)}, off the handbook scale`);
-			}
-		}
-	}
-}
-if (Object.keys(enemyDetails).length !== enemyVariantIds.length) {
-	fail(`enemy details hold ${Object.keys(enemyDetails).length} variants for ${enemyVariantIds.length} in enemies.json`);
-}
-for (const [data, name] of [
-	[enemies, "enemies"],
-	[enemyDetails, "enemy-details"]
-]) {
-	eachString(data, name, (text, where) => {
-		const hit = MARKUP.exec(text);
-		if (hit) {
-			fail(`markup leaked into ${where}: ${JSON.stringify(hit[0])}`);
-		}
-	});
-}
-const enemySearchIndex = read("enemy-search-index");
-if (enemySearchIndex.length !== enemyVariantIds.length) {
-	fail(`enemy search index has ${enemySearchIndex.length} entries for ${enemyVariantIds.length} variants`);
-}
-for (const fixture of ENEMY_FIXTURES) {
-	const stats = enemyDetails[fixture.id]?.levels[fixture.level]?.stats;
-	if (!stats) {
-		fail(`enemy fixture ${fixture.id} level ${fixture.level} is missing from the data`);
-		continue;
-	}
-	for (const [field, want] of Object.entries(fixture)) {
-		if (field !== "id" && field !== "level" && stats[field] !== want) {
-			fail(`${fixture.id} level ${fixture.level} ${field} is ${stats[field]}, expected ${want}`);
-		}
-	}
-}
-
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -733,7 +747,7 @@ console.log(`record      ${withBasic} basic, ${withExam} exam`);
 console.log("markup      none leaked");
 console.log("placeholders none leaked");
 if (hasManifest) {
-	console.log(`assets      ${portraitCount} portraits, ${illustrationCount} illustrations`);
+	console.log(`assets      ${portraitCount} portraits, ${illustrationCount} illustrations, ${enemyIconCount} enemy icons`);
 }
 if (hasSpineIndex) {
 	console.log(
