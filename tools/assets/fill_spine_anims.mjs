@@ -15,7 +15,8 @@
  *     node tools/assets/fill_spine_anims.mjs [--staging PATH]
  *
  * Reads and rewrites src/data/spine-index.json. Scans the staged tree under `<staging>/assets/spine`. `--staging` defaults to
- * `tools/assets/.staging`. A missing or unparseable rig, or one no planned stage covers, prints its path and exits 1 before the file is written.
+ * `tools/assets/.staging`. A missing or unparseable rig, one no planned stage covers, or one whose animations do not match its kind prints its
+ * path and exits 1 before the file is written.
  */
 
 import fs from "node:fs";
@@ -31,6 +32,13 @@ const INDEX_PATH = path.join(REPO_ROOT, "src", "data", "spine-index.json");
 
 /** Printed when the command line is wrong. */
 const USAGE = "Usage: node tools/assets/fill_spine_anims.mjs [--staging PATH]";
+
+/**
+ * Animation names only a battle rig has, matched on the name's first word so suffixed sets such as Bena's `Idle_A` count. A dorm rig has none
+ * of them, and a battle or back rig always has one. Upstream's folder names once hid Skadi the Corrupting Heart's battle rig in a dorm folder,
+ * so every rig's kind is checked against what it actually plays.
+ */
+const BATTLE_ANIM = /^(Idle|Die|Start)(_|$)/;
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -133,6 +141,10 @@ async function main() {
 						process.exit(1);
 					}
 					rig.anims = data.animations.map((animation) => animation.name);
+					if (rig.anims.some((name) => BATTLE_ANIM.test(name)) !== (kind !== "dorm")) {
+						console.error(`${shown}: filed as ${kind}, but its animations say otherwise: ${rig.anims.join(", ")}`);
+						process.exit(1);
+					}
 					rig.stage = stage;
 					rigCount++;
 				}

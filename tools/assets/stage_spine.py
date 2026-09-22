@@ -13,11 +13,12 @@ Usage:
 """
 
 import argparse
+import filecmp
 import os
 import shutil
 
 from build_manifest import load_operator_ids
-from spine_names import KIND_FOLDERS, parse_rig, published_dir, rig_stem
+from spine_names import KIND_FOLDERS, parse_rig, published_dir, resolve_kind, rig_stem
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -104,6 +105,9 @@ def plan_copies(staging_dir, operator_ids):
         A `(jobs, skipped)` pair. `jobs` is a sorted list of `(source_path, destination_path)` absolute pairs, empty when the staged tree
         does not exist. `skipped` is a dict with `unmapped_kind`, `test` and `unrecognised_operator` counts for rig-kind folders `parse_rig`
         rejected, plus `other_file` for files inside a matched rig folder that are not one of `RIG_EXTENSIONS`.
+
+    Raises:
+        ValueError: When two different upstream rig files would be published to the same path.
     """
     source_root = os.path.join(staging_dir, "upstream", "spine")
     output_root = os.path.join(staging_dir, "assets")
@@ -111,7 +115,7 @@ def plan_copies(staging_dir, operator_ids):
     if not os.path.isdir(source_root):
         return [], skipped
 
-    jobs = []
+    rigs = []
     for directory, _subdirs, names in os.walk(source_root):
         relative = os.path.relpath(directory, source_root).replace(os.sep, "/")
         parsed = parse_rig(relative, operator_ids)
@@ -120,14 +124,29 @@ def plan_copies(staging_dir, operator_ids):
             if len(parts) == 3:
                 skipped[classify_rejected_rig(parts)] += 1
             continue
+        rigs.append((directory, relative.split("/")[1], parsed, names))
+
+    # A plain `Spine` folder is the battle rig when the same form also has a `build_` dorm folder. See `resolve_kind`.
+    build_dorms = {parsed[:2] for _directory, folder, parsed, _names in rigs if parsed[2] == "dorm" and folder.lower().startswith("build_")}
+
+    jobs = []
+    for directory, folder, parsed, names in rigs:
         operator_id, key, kind = parsed
+        kind = resolve_kind(folder, kind, (operator_id, key) in build_dorms)
         target = published_dir(operator_id, key, kind)
         for name in sorted(names):
             if not name.endswith(RIG_EXTENSIONS):
                 skipped["other_file"] += 1
                 continue
             jobs.append((os.path.join(directory, name), os.path.join(output_root, target, name)))
-    return sorted(jobs), skipped
+    # Upstream files a few rigs twice, under a second operator's folder (Fang under Knit's, Blade under Owl's). Those copies are identical
+    # and collapse to one job. Two different files bound for one path would silently overwrite each other, so that fails.
+    by_destination = {}
+    for source, destination in jobs:
+        first = by_destination.setdefault(destination, source)
+        if first != source and not filecmp.cmp(first, source, shallow=False):
+            raise ValueError(f"two different upstream files publish to {destination}: {first} and {source}")
+    return sorted((source, destination) for destination, source in by_destination.items()), skipped
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////

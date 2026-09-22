@@ -44,9 +44,15 @@ def read_rig(folder):
 
     Returns:
         A `{skel, atlas, anims}` dict, or None when the folder lacks either a skeleton or an atlas, which makes it unrenderable.
+
+    Raises:
+        ValueError: When the folder holds more than one skeleton. The index names one rig per kind, so a second one would be hidden. That
+            is how Skadi the Corrupting Heart's battle rig once went missing, filed beside her dorm rig.
     """
     skels = sorted(name[: -len(".skel")] for name in os.listdir(folder) if name.endswith(".skel"))
     atlases = sorted(name[: -len(".atlas")] for name in os.listdir(folder) if name.endswith(".atlas"))
+    if len(skels) > 1:
+        raise ValueError(f"{folder} holds {len(skels)} skeletons: {', '.join(skels)}")
     if not skels or not atlases:
         return None
     return {"skel": skels[0], "atlas": atlases[0], "anims": []}

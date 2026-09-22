@@ -6,6 +6,10 @@ folder names the rig, confirmed by reading the animation names inside a `.skel` 
 `Default`, `Move`, `Relax`, `Sit`, `Sleep` and `Special`, so it is the dorm rig. `Front` and `Back` both hold `Idle`, `Attack*`, `Skill*` and
 `Start`, so they are the battle rig - a dorm rig has no camera-facing concept, but a battle rig needs one, hence the two facings.
 
+One exception, also read from the animation names: a few operators ship their battle rig in a plain `char_.../Spine` folder beside the real
+dorm rig in `build_char_.../Spine` (Skadi the Corrupting Heart and Sora), and have no `Front` folder. A plain `Spine` folder with no `build_`
+twin is still the dorm rig, as in nine forms such as Ifrit's `kfc_1`. `resolve_kind` applies that rule.
+
 We republish as `spine/<operator_id>/<key>/<kind>/`, which flattens upstream's kind folders into one addressable shape and keeps each atlas
 beside its page image, since an atlas refers to that image by bare filename. `kind` is `battle`, `back` or `dorm` - publishing `back`
 separately from `battle` means the two facings never collide on the same path.
@@ -86,6 +90,23 @@ def parse_rig(path, operator_ids):
 
     key = BASE_KEY if lowered == best else stem[len(best) + 1:]
     return best, key, kind
+
+
+def resolve_kind(folder, kind, has_build_dorm):
+    """
+    Correct the kind `parse_rig` read from the kind folder, for the one layout where the folder name misleads.
+
+    Args:
+        folder: The upstream rig folder name, such as `char_1012_skadi2`.
+        kind: The kind `parse_rig` returned: `battle`, `back` or `dorm`.
+        has_build_dorm: Whether the same operator and key also have a `build_`-prefixed `Spine` folder.
+
+    Returns:
+        `battle` for a plain `Spine` folder that sits beside a `build_` dorm folder, otherwise `kind` unchanged.
+    """
+    if kind == "dorm" and not folder.lower().startswith("build_") and has_build_dorm:
+        return "battle"
+    return kind
 
 
 def published_dir(operator_id, key, kind):

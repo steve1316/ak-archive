@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from spine_names import parse_rig, published_dir
+from spine_names import parse_rig, published_dir, resolve_kind
 
 IDS = {"char_002_amiya", "char_1001_amiya2", "char_172_svrash", "char_107_liskam"}
 
@@ -68,3 +68,22 @@ def test_published_dir_keeps_the_key_verbatim():
 def test_published_dir_lowercases_the_kind_only():
     # Variant keys keep upstream's spelling, since the manifest records them verbatim.
     assert published_dir("char_002_amiya", "ambienceSynesthesia_4", "dorm") == "spine/char_002_amiya/ambienceSynesthesia_4/dorm"
+
+
+def test_resolve_kind_keeps_a_build_dorm_rig():
+    assert resolve_kind("build_char_1012_skadi2", "dorm", True) == "dorm"
+
+
+def test_resolve_kind_reads_a_plain_spine_folder_beside_a_build_folder_as_battle():
+    # Skadi the Corrupting Heart and Sora ship their battle rig in `char_.../Spine`, next to the real dorm rig in `build_char_.../Spine`.
+    assert resolve_kind("char_1012_skadi2", "dorm", True) == "battle"
+
+
+def test_resolve_kind_keeps_a_plain_spine_folder_with_no_build_folder_as_dorm():
+    # Nine forms, such as Ifrit's `kfc_1`, ship their dorm rig in a plain `Spine` folder with no `build_` twin.
+    assert resolve_kind("char_134_ifrit_kfc_1", "dorm", False) == "dorm"
+
+
+def test_resolve_kind_leaves_front_and_back_alone():
+    assert resolve_kind("char_002_amiya", "battle", True) == "battle"
+    assert resolve_kind("char_002_amiya", "back", True) == "back"
