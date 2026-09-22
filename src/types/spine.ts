@@ -17,6 +17,8 @@ export interface SpineRig {
 	 * artist named, and a tab that plays nothing is worse than an absent tab.
 	 */
 	anims: string[];
+	/** The lowest runtime stage that draws this rig in full: 1-4. The card plays a rig only when it is at or below `SUPPORTED_STAGE`. */
+	stage: number;
 }
 
 /** The rigs published for one form: the battle chibi in both facings, and the dorm chibi. Any of the three may be missing. */

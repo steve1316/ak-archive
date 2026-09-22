@@ -57,6 +57,12 @@ const MIN_SPINE_BATTLE_RIGS = 918;
 const MIN_SPINE_BACK_RIGS = 907;
 const MIN_SPINE_DORM_RIGS = 918;
 
+/** Floor for operators whose base battle rig the current runtime draws in full: stage 3 or below. Just under the 363 measured when set. */
+const MIN_SPINE_PLAYABLE_OPERATORS = 360;
+
+/** The highest runtime stage the playable-operator floor counts. */
+const SPINE_PLAYABLE_STAGE = 3;
+
 /** The three kinds a Spine rig can be indexed under - the site never plays a fourth. */
 const SPINE_KINDS = ["battle", "back", "dorm"];
 
@@ -548,11 +554,15 @@ if (!hasSpineIndex) {
 let spineOperatorCount = 0;
 let spineFormCount = 0;
 let spineRigCount = 0;
+let spinePlayableCount = 0;
 const spineKindCounts = { battle: 0, back: 0, dorm: 0 };
 if (hasSpineIndex) {
 	const spineIndex = JSON.parse(fs.readFileSync(spineIndexPath, "utf8"));
 	for (const [operatorId, forms] of Object.entries(spineIndex)) {
 		spineOperatorCount += 1;
+		if (forms.base?.battle?.stage <= SPINE_PLAYABLE_STAGE) {
+			spinePlayableCount += 1;
+		}
 		if (!byId.has(operatorId)) {
 			fail(`spine index names ${operatorId}, which is in no shard`);
 		}
@@ -574,8 +584,14 @@ if (hasSpineIndex) {
 				if (!Array.isArray(rig.anims) || rig.anims.length === 0) {
 					fail(`${operatorId} form ${formKey} kind ${kind} has no animations`);
 				}
+				if (!Number.isInteger(rig.stage) || rig.stage < 1 || rig.stage > 4) {
+					fail(`${operatorId} form ${formKey} kind ${kind} has a bad stage: ${JSON.stringify(rig.stage)}`);
+				}
 			}
 		}
+	}
+	if (spinePlayableCount < MIN_SPINE_PLAYABLE_OPERATORS) {
+		fail(`spine index has ${spinePlayableCount} operators with a base battle rig at stage ${SPINE_PLAYABLE_STAGE} or below, below the floor of ${MIN_SPINE_PLAYABLE_OPERATORS}`);
 	}
 	if (spineOperatorCount < MIN_SPINE_OPERATORS) {
 		fail(`spine index has ${spineOperatorCount} operators, below the floor of ${MIN_SPINE_OPERATORS}`);
@@ -622,7 +638,7 @@ if (hasManifest) {
 }
 if (hasSpineIndex) {
 	console.log(
-		`spine       ${spineOperatorCount} operators, ${spineFormCount} forms, ${spineRigCount} rigs (${spineKindCounts.battle} battle, ${spineKindCounts.back} back, ${spineKindCounts.dorm} dorm)`
+		`spine       ${spineOperatorCount} operators, ${spineFormCount} forms, ${spineRigCount} rigs (${spineKindCounts.battle} battle, ${spineKindCounts.back} back, ${spineKindCounts.dorm} dorm), ${spinePlayableCount} with a playable base battle rig`
 	);
 }
 

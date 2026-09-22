@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Fills the Spine index's empty `anims` lists with each rig's animation names, read from its staged `.skel` file.
+ * Fills the Spine index's empty `anims` lists with each rig's animation names, and records each rig's `stage`, both read from its staged
+ * `.skel` file.
  *
  * `build_spine_index.py` walks the staged tree and writes the index with every rig's `anims` empty. This script reads each indexed
- * rig's skeleton with `src/spine/binary.ts` and sets `anims` to its animation names, in file order. Splitting the work this way keeps
- * the index builder free of a skeleton parser, and lets the animation names be refreshed without re-walking the staged tree.
+ * rig's skeleton with `src/spine/binary.ts`, sets `anims` to its animation names in file order, and sets `stage` to the lowest runtime
+ * stage that draws it in full, from `rigStage` in `src/spine/features.ts`. Splitting the work this way keeps the index builder free of a
+ * skeleton parser, and lets both fields be refreshed without re-walking the staged tree.
  *
  * The index is rewritten with the same formatting `build_spine_index.py` uses: keys sorted at every level, no extra whitespace,
  * non-ASCII characters escaped, and a trailing newline. Matching it byte for byte means running both scripts back to back leaves no
@@ -14,7 +16,8 @@
  *     node tools/assets/fill_spine_anims.mjs [--staging PATH]
  *
  * Reads and rewrites src/data/spine-index.json. Scans the staged tree under `<staging>/assets/spine`. `--staging` defaults to
- * `tools/assets/.staging`. A missing or unparseable rig prints its path and exits 1 before the file is written.
+ * `tools/assets/.staging`. A missing or unparseable rig, or one no planned stage covers, prints its path and exits 1 before the file
+ * is written.
  */
 
 import fs from "node:fs";
@@ -102,7 +105,7 @@ function serializeLikeJson(value) {
 // Main
 
 /**
- * Reads the index, fills every rig's `anims` from its staged skeleton, and writes the index back.
+ * Reads the index, fills every rig's `anims` and `stage` from its staged skeleton, and writes the index back.
  */
 async function main() {
 	const staging = parseStaging(process.argv.slice(2), USAGE);
@@ -113,6 +116,7 @@ async function main() {
 	let rigCount = 0;
 	try {
 		const { readSkeleton } = await server.ssrLoadModule("/src/spine/binary.ts");
+		const { rigStage } = await server.ssrLoadModule("/src/spine/features.ts");
 		for (const [operatorId, forms] of Object.entries(index)) {
 			for (const [formKey, kinds] of Object.entries(forms)) {
 				for (const [kind, rig] of Object.entries(kinds)) {
@@ -125,7 +129,13 @@ async function main() {
 						console.error(`${shown}: ${error.message}`);
 						process.exit(1);
 					}
+					const stage = rigStage(data);
+					if (!Number.isFinite(stage)) {
+						console.error(`${shown}: no planned runtime stage covers this rig`);
+						process.exit(1);
+					}
 					rig.anims = data.animations.map((animation) => animation.name);
+					rig.stage = stage;
 					rigCount++;
 				}
 			}
