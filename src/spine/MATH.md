@@ -860,3 +860,14 @@ The path constraints page describes every mode in words and gives no formulas. T
   `setAppliedFromWorld` in skeleton order, so a parent's new world transform is in place before its child's applied values are taken. A
   second `updateWorldTransform` on the same pose gives the same world transforms.
 - **Order.** Path constraints join the constraint steps by `order`, with ties in file order: IK, then transform, then path.
+
+### Corpus check
+
+`check_spine_rigs.mjs --path` runs every rig with a path constraint (309 of the 336 path rigs have one). Under animation, across 21,928
+samples, every constrained bone stays finite, and all 161,254 tangent bone samples at translate mix 1 sit within 0.01 of their place on
+the path, with 168 constraint samples skipped where a later constraint moves the bones.
+
+The setup-pose rate is information, not a gate. Of 4,428 constrained bones in the unconstrained setup pose, only 819 lie on their path at
+all, and most sit at one shared point, often 60 or more units away. Many rigs weight the path to the bones it drives, so that pose is a
+draft. Where the setup pose is solved, it confirms the readings: the Ling dorm rig's bones at percent positions from 0.078 to 1 sit within
+0.6% of the position times the chord-sum arc length, and the stored `lengths` fit worse. The rendered result is judged against PRTS.

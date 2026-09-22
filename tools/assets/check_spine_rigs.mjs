@@ -13,7 +13,7 @@
  * one that runs on real data.
  *
  * Usage:
- *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--dir NAME]
+ *     node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--path] [--dir NAME]
  *
  * Scans every `.skel` and `.atlas` under `<staging>/assets/spine`. `--staging` defaults to `tools/assets/.staging`. `--dir` scans
  * `<staging>/assets/<NAME>` instead, such as `spine-enemies`, whose rigs sit one folder deep and count as each enemy's battle rig. `--survey`
@@ -53,6 +53,14 @@
  * concave, vertex count, and end slots that are the clip slot or come before it). It then builds the setup pose and every animation at
  * `ANIMATION_SAMPLES` times and checks each frame with `checkClippedFrame`. Each frame is also timed with and without clipping, and the
  * `CLIP_COSTLIEST_SHOWN` rigs with the most extra time per frame are printed.
+ *
+ * `--path` checks every rig with a path constraint. In the setup pose, each bone set by one path constraint whose setup mixes are both 1 is
+ * compared before and after that constraint alone is solved: it counts as in place when the solve moves it by at most `PC_SETUP_DISTANCE`
+ * and turns it by at most `PC_SETUP_DEGREES`. Only bones that already lie on the path in the setup pose are judged, since most rigs leave
+ * path bones elsewhere. The judged rate per rotate mode and per spacing mode must reach `PC_MIN_SETUP`. Under animation, at
+ * `ANIMATION_SAMPLES` times, every constrained bone must be finite, and a tangent constraint at translate mix 1 must put each bone on its
+ * place along the path, except at a sample where a later constraint that touches it has a mix other than 0. It prints the rates and the
+ * run time.
  */
 
 import fs from "node:fs";
@@ -72,7 +80,7 @@ const MAX_KEY_RUNS = 3;
 
 /** Printed when the command line is wrong. */
 const USAGE =
-	"Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--dir NAME]  " +
+	"Usage: node tools/assets/check_spine_rigs.mjs [--staging PATH] [--survey] [--geometry] [--animation] [--ik] [--transform] [--clipping] [--path] [--dir NAME]  " +
 	"(scans <staging>/assets/<NAME>, spine by default)";
 
 /** Lowest intersection-over-union between a rig's drawn and declared setup bounds before `--geometry` fails it. */
@@ -179,6 +187,26 @@ const TC_MIN_SETUP = 0.9;
 
 /** Lowest share of constrained bones whose world transform under a flipped skeleton must mirror the unflipped one. */
 const TC_MIN_MIRROR = 0.99;
+
+/**
+ * Lowest share of setup-pose path entries the solve must leave in place, per rotate mode and per spacing mode. An entry is a bone set by
+ * one path constraint whose setup mixes are both 1, and it is in place when the solve moves it by at most `PC_SETUP_DISTANCE` and turns it
+ * by at most `PC_SETUP_DEGREES`. It is 0, so the rates are information only: most path rigs leave their bones off the path in the setup
+ * pose, and many weight the path to the bones it drives, so the unconstrained setup pose is a draft rather than a solved one (`MATH.md`).
+ */
+const PC_MIN_SETUP = 0;
+
+/** Steps along a path when finding how close a setup bone comes to it. */
+const PC_NEAREST_STEPS = 1000;
+
+/** Largest move, in skeleton units, that still counts a setup-pose path entry as in place. */
+const PC_SETUP_DISTANCE = 0.5;
+
+/** Largest turn, in degrees, that still counts a setup-pose path entry as in place. */
+const PC_SETUP_DEGREES = 1;
+
+/** Largest distance `--path` allows between a tangent bone at translate mix 1 and its place on the path. */
+const PC_REACH_TOLERANCE = 0.01;
 
 /** Largest difference, relative to the value's size (at least 1), between a flipped world value and the mirror of the unflipped one. */
 const TC_MIRROR_TOLERANCE = 1e-6;
@@ -1728,16 +1756,18 @@ function isAncestorOrSelf(ancestor, bone) {
 }
 
 /**
- * Lists every IK and transform constraint in the order they run: ascending `order`, with ties in file order and IK first.
+ * Lists every IK, transform and path constraint in the order they run: ascending `order`, with ties in file order, IK then transform then
+ * path.
  *
  * @param {object} skeleton The live skeleton.
  * @returns {{ constraint: object, moves: object[] }[]} Each constraint with the bones it moves directly: an IK chain's first bone, or
- *   every bone of a transform constraint.
+ *   every bone of a transform or path constraint.
  */
 function constraintsInOrder(skeleton) {
 	const steps = [
 		...skeleton.ikConstraints.map((constraint) => ({ constraint, moves: [constraint.bones[0]] })),
-		...skeleton.transformConstraints.map((constraint) => ({ constraint, moves: constraint.bones }))
+		...skeleton.transformConstraints.map((constraint) => ({ constraint, moves: constraint.bones })),
+		...skeleton.pathConstraints.map((constraint) => ({ constraint, moves: constraint.bones }))
 	];
 	return steps.sort((first, second) => first.constraint.data.order - second.constraint.data.order);
 }
@@ -1753,7 +1783,8 @@ function touchingLater(skeleton) {
 	const ordered = constraintsInOrder(skeleton);
 	const touching = new Map();
 	ordered.forEach(({ constraint }, index) => {
-		const watched = [...constraint.bones, constraint.target];
+		// A path constraint's target is a slot, which follows its bone.
+		const watched = [...constraint.bones, constraint.target.bone ?? constraint.target];
 		const later = ordered.slice(index + 1).filter((step) => step.moves.some((ancestor) => watched.some((bone) => isAncestorOrSelf(ancestor, bone))));
 		if (later.length > 0) {
 			touching.set(
@@ -1767,7 +1798,7 @@ function touchingLater(skeleton) {
 
 /**
  * Checks whether a later constraint that touches this one moves anything at the current pose: an IK constraint with a mix other than 0, or
- * a transform constraint with any mix other than 0.
+ * a transform or path constraint with any mix other than 0.
  *
  * @param {Map<object, object[]>} touching The map `touchingLater` gives.
  * @param {object} constraint The constraint whose result is about to be checked.
@@ -1778,7 +1809,7 @@ function movedNow(touching, constraint) {
 	if (!later) {
 		return false;
 	}
-	return later.some((other) => ("mix" in other ? other.mix !== 0 : other.rotateMix !== 0 || other.translateMix !== 0 || other.scaleMix !== 0 || other.shearMix !== 0));
+	return later.some((other) => ("mix" in other ? other.mix !== 0 : other.rotateMix !== 0 || other.translateMix !== 0 || (other.scaleMix ?? 0) !== 0 || (other.shearMix ?? 0) !== 0));
 }
 
 /**
@@ -2222,6 +2253,192 @@ function printTransform(stats) {
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
+// Path constraints
+
+/**
+ * Poses a skeleton's setup pose with every path constraint off, except one at its setup mixes.
+ *
+ * @param {object} skeleton The live skeleton.
+ * @param {object | null} only The path constraint to solve, or null for none.
+ */
+function solvePathAlone(skeleton, only) {
+	skeleton.setToSetupPose();
+	for (const constraint of skeleton.pathConstraints) {
+		if (constraint !== only) {
+			constraint.rotateMix = 0;
+			constraint.translateMix = 0;
+		}
+	}
+	skeleton.updateWorldTransform();
+}
+
+/**
+ * Measures how close a point comes to a sampled path, by stepping `PC_NEAREST_STEPS` times along it.
+ *
+ * @param {object} pathsModule The loaded `paths.ts` module.
+ * @param {object} sampler The path's sampler, after `samplePath`.
+ * @param {number} x The point's world X.
+ * @param {number} y The point's world Y.
+ * @returns {number} The smallest distance found.
+ */
+function nearestOnPath(pathsModule, sampler, x, y) {
+	const out = new Float64Array(3);
+	let nearest = Infinity;
+	for (let step = 0; step <= PC_NEAREST_STEPS; step++) {
+		pathsModule.pointAt(sampler, (sampler.total * step) / PC_NEAREST_STEPS, out, 0);
+		nearest = Math.min(nearest, Math.hypot(out[0] - x, out[1] - y));
+	}
+	return nearest;
+}
+
+/**
+ * Runs the setup-pose check on one rig. For each path constraint whose setup mixes are both 1, each bone only it sets is compared with every
+ * path constraint off and with that constraint alone solved, and counted in place when it barely moves and turns. Most rigs leave their
+ * path bones off the path in the setup pose, so an entry is judged only when its unconstrained setup bone already lies on the path.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} skeletonModule The loaded `skeleton.ts` module.
+ * @param {object} pathsModule The loaded `paths.ts` module.
+ * @param {object} stats The accumulator, see `printPath`.
+ */
+function checkPathSetup(data, skeletonModule, pathsModule, stats) {
+	const skeleton = new skeletonModule.Skeleton(data);
+	const setBy = new Map();
+	for (const constraint of skeleton.pathConstraints) {
+		for (const bone of constraint.bones) {
+			setBy.set(bone, (setBy.get(bone) ?? 0) + 1);
+		}
+	}
+	solvePathAlone(skeleton, null);
+	const before = new Map(skeleton.bones.map((bone) => [bone, worldOf(bone)]));
+	for (const constraint of skeleton.pathConstraints) {
+		const constraintData = constraint.data;
+		const attachment = constraint.target.attachment;
+		const sampler = attachment?.type === "path" ? constraint.samplers.get(attachment) : undefined;
+		if (constraintData.rotateMix !== 1 || constraintData.translateMix !== 1 || !sampler) {
+			continue;
+		}
+		solvePathAlone(skeleton, null);
+		pathsModule.samplePath(sampler, skeleton, constraint.target, attachment);
+		const onPath = new Set(constraint.bones.filter((bone) => sampler.total > 0 && nearestOnPath(pathsModule, sampler, bone.worldX, bone.worldY) <= PC_SETUP_DISTANCE));
+		solvePathAlone(skeleton, constraint);
+		for (const bone of constraint.bones) {
+			if (setBy.get(bone) !== 1) {
+				continue;
+			}
+			const was = before.get(bone);
+			const moved = Math.hypot(bone.worldX - was.worldX, bone.worldY - was.worldY);
+			const turned = Math.abs(shortTurn(((Math.atan2(bone.c, bone.a) - Math.atan2(was.c, was.a)) * 180) / Math.PI));
+			const inPlace = moved <= PC_SETUP_DISTANCE && turned <= PC_SETUP_DEGREES ? 1 : 0;
+			for (const counts of [stats.setup.rotate[constraintData.rotateMode], stats.setup.spacing[constraintData.spacingMode]]) {
+				counts.entries++;
+				counts.raw += inPlace;
+				if (onPath.has(bone)) {
+					counts.judged++;
+					counts.hits += inPlace;
+				}
+			}
+		}
+	}
+}
+
+/**
+ * Plays every animation of one rig and checks every path constraint at each sample: constrained bones are finite, and a tangent constraint
+ * at translate mix 1 puts each bone on its place along the path, unless a later constraint that touches it has a mix other than 0.
+ *
+ * @param {object} data The parsed skeleton.
+ * @param {object} modules The loaded `skeleton.ts` and `animation.ts` modules, as `skeleton` and `animation`.
+ * @param {object} stats The accumulator, see `printPath`.
+ * @returns {string[]} The first `ANIMATION_PROBLEMS_SHOWN` problems, then a count of the rest.
+ */
+function checkPathAnimations(data, modules, stats) {
+	const skeleton = new modules.skeleton.Skeleton(data);
+	const touching = touchingLater(skeleton);
+	const problems = [];
+	let hidden = 0;
+	const report = (problem) => {
+		stats.reach.failed++;
+		if (problems.length < ANIMATION_PROBLEMS_SHOWN) {
+			problems.push(problem);
+		} else {
+			hidden++;
+		}
+	};
+	for (const animation of data.animations) {
+		for (let sample = 0; sample < ANIMATION_SAMPLES; sample++) {
+			const time = (animation.duration * sample) / (ANIMATION_SAMPLES - 1);
+			skeleton.setToSetupPose();
+			modules.animation.applyAnimation(skeleton, animation, time);
+			skeleton.updateWorldTransform();
+			stats.samples++;
+			for (const constraint of skeleton.pathConstraints) {
+				const where = `animation "${animation.name}" at ${time.toFixed(4)}: path "${constraint.data.name}"`;
+				const finite = constraint.bones.every((bone) => [bone.a, bone.b, bone.c, bone.d, bone.worldX, bone.worldY].every(Number.isFinite));
+				if (!finite) {
+					report(`${where} has a bone whose world transform is not finite`);
+					continue;
+				}
+				const attachment = constraint.target.attachment;
+				const sampler = attachment?.type === "path" ? constraint.samplers.get(attachment) : undefined;
+				if (constraint.data.rotateMode !== "tangent" || constraint.translateMix !== 1 || !sampler || sampler.total <= 0) {
+					continue;
+				}
+				if (movedNow(touching, constraint)) {
+					stats.reach.movedLater++;
+					continue;
+				}
+				constraint.bones.forEach((bone, index) => {
+					stats.reach.checked++;
+					const miss = Math.hypot(bone.worldX - constraint.points[index * 3], bone.worldY - constraint.points[index * 3 + 1]);
+					if (miss > PC_REACH_TOLERANCE) {
+						report(`${where} bone "${bone.data.name}" is ${miss.toFixed(4)} from its place on the path`);
+					}
+				});
+			}
+		}
+	}
+	if (hidden > 0) {
+		problems.push(`and ${hidden} more failures`);
+	}
+	return problems;
+}
+
+/**
+ * Judges the `--path` setup rates: every rotate mode's and spacing mode's rate against `PC_MIN_SETUP`.
+ *
+ * @param {object} stats The accumulator, see `printPath`.
+ * @returns {boolean} True when every rate passes.
+ */
+function pathPasses(stats) {
+	return [...Object.values(stats.setup.rotate), ...Object.values(stats.setup.spacing)].every((counts) => counts.judged === 0 || counts.hits / counts.judged >= PC_MIN_SETUP);
+}
+
+/**
+ * Prints the `--path` summary lines.
+ *
+ * @param {object} stats The accumulator: `setup.rotate` and `setup.spacing` counts per mode (`entries`, `raw`, `judged`, `hits`), `reach` (`checked`,
+ *   `movedLater`, `failed`), `samples`, `rigs`, `failed` and `seconds`.
+ */
+function printPath(stats) {
+	const percent = (hits, total) => `${hits}/${total} (${total === 0 ? "-" : ((hits / total) * 100).toFixed(1)}%)`;
+	console.log("");
+	for (const [kind, modes] of Object.entries(stats.setup)) {
+		for (const [mode, counts] of Object.entries(modes)) {
+			console.log(
+				`Path: ${kind} ${mode}, setup entries on the path that the solve leaves in place: ${percent(counts.hits, counts.judged)}, need ${PC_MIN_SETUP * 100}% ` +
+					`(information: all entries ${percent(counts.raw, counts.entries)})`
+			);
+		}
+	}
+	console.log(
+		`Path: ${stats.rigs} rigs, ${stats.samples} animation samples, ${stats.reach.checked} tangent bone samples checked at translate mix 1, ` +
+			`${stats.reach.movedLater} constraint samples skipped as moved by a later active constraint, ${stats.reach.failed} failures, ` +
+			`${stats.failed} rigs failed, rates ${pathPasses(stats) ? "passed" : "FAILED"}, ${stats.seconds.toFixed(1)} s`
+	);
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
 // Survey
 
 /**
@@ -2375,6 +2592,7 @@ async function main() {
 	const wantIk = process.argv.includes("--ik");
 	const wantTransform = process.argv.includes("--transform");
 	const wantClipping = process.argv.includes("--clipping");
+	const wantPath = process.argv.includes("--path");
 
 	const server = await startVite();
 	let survey = null;
@@ -2434,6 +2652,17 @@ async function main() {
 		failed: 0,
 		seconds: 0
 	};
+	const pathStats = {
+		setup: {
+			rotate: { tangent: { entries: 0, raw: 0, judged: 0, hits: 0 }, chain: { entries: 0, raw: 0, judged: 0, hits: 0 }, chainScale: { entries: 0, raw: 0, judged: 0, hits: 0 } },
+			spacing: { length: { entries: 0, raw: 0, judged: 0, hits: 0 }, fixed: { entries: 0, raw: 0, judged: 0, hits: 0 }, percent: { entries: 0, raw: 0, judged: 0, hits: 0 } }
+		},
+		reach: { checked: 0, movedLater: 0, failed: 0 },
+		samples: 0,
+		rigs: 0,
+		failed: 0,
+		seconds: 0
+	};
 	const clipping = {
 		clips: 0,
 		unweighted: { count: 0, counterclockwise: 0, clockwise: 0, flat: 0, concave: 0 },
@@ -2457,9 +2686,10 @@ async function main() {
 		const { readAtlas } = await server.ssrLoadModule("/src/spine/atlas.ts");
 		const featuresModule = wantSurvey ? await server.ssrLoadModule("/src/spine/features.ts") : null;
 		survey = featuresModule ? createSurvey(featuresModule) : null;
-		const skeletonModule = wantGeometry || wantAnimation || wantIk || wantTransform || wantClipping ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
+		const skeletonModule = wantGeometry || wantAnimation || wantIk || wantTransform || wantClipping || wantPath ? await server.ssrLoadModule("/src/spine/skeleton.ts") : null;
 		const geometryModule = wantGeometry || wantAnimation || wantClipping ? await server.ssrLoadModule("/src/spine/geometry.ts") : null;
-		const animationModule = wantAnimation || wantIk || wantTransform || wantClipping ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
+		const animationModule = wantAnimation || wantIk || wantTransform || wantClipping || wantPath ? await server.ssrLoadModule("/src/spine/animation.ts") : null;
+		const pathsModule = wantPath ? await server.ssrLoadModule("/src/spine/paths.ts") : null;
 
 		for (const file of atlasFiles) {
 			const shown = shownPath(file);
@@ -2608,6 +2838,17 @@ async function main() {
 					result.problems.push(...problems.map((problem) => `transform: ${problem}`));
 				}
 			}
+			if (wantPath && data.path.length > 0) {
+				const start = performance.now();
+				checkPathSetup(data, skeletonModule, pathsModule, pathStats);
+				const problems = checkPathAnimations(data, { skeleton: skeletonModule, animation: animationModule }, pathStats);
+				pathStats.seconds += (performance.now() - start) / 1000;
+				pathStats.rigs++;
+				if (problems.length > 0) {
+					pathStats.failed++;
+					result.problems.push(...problems.map((problem) => `path: ${problem}`));
+				}
+			}
 			if (result.problems.length > 0) {
 				failed++;
 				for (const problem of result.problems) {
@@ -2646,10 +2887,14 @@ async function main() {
 	if (wantClipping) {
 		printClipping(clipping);
 	}
+	if (wantPath) {
+		printPath(pathStats);
+	}
 	const hullFailed = wantGeometry && !geometry.hullFit.passed;
 	const ikFailed = wantIk && !ikSetupPasses(ik);
 	const transformFailed = wantTransform && !transformPasses(transform);
-	process.exit(failed > 0 || atlasFailed > 0 || hullFailed || ikFailed || transformFailed ? 1 : 0);
+	const pathFailed = wantPath && !pathPasses(pathStats);
+	process.exit(failed > 0 || atlasFailed > 0 || hullFailed || ikFailed || transformFailed || pathFailed ? 1 : 0);
 }
 
 // Run only when called as a script, so a scratch check can import `checkSkeleton` without parsing the corpus.
