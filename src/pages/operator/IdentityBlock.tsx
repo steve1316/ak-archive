@@ -42,7 +42,7 @@ export default function IdentityBlock({ operator, forms, formKey, onFormChange }
 			<Typography variant="h3" component="h1" sx={HERO_NAME_SX}>
 				{operator.name} <Box component="span" sx={HERO_SUBTITLE_SX}>{`${operator.subProfession} — ${operator.position}`}</Box>
 			</Typography>
-			<Typography sx={HERO_RELEASE_SX}>{`Global release: ${operator.releaseDate ?? "Unknown"}`}</Typography>
+			<Box component="p" sx={HERO_RELEASE_SX}>{`Global release: ${operator.releaseDate ?? "Unknown"}`}</Box>
 			{forms.length > 1 ? (
 				<Stack direction="row" useFlexGap sx={HERO_CHIPS_SX} role="group" aria-label="Forms">
 					{forms.map((form) => {
