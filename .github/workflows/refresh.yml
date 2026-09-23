@@ -91,7 +91,17 @@ jobs:
       - name: Move the pins
         run: node tools/data/set_locks.mjs --heads "$HEADS"
 
+      # Story scripts are cached by blob sha, so a run only downloads the scripts that changed since the last one.
+      - name: Restore cached story scripts
+        uses: actions/cache@v6
+        with:
+          path: tools/data/.cache/story
+          key: story-scripts-${{ github.run_id }}
+          restore-keys: story-scripts-
+
       - name: Import game data
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: pnpm run import
 
       # Dates only when the import changed the site's data. The enemy half reads about 180 MB of level files per game-data sha. A wiki failure
