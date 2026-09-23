@@ -312,7 +312,7 @@ export default function Stories() {
 						{railGroups.map((entry, railIndex) => {
 							const holdsCurrent = current ? entry.holds.includes(current.id) : false;
 							return (
-								<Box key={entry.key} sx={{ mb: holdsCurrent ? 0 : 2.25 }}>
+								<Box key={entry.key} sx={{ mb: 2.25 }}>
 									<ButtonBase
 										onClick={() =>
 											select(
@@ -347,9 +347,7 @@ export default function Stories() {
 										</Box>
 									</ButtonBase>
 									{holdsCurrent && current ? (
-										<Box
-											sx={{ m: "4px 0 26px 60px", p: "10px 14px", background: "rgba(0,0,0,0.7)", borderLeft: "3px solid", borderColor: "primary.main", display: "inline-block" }}
-										>
+										<Box sx={{ m: "4px 0 0 60px", p: "10px 14px", background: "rgba(0,0,0,0.7)", borderLeft: "3px solid", borderColor: "primary.main", width: "fit-content" }}>
 											<Typography component="span" sx={{ fontSize: 22, fontWeight: 600 }}>
 												{current.name}
 											</Typography>
