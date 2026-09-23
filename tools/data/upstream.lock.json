@@ -1,7 +1,7 @@
 {
 	"repo": "ArknightsAssets/ArknightsGamedata",
 	"server": "en",
-	"sha": "758c9e70c34aa56cb8e04dd84b40440c5c859a67",
+	"sha": "f6a8967a14aad645b025afdada5a88e1aaeb2762",
 	"levelFallback": {
 		"repo": "Kengxxiao/ArknightsGameData",
 		"server": "zh_CN",
