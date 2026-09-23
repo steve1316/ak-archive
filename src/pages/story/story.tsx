@@ -433,7 +433,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const toggleAuto = useCallback(() => setAuto((value) => !value), []);
 
 	return (
-		<Box sx={PLAYER_SX} onClickCapture={onPlayerClick}>
+		<Box sx={PLAYER_SX} onClickCapture={onPlayerClick} data-region="story-player">
 			<GlobalStyles styles={KEYFRAMES} />
 			<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} nickname={nickname} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
 				{!hideUi ? <PlayerChrome soundOn={!muted && !blocked} auto={auto} canSkip={reading} onLog={openLog} onHide={hide} onSound={toggleSound} onAuto={toggleAuto} onSkip={skip} /> : null}
