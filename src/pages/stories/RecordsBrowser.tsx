@@ -1,7 +1,7 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent } from "react";
 
-import { Box, ButtonBase, Chip, TextField, Typography } from "@mui/material";
+import { Box, Button, ButtonBase, Chip, TextField, Typography, useMediaQuery } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { Link } from "react-router-dom";
 import presence from "virtual:asset-presence";
@@ -30,17 +30,15 @@ const ROW_HEIGHT = 52;
 const ILLUSTRATION_VARIANTS = presence.variants.illustrations ?? {};
 
 /** The whole tab: the list on the left and the selected operator on the right, above the tab bar. */
-const BROWSER_SX: SxProps<Theme> = { position: "absolute", inset: "0 0 64px 0", display: "flex", flexDirection: { xs: "column", md: "row" }, zIndex: 2 };
+const BROWSER_SX: SxProps<Theme> = { position: "absolute", inset: "0 0 64px 0", display: "flex", zIndex: 2 };
 
 /** The list column: search and filters over the scrolling names and the A-Z jump. */
 const LIST_SX: SxProps<Theme> = {
 	width: { xs: "100%", md: 360 },
-	height: { xs: "45%", md: "auto" },
 	flex: "none",
 	display: "flex",
 	flexDirection: "column",
 	borderRight: { md: "1px solid #2a303c" },
-	borderBottom: { xs: "1px solid #2a303c", md: "none" },
 	background: "rgba(0,0,0,0.35)"
 };
 
@@ -96,6 +94,20 @@ const NAMES_SX: SxProps<Theme> = {
 	"& .records-name": { display: "block", fontSize: "1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
 	"& .records-meta": { display: "block", fontSize: "0.75rem", color: "text.secondary" },
 	"& .records-stars": { color: "#f0c36a" }
+};
+
+/** The selected operator beside the list. */
+const DETAIL_SX: SxProps<Theme> = { flex: 1, position: "relative", overflow: "hidden", minHeight: 0 };
+
+/** The selected operator on a phone, slid in over the list. */
+const DETAIL_OVER_SX: SxProps<Theme> = {
+	position: "absolute",
+	inset: 0,
+	zIndex: 2,
+	overflow: "hidden",
+	background: "#0d0f14",
+	animation: "recordDetailIn 0.25s ease-out",
+	"@keyframes recordDetailIn": { from: { transform: "translateX(100%)" }, to: { transform: "none" } }
 };
 
 /** The background art, slid right so its right quarter is cut off and the operator stands clear of the text. */
@@ -176,16 +188,19 @@ function skinUrl(id: string): string | null {
 interface RecordDetailProps {
 	/** The operator to show. */
 	operator: RecordOperator;
+	/** Called by the Back button, or null to sit beside the list with no Back button. When given, the pane covers the list instead. */
+	onBack: (() => void) | null;
 }
 
 /**
  * The selected operator: a random outfit behind them, their stars, class and name, and each record set with its stories linking into the
- * player. The parent keys it on the operator, so each pick draws a fresh outfit and loads that operator's sets.
+ * player. The parent keys it on the operator, so each pick draws a fresh outfit and loads that operator's sets. On a phone it covers the list,
+ * with a Back button.
  *
  * @param props Component props.
  * @returns The detail pane.
  */
-const RecordDetail = memo(function RecordDetail({ operator }: RecordDetailProps) {
+const RecordDetail = memo(function RecordDetail({ operator, onBack }: RecordDetailProps) {
 	const [groups, setGroups] = useState<StoryGroup[] | null>(null);
 	const [error, setError] = useState(false);
 	const [attempt, setAttempt] = useState(0);
@@ -205,11 +220,16 @@ const RecordDetail = memo(function RecordDetail({ operator }: RecordDetailProps)
 
 	const sets = operator.sets.length;
 	return (
-		<Box sx={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
+		<Box sx={onBack ? DETAIL_OVER_SX : DETAIL_SX}>
 			{art ? <Box component="img" src={art} alt="" sx={SKIN_SX} /> : null}
 			<Box sx={SHADE_SX} />
 			<Box sx={{ position: "relative", height: "100%", overflowY: "auto", p: { xs: 2.5, md: "32px 36px" } }}>
 				<Box sx={{ width: { xs: "100%", md: "60%" } }}>
+					{onBack ? (
+						<Button size="small" onClick={onBack} sx={{ ml: -1, mb: 1 }}>
+							&#8249; Back
+						</Button>
+					) : null}
 					<Typography sx={{ color: "#f0c36a" }}>
 						{stars(operator.rarity)}{" "}
 						<Box component="span" sx={{ color: "text.secondary" }}>
@@ -250,13 +270,14 @@ interface RecordsBrowserProps {
 	index: StoryIndex;
 	/** The record set the address names, which selects its operator, or null for the first operator in the list. */
 	selectedGroup: string | null;
-	/** Called with an operator's first record set when the reader selects them, so the address follows. */
-	onSelect: (group: string) => void;
+	/** Called with an operator's first record set when the reader selects them, so the address follows, or with null to close them on a phone. */
+	onSelect: (group: string | null) => void;
 }
 
 /**
  * The Operator Records tab: a searchable, filterable list of every operator with record stories, grouped by the letter their name starts with,
- * beside the selected operator's record sets. The arrow keys move through the list as it is filtered.
+ * beside the selected operator's record sets. The arrow keys move through the list as it is filtered. On a phone the list takes the whole tab,
+ * its filters fold behind a button, and a picked operator slides over it.
  *
  * @param props Component props.
  * @returns The tab.
@@ -266,7 +287,9 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 	const [classes, setClasses] = useState<ReadonlySet<string>>(new Set());
 	const [rarities, setRarities] = useState<ReadonlySet<number>>(new Set());
 	const [scrubbing, setScrubbing] = useState<string | null>(null);
+	const [filtersOpen, setFiltersOpen] = useState(false);
 	const list = useRef<HTMLDivElement>(null);
+	const narrow = useMediaQuery((theme: Theme) => theme.breakpoints.down("md"));
 
 	const operators = useMemo(() => recordOperators(index.records, searchIndex), [index]);
 	const visible = useMemo(() => filterOperators(operators, { query, classes, rarities }), [operators, query, classes, rarities]);
@@ -284,6 +307,10 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 	}, [visible]);
 	const allLetters = useMemo(() => [...new Set(operators.map((operator) => operator.letter))], [operators]);
 	const selected = (selectedGroup ? operators.find((operator) => operator.sets.some((set) => set.group === selectedGroup)) : undefined) ?? visible[0];
+	// A phone shows the list alone until an operator is picked, rather than covering it with the first one.
+	const shown = narrow && !selectedGroup ? undefined : selected;
+	const filterCount = classes.size + rarities.size;
+	const back = useCallback(() => onSelect(null), [onSelect]);
 
 	// The arrow keys step through the list as filtered, except while typing in the search box.
 	useEffect(() => {
@@ -331,37 +358,49 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 		<Box sx={BROWSER_SX}>
 			<Box sx={LIST_SX}>
 				<Box sx={{ p: "14px 14px 10px", display: "grid", gap: 1, borderBottom: "1px solid #2a303c" }}>
-					<TextField
-						size="small"
-						placeholder={`Search ${operators.length} operators...`}
-						value={query}
-						onChange={(event) => setQuery(event.target.value)}
-						slotProps={{ htmlInput: { "aria-label": "Search operators" } }}
-					/>
-					<Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-						{CLASSES.map((name) => (
-							<Chip
-								key={name}
-								size="small"
-								label={name}
-								clickable
-								onClick={() => setClasses((value) => toggled(value, name))}
-								sx={classes.has(name) ? CHIP_SELECTED_SX : CHIP_UNSELECTED_SX}
-							/>
-						))}
+					<Box sx={{ display: "flex", gap: 1 }}>
+						<TextField
+							size="small"
+							placeholder={`Search ${operators.length} operators...`}
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							slotProps={{ htmlInput: { "aria-label": "Search operators" } }}
+							sx={{ flex: 1 }}
+						/>
+						{narrow ? (
+							<Button variant={filterCount ? "contained" : "outlined"} aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)} sx={{ flex: "none" }}>
+								Filters{filterCount ? ` (${filterCount})` : ""}
+							</Button>
+						) : null}
 					</Box>
-					<Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-						{RARITIES.map((rarity) => (
-							<Chip
-								key={rarity}
-								size="small"
-								label={`${rarity}★`}
-								clickable
-								onClick={() => setRarities((value) => toggled(value, rarity))}
-								sx={rarities.has(rarity) ? CHIP_SELECTED_SX : CHIP_UNSELECTED_SX}
-							/>
-						))}
-					</Box>
+					{narrow && !filtersOpen ? null : (
+						<>
+							<Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+								{CLASSES.map((name) => (
+									<Chip
+										key={name}
+										size="small"
+										label={name}
+										clickable
+										onClick={() => setClasses((value) => toggled(value, name))}
+										sx={classes.has(name) ? CHIP_SELECTED_SX : CHIP_UNSELECTED_SX}
+									/>
+								))}
+							</Box>
+							<Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+								{RARITIES.map((rarity) => (
+									<Chip
+										key={rarity}
+										size="small"
+										label={`${rarity}★`}
+										clickable
+										onClick={() => setRarities((value) => toggled(value, rarity))}
+										sx={rarities.has(rarity) ? CHIP_SELECTED_SX : CHIP_UNSELECTED_SX}
+									/>
+								))}
+							</Box>
+						</>
+					)}
 				</Box>
 				<Box sx={{ flex: 1, display: "flex", minHeight: 0 }}>
 					<Box ref={list} sx={NAMES_SX}>
@@ -376,7 +415,7 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 										key={operator.id}
 										type="button"
 										className="records-row"
-										aria-current={operator === selected ? "true" : undefined}
+										aria-current={operator === shown ? "true" : undefined}
 										onClick={() => operator.sets[0] && onSelect(operator.sets[0].group)}
 									>
 										{hasPortrait(operator.id) ? <img className="records-thumb" src={portraitUrl(operator.id)} alt="" loading="lazy" /> : <span className="records-thumb" />}
@@ -435,7 +474,7 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 					</Box>
 				</Box>
 			</Box>
-			{selected ? <RecordDetail key={selected.id} operator={selected} /> : <Box sx={{ flex: 1 }} />}
+			{shown ? <RecordDetail key={shown.id} operator={shown} onBack={narrow ? back : null} /> : <Box sx={{ flex: 1 }} />}
 		</Box>
 	);
 }
