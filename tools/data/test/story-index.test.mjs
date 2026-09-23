@@ -112,3 +112,44 @@ test("an operator whose record list is written as {} rather than [] has no recor
 	const index = buildStoryIndex({ reviewTable: REVIEW, chapterTable: CHAPTERS, handbookDict: { ...HANDBOOK, char_000_empty: { handbookAvgList: {} } }, scripts: SCRIPTS });
 	assert.equal(index.records.has("char_000_empty"), false);
 });
+
+test("a group whose show time is the far-future placeholder takes its real start time instead, and a group with no real time sorts first", () => {
+	const review = {
+		act36side: {
+			id: "act36side",
+			name: "Delicious On Terra",
+			entryType: "ACTIVITY",
+			startTime: 1741626000,
+			startShowTime: 4093757999,
+			storyEntryPicId: null,
+			infoUnlockDatas: [story("food_a", 1, "activities/act1/a")]
+		},
+		act40side: {
+			id: "act40side",
+			name: "Later",
+			entryType: "ACTIVITY",
+			startTime: 1750000000,
+			startShowTime: 1750000000,
+			storyEntryPicId: null,
+			infoUnlockDatas: [story("later_a", 1, "activities/mini1/a")]
+		},
+		act99side: {
+			id: "act99side",
+			name: "Never Dated",
+			entryType: "ACTIVITY",
+			startTime: 4093757999,
+			startShowTime: 4093757999,
+			storyEntryPicId: null,
+			infoUnlockDatas: [story("undated_a", 1, "obt/main/c")]
+		}
+	};
+	const { index } = buildStoryIndex({ reviewTable: review, chapterTable: {}, handbookDict: {}, scripts: SCRIPTS });
+	assert.deepEqual(
+		index.events.map((group) => [group.id, group.start]),
+		[
+			["act99side", null],
+			["act36side", 1741626000],
+			["act40side", 1750000000]
+		]
+	);
+});

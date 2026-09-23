@@ -21,6 +21,9 @@ const TAB_BY_ENTRY = { MAINLINE: "main", ACTIVITY: "event", MINI_ACTIVITY: "side
 /** A main episode's zone id, such as `main_14`. */
 const MAIN_ZONE = /^main_(\d+)$/;
 
+/** The first second of 2090. Upstream writes a time in 2099 for a group it has not scheduled, so anything later is a placeholder, not a date. */
+const PLACEHOLDER_TIME = 3786912000;
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Index
@@ -37,14 +40,29 @@ function mainNumber(id) {
 }
 
 /**
+ * When a group first showed: its show time, or its start time when the show time is missing or a placeholder, as for Delicious On Terra.
+ *
+ * @param {{startShowTime?: number, startTime?: number}} row The group's `story_review_table` row.
+ * @returns {number | null} The time in Unix seconds, or null when neither time is real.
+ */
+function startOf(row) {
+	for (const time of [row.startShowTime, row.startTime]) {
+		if (typeof time === "number" && time > 0 && time < PLACEHOLDER_TIME) {
+			return time;
+		}
+	}
+	return null;
+}
+
+/**
  * A group's entry in a picker tab.
  *
  * @param {{id: string, name: string, stories: unknown[]}} group The built group.
- * @param {{storyEntryPicId?: string | null, startShowTime?: number}} row The group's `story_review_table` row.
+ * @param {{storyEntryPicId?: string | null, startShowTime?: number, startTime?: number}} row The group's `story_review_table` row.
  * @returns {{id: string, name: string, stories: number, cover: string | null, start: number | null}} The entry.
  */
 function groupMeta(group, row) {
-	return { id: group.id, name: group.name, stories: group.stories.length, cover: row.storyEntryPicId ?? null, start: row.startShowTime > 0 ? row.startShowTime : null };
+	return { id: group.id, name: group.name, stories: group.stories.length, cover: row.storyEntryPicId ?? null, start: startOf(row) };
 }
 
 /**
@@ -92,7 +110,8 @@ export function buildStoryIndex({ reviewTable, chapterTable, handbookDict, scrip
 
 	const byType = (type) => Object.values(groups).filter((group) => group.type === type);
 	const main = byType("main").sort((a, b) => mainNumber(a.id) - mainNumber(b.id));
-	const byStart = (a, b) => (rows[a.id].startShowTime ?? 0) - (rows[b.id].startShowTime ?? 0) || a.id.localeCompare(b.id);
+	// An undated group sorts first, under the picker's year 0000.
+	const byStart = (a, b) => (startOf(rows[a.id]) ?? 0) - (startOf(rows[b.id]) ?? 0) || a.id.localeCompare(b.id);
 	const maxMain = Math.max(...main.map((group) => mainNumber(group.id)));
 
 	const acts = [];
