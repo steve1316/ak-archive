@@ -155,8 +155,9 @@ const StageArt = memo(function StageArt({ stage, nickname, presence }: { stage: 
 	const alone = slots.length === 1;
 	return (
 		<>
-			{stage.background ? <Layer layer={stage.background} presence={presence} /> : null}
-			{stage.image ? <Layer layer={stage.image} presence={presence} /> : null}
+			{/* Keyed on the art, so a new scene mounts fresh and plays its own fade even when the fade time matches the last one. */}
+			{stage.background ? <Layer key={stage.background.name} layer={stage.background} presence={presence} /> : null}
+			{stage.image ? <Layer key={stage.image.name} layer={stage.image} presence={presence} /> : null}
 			{slots.map((slot) => {
 				const spriteName = stage.sprites[slot] ?? "";
 				const url = storyAssetUrl("sprites", spriteName, presence);
