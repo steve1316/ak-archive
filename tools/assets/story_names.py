@@ -8,6 +8,8 @@ the `avg_npc_484_1` folder, `char_002_amiya_1#7` is `char_002_amiya_7.png` in `c
 derived from one rule. Case is ignored throughout, since the scripts and the mirror disagree on it.
 """
 
+import re
+
 # //////////////////////////////////////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////////////////
 # Constants
@@ -20,6 +22,9 @@ MANIFEST_KINDS = ("backgrounds", "images", "items", "sprites", "audio", "covers"
 
 # Reference kinds found by file name alone, each in its own flat folder.
 IMAGE_KINDS = ("backgrounds", "images", "items")
+
+# Leading zeros in a face or outfit number, such as `#01$1`, which the files never carry.
+LEADING_ZEROS = re.compile(r"([#$])0+(\d)")
 
 # The map art file names tried for main episode N, in order.
 MAP_NAMES = ("zone_map_{n}_up.png", "main_{n}_up.png", "zone_map_{n}_1.png")
@@ -64,13 +69,14 @@ def manifest_key(kind, key):
         key: The reference, or the group id for covers and maps.
 
     Returns:
-        The sprite key for sprites, the group id for covers and maps, and the lowercased reference otherwise.
+        The group id for covers and maps, the lowercased reference for audio, and the sprite key rule for every image kind.
     """
-    if kind == "sprites":
-        return sprite_key(key)
     if kind in ("covers", "maps"):
         return key
-    return key.lower()
+    if kind in ("music", "sounds"):
+        return key.lower()
+    # Image keys take the sprite rule too, since an `interlude` background can name a sprite, and `#` or `$` would break its URL.
+    return sprite_key(key)
 
 
 def published_path(kind, key):
@@ -124,17 +130,16 @@ def index_by_path(files):
     return {item["path"].lower(): item for item in files}
 
 
-def sprite_candidates(name):
+def layout_candidates(lowered):
     """
-    The paths under `avg/characters` a sprite may be stored at, most specific first.
+    The paths under `avg/characters` one lowercased sprite name may be stored at, following the three layouts, most specific first.
 
     Args:
-        name: The upstream sprite name.
+        lowered: The sprite name, lowercased with leading zeros removed.
 
     Returns:
-        Lowercased candidate paths, without repeats.
+        Candidate paths.
     """
-    lowered = name.lower()
     if "#" in lowered:
         base, rest = lowered.split("#", 1)
         face = rest.split("$", 1)[0]
@@ -147,9 +152,29 @@ def sprite_candidates(name):
         candidates += [f"{base}_{face}.png", f"{lowered}.png"]
         if face == "1":
             candidates.append(f"{base}.png")
-    else:
-        base = lowered.split("$", 1)[0]
-        candidates = [f"{base}/{lowered}.png", f"{lowered}/{lowered}.png", f"{lowered}.png"]
+        return candidates
+    base = lowered.split("$", 1)[0]
+    return [f"{base}/{lowered}.png", f"{lowered}/{lowered}.png", f"{lowered}.png"]
+
+
+def sprite_candidates(name):
+    """
+    The paths under `avg/characters` a sprite may be stored at, most specific first.
+
+    The exact name comes first. Leading zeros in the face and outfit numbers are then dropped, since the files never carry them. An `avg_` sprite
+    the mirror only has in the older `char_` layout, such as `avg_1505_frstar_1#3$1` stored as `char_1505_frstar_1/char_1505_frstar_3.png`, is
+    tried last.
+
+    Args:
+        name: The upstream sprite name.
+
+    Returns:
+        Lowercased candidate paths, without repeats.
+    """
+    lowered = LEADING_ZEROS.sub(r"\1\2", name.lower())
+    candidates = [f"{name.lower().split('#', 1)[0].split('$', 1)[0]}/{name.lower()}.png"] + layout_candidates(lowered)
+    if lowered.startswith("avg_"):
+        candidates += layout_candidates(f"char_{lowered[len('avg_'):]}")
     return list(dict.fromkeys(candidates))
 
 
@@ -166,7 +191,12 @@ def resolve(kind, key, indexes):
         The listing entry, or None when the mirror has no such file.
     """
     if kind in IMAGE_KINDS:
-        return indexes[kind].get(f"{key.lower()}.png")
+        # Backgrounds and art scenes share names across their two folders, and an `interlude` background can name a sprite.
+        folders = (kind,) if kind == "items" else (kind, "images" if kind == "backgrounds" else "backgrounds")
+        found = next((indexes[folder][f"{key.lower()}.png"] for folder in folders if f"{key.lower()}.png" in indexes[folder]), None)
+        if found is None and kind == "backgrounds" and "characters" in indexes:
+            return resolve("sprites", key, indexes)
+        return found
     if kind == "sprites":
         characters = indexes["characters"]
         return next((characters[candidate] for candidate in sprite_candidates(key) if candidate in characters), None)

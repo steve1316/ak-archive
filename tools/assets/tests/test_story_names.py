@@ -83,3 +83,37 @@ def test_covers_and_maps():
     assert map_entry("main_11", indexes)["path"] == "zone_map_main_11/main_11_up.png"
     assert map_entry("main_14", indexes)["path"] == "zone_map_main_14/zone_map_14_1.png"
     assert map_entry("main_3", indexes) is None
+
+
+def test_backgrounds_and_images_look_in_each_other_s_folder_and_a_background_can_be_a_sprite():
+    indexes = {
+        "backgrounds": index_by_name([entry("34_g10_tent_inside.png")]),
+        "images": index_by_name([entry("avg_9_9.png")]),
+        "items": index_by_name([]),
+        "characters": index_by_path([entry("avg_003_kalts_1/avg_003_kalts_1#5$1.png")]),
+    }
+    assert resolve("images", "34_g10_tent_inside", indexes)["path"] == "34_g10_tent_inside.png"
+    assert resolve("backgrounds", "avg_9_9", indexes)["path"] == "avg_9_9.png"
+    assert resolve("backgrounds", "avg_003_kalts_1#5$1", indexes)["path"] == "avg_003_kalts_1/avg_003_kalts_1#5$1.png"
+    assert resolve("items", "34_g10_tent_inside", indexes) is None
+
+
+def test_sprites_drop_leading_zeros_and_fall_back_from_avg_to_the_older_char_layout():
+    characters = index_by_path(
+        [
+            entry("avg_172_svrash_1/avg_172_svrash_1#1$1.png"),
+            entry("avg_4047_pianst_1/avg_4047_pianst_1#1$1.png"),
+            entry("char_1505_frstar_1/char_1505_frstar_1.png"),
+            entry("char_1505_frstar_1/char_1505_frstar_3.png"),
+        ]
+    )
+    indexes = {"characters": characters}
+    assert resolve("sprites", "avg_172_svrash_1#01$1", indexes)["path"] == "avg_172_svrash_1/avg_172_svrash_1#1$1.png"
+    assert resolve("sprites", "avg_4047_pianst_1#1$01", indexes)["path"] == "avg_4047_pianst_1/avg_4047_pianst_1#1$1.png"
+    assert resolve("sprites", "avg_1505_frstar_1#1$1", indexes)["path"] == "char_1505_frstar_1/char_1505_frstar_1.png"
+    assert resolve("sprites", "avg_1505_frstar_1#3$1", indexes)["path"] == "char_1505_frstar_1/char_1505_frstar_3.png"
+
+
+def test_image_keys_never_carry_url_breaking_characters():
+    assert published_path("backgrounds", "avg_003_kalts_1#5$1") == "backgrounds/avg_003_kalts_1-5-1.webp"
+    assert manifest_key("images", "38_G20_skyblue_L1") == "38_g20_skyblue_l1"
