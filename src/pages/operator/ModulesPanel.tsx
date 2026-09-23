@@ -17,7 +17,7 @@ import ModuleBadge from "./ModuleBadge.js";
 const ART_SIZE = 104;
 
 /** The header: picture beside the code, name and unlock line. */
-const HEAD_SX: SxProps<Theme> = { display: "grid", gridTemplateColumns: `${ART_SIZE}px minmax(0, 1fr)`, gap: 1.75, alignItems: "start", mt: 1.5 };
+const HEAD_SX: SxProps<Theme> = { display: "grid", gridTemplateColumns: `${ART_SIZE}px minmax(0, 1fr)`, gap: 1.75, alignItems: "start" };
 
 /** The module picture. */
 const ART_SX: SxProps<Theme> = { width: ART_SIZE, height: ART_SIZE, borderRadius: 1, display: "block" };
@@ -43,8 +43,27 @@ const EFFECT_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1.25, mt: 1.25, fontSi
 /** An effect tile's label: the card's small group heading, shown as a block over the text. */
 const EFFECT_LABEL_SX: SxProps<Theme> = { ...GROUP_HEADING_SX, display: "block", mb: 0.5 };
 
-/** The lore paragraph: a fixed-height box that scrolls, the same height as the handbook's lore body, since module stories run long. */
-const LORE_SX: SxProps<Theme> = { mt: 1.75, height: 300, overflowY: "auto", pr: 1, fontSize: 13.5, lineHeight: 1.65, color: "text.secondary", whiteSpace: "pre-line" };
+/** Effects on the left, lore on the right from `md` up. The columns stretch to one height, so the lore can fill its column. */
+const COLUMNS_SX: SxProps<Theme> = { display: "grid", gap: 2, mt: 1.5, alignItems: "stretch", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) minmax(0, 1fr)" } };
+
+/** The lore column: a raised tile under a LORE label, laid out as a column so the text can take the remaining height. */
+const LORE_TILE_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1.25, display: "flex", flexDirection: "column", minHeight: 0 };
+
+/**
+ * The lore text. From `md` up it fills whatever height the effects column sets and scrolls inside it, and `flexBasis: 0` keeps its own length
+ * from stretching the row. Stacked on a narrow screen there is no row height to fill, so it takes the handbook lore body's fixed 300px.
+ */
+const LORE_SX: SxProps<Theme> = {
+	height: { xs: 300, md: "auto" },
+	flex: { md: "1 1 0" },
+	minHeight: { md: 200 },
+	overflowY: "auto",
+	pr: 1,
+	fontSize: 13.5,
+	lineHeight: 1.65,
+	color: "text.secondary",
+	whiteSpace: "pre-line"
+};
 
 /** Props for EffectTile. */
 interface EffectTileProps {
@@ -82,8 +101,9 @@ interface ModulesPanelProps {
 }
 
 /**
- * The Modules tab: one chip per module, then the shown module's picture, badge, name and unlock point, the selected stage's stats, trait,
- * talent and summon changes, then its lore. With no module applied it previews the first one, and picking a chip applies it.
+ * The Modules tab: one chip per module, then two columns. The left holds the shown module's picture, badge, name and unlock point and the
+ * selected stage's stats, trait, talent and summon changes. The right holds its lore, which scrolls within the left column's height. With no
+ * module applied it previews the first one, and picking a chip applies it.
  *
  * @param props Component props.
  * @returns The panel.
@@ -139,37 +159,46 @@ export default function ModulesPanel({ operator, controls, onChange }: ModulesPa
 					{`No module applied. Showing ${module.code} - pick it here or in Stats to apply it.`}
 				</Typography>
 			) : null}
-			<Box sx={HEAD_SX}>
-				{hasModuleArt(module.art) ? (
-					<Box component="img" src={moduleArtUrl(module.art)} alt={module.name} sx={ART_SX} />
-				) : (
-					<ArtPlaceholder name={module.name} aspect={ENEMY_CARD_ASPECT} sx={PLACEHOLDER_SX} />
-				)}
-				<Box sx={META_SX}>
-					<Typography sx={CODE_SX}>
-						<ModuleBadge module={module} />
-					</Typography>
-					<Typography component="h3" sx={NAME_SX}>
-						{module.name}
-					</Typography>
-					<Typography variant="body2" color="text.secondary">{`Unlocks at E${module.unlockPhase} Lv${module.unlockLevel} - Stage ${stage}`}</Typography>
+			<Box sx={COLUMNS_SX}>
+				<Box>
+					<Box sx={HEAD_SX}>
+						{hasModuleArt(module.art) ? (
+							<Box component="img" src={moduleArtUrl(module.art)} alt={module.name} sx={ART_SX} />
+						) : (
+							<ArtPlaceholder name={module.name} aspect={ENEMY_CARD_ASPECT} sx={PLACEHOLDER_SX} />
+						)}
+						<Box sx={META_SX}>
+							<Typography sx={CODE_SX}>
+								<ModuleBadge module={module} />
+							</Typography>
+							<Typography component="h3" sx={NAME_SX}>
+								{module.name}
+							</Typography>
+							<Typography variant="body2" color="text.secondary">{`Unlocks at E${module.unlockPhase} Lv${module.unlockLevel} - Stage ${stage}`}</Typography>
+						</Box>
+					</Box>
+					{stats ? <EffectTile label="Stats">{stats}</EffectTile> : null}
+					{current?.trait ? <EffectTile label={current.trait.mode === "append" ? "Trait - added" : "Trait - replaced"}>{current.trait.text}</EffectTile> : null}
+					{current?.talents.map((talent, index) => (
+						<EffectTile key={index} label={`${talent.index === null ? "New talent" : "Talent"} - ${talent.name}${talent.requiredPotential > 1 ? ` (P${talent.requiredPotential})` : ""}`}>
+							{talent.description}
+						</EffectTile>
+					))}
+					{current && current.summon.length > 0 ? (
+						<EffectTile label="Summons">
+							{current.summon.map((line) => (
+								<Box key={line}>{line}</Box>
+							))}
+						</EffectTile>
+					) : null}
+				</Box>
+				<Box sx={LORE_TILE_SX}>
+					<Box component="span" sx={EFFECT_LABEL_SX}>
+						Lore
+					</Box>
+					<Typography sx={LORE_SX}>{lore?.id === module.id ? lore.text : ""}</Typography>
 				</Box>
 			</Box>
-			{stats ? <EffectTile label="Stats">{stats}</EffectTile> : null}
-			{current?.trait ? <EffectTile label={current.trait.mode === "append" ? "Trait - added" : "Trait - replaced"}>{current.trait.text}</EffectTile> : null}
-			{current?.talents.map((talent, index) => (
-				<EffectTile key={index} label={`${talent.index === null ? "New talent" : "Talent"} - ${talent.name}${talent.requiredPotential > 1 ? ` (P${talent.requiredPotential})` : ""}`}>
-					{talent.description}
-				</EffectTile>
-			))}
-			{current && current.summon.length > 0 ? (
-				<EffectTile label="Summons">
-					{current.summon.map((line) => (
-						<Box key={line}>{line}</Box>
-					))}
-				</EffectTile>
-			) : null}
-			{lore?.id === module.id ? <Typography sx={LORE_SX}>{lore.text}</Typography> : null}
 		</Box>
 	);
 }
