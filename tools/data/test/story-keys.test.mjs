@@ -38,3 +38,19 @@ test("addAssetRefs collects every asset a story names, by kind, once each", () =
 		sounds: ["Sound_Beta_2/AVG/d_gen_walk_n"]
 	});
 });
+
+test("addAssetRefs also collects grid, vertical and cg-group backgrounds and the single images tweens, cg hides and blockers name", () => {
+	const refs = emptyAssetRefs();
+	addAssetRefs(
+		[
+			{ t: "cmd", c: "gridbg", a: { imagegroup: "g1/g2" } },
+			{ t: "cmd", c: "verticalbg", a: { imagegroup: "v1" } },
+			{ t: "cmd", c: "largebg", a: { cggroup: "c1/c2" } },
+			{ t: "cmd", c: "imagetween", a: { image: "lungmen" } },
+			{ t: "cmd", c: "hidecgitem", a: { image: "cgitem_x" } },
+			{ t: "cmd", c: "blocker", a: { image: "blocker_movi" } }
+		],
+		refs
+	);
+	assert.deepEqual(serializeAssetRefs(refs).images, ["blocker_movi", "c1", "c2", "cgitem_x", "g1", "g2", "lungmen", "v1"]);
+});
