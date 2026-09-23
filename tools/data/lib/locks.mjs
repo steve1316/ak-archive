@@ -1,6 +1,6 @@
 /**
- * The six upstream pins a scheduled refresh moves: the game data and its CN level fallback, and the four asset mirrors. Each lock file keeps its
- * own fields and formatting, and only `sha` changes.
+ * The seven upstream pins a scheduled refresh moves: the game data and its CN level fallback, the four asset mirrors, and the mirror's voice branch
+ * the story audio comes from. Each lock file keeps its own fields and formatting, and only `sha` changes.
  */
 
 import fs from "node:fs";
@@ -13,7 +13,8 @@ export const PINS = [
 	{ name: "art", file: "tools/assets/upstream.lock.json", field: null },
 	{ name: "enemies", file: "tools/assets/enemies.lock.json", field: null },
 	{ name: "icons", file: "tools/assets/icons.lock.json", field: null },
-	{ name: "enemy-spine", file: "tools/assets/enemy-spine.lock.json", field: null }
+	{ name: "enemy-spine", file: "tools/assets/enemy-spine.lock.json", field: null },
+	{ name: "story-audio", file: "tools/assets/story-audio.lock.json", field: null }
 ];
 
 /**

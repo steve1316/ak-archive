@@ -7,7 +7,7 @@ import path from "node:path";
 import { movedPins, readPins, writeHeads } from "../lib/locks.mjs";
 
 /**
- * Lay out a fake repo root holding the five lock files.
+ * Lay out a fake repo root holding the six lock files.
  *
  * @returns {string} The root.
  */
@@ -21,10 +21,11 @@ function fakeRoot() {
 	write("tools/assets/enemies.lock.json", { repo: "f/res", branch: "main", sha: "a1" });
 	write("tools/assets/icons.lock.json", { repo: "A/icons", branch: "en", sha: "i1" });
 	write("tools/assets/enemy-spine.lock.json", { repo: "H/models", branch: "main", sha: "m1" });
+	write("tools/assets/story-audio.lock.json", { repo: "A/icons", branch: "voice", sha: "v1" });
 	return root;
 }
 
-test("readPins reads all six pins with their repo and ref", () => {
+test("readPins reads all seven pins with their repo and ref, including the story audio pin on the voice branch", () => {
 	const pins = readPins(fakeRoot());
 	assert.deepEqual(
 		pins.map((pin) => [pin.name, pin.repo, pin.ref, pin.sha]),
@@ -34,7 +35,8 @@ test("readPins reads all six pins with their repo and ref", () => {
 			["art", "f/res", "main", "a1"],
 			["enemies", "f/res", "main", "a1"],
 			["icons", "A/icons", "en", "i1"],
-			["enemy-spine", "H/models", "main", "m1"]
+			["enemy-spine", "H/models", "main", "m1"],
+			["story-audio", "A/icons", "voice", "v1"]
 		]
 	);
 });
