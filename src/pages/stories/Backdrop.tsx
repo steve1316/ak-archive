@@ -6,11 +6,16 @@ import type { SxProps, Theme } from "@mui/material";
 /** The area the art fits into: the whole picker, measured as a size container. */
 const FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, display: "grid", placeItems: "center", overflow: "hidden", pointerEvents: "none", containerType: "size" };
 
-/** The art: dimmed and softened, with its own edges faded into the dark, and faded in when it changes. */
+/** How far in from each edge the art fades, as a share of its width or height. */
+const EDGE_FADE = "11%";
+
+/** The art: dimmed and softened, with a band along each of its own edges faded into the dark, and faded in when it changes. */
 const ART_SX: SxProps<Theme> = {
 	display: "block",
 	filter: "blur(2px) brightness(0.5)",
-	maskImage: "radial-gradient(ellipse closest-side, #000 77.5%, transparent 100%)",
+	// A left-right fade and a top-bottom fade, kept only where both are solid, so the whole image shows and only its edges fade.
+	maskImage: `linear-gradient(to right, transparent, #000 ${EDGE_FADE}, #000 calc(100% - ${EDGE_FADE}), transparent), linear-gradient(to bottom, transparent, #000 ${EDGE_FADE}, #000 calc(100% - ${EDGE_FADE}), transparent)`,
+	maskComposite: "intersect",
 	animation: "storyBackdropIn 0.4s ease-out",
 	"@keyframes storyBackdropIn": { from: { opacity: 0 }, to: { opacity: 1 } }
 };
