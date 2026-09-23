@@ -21,7 +21,7 @@
 		"@emotion/styled": "^11.14.1",
 		"@mui/icons-material": "^9.4.0",
 		"@mui/material": "^9.4.0",
-		"archive-kit": "github:steve1316/archive-kit#v0.1.0",
+		"archive-kit": "github:steve1316/archive-kit#9fb5ed048d5f0717c042ef7f88881115a38160ca",
 		"react": "^19.3.0",
 		"react-dom": "^19.3.0",
 		"react-router-dom": "^7.18.3"
