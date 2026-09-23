@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Box, Button, ButtonBase, Typography, useMediaQuery } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { LoadError, ScrollToTop } from "archive-kit";
 
@@ -212,6 +212,7 @@ function railOf(index: StoryIndex, tab: DiscTab, entries: PickerEntry[]): RailEn
 export default function Stories() {
 	const { group: groupParam } = useParams();
 	const navigate = useNavigate();
+	const location = useLocation();
 	const narrow = useMediaQuery((theme: Theme) => theme.breakpoints.down("md"));
 	const [data, setData] = useState<{ index: StoryIndex; presence: StoryPresence } | null>(null);
 	const [error, setError] = useState(false);
@@ -220,6 +221,8 @@ export default function Stories() {
 	const [selected, setSelected] = useState<Record<DiscTab, number>>({ main: 0, events: 0, side: 0 });
 	// The open story list lives in the address, so a refresh, the back button and the navbar's Stories link all agree with the page.
 	const openGroup = groupParam ?? null;
+	// Whether this page pushed the open list's history entry, so closing it can step back and a phone's back gesture closes it too.
+	const pushed = (location.state as { pushed?: boolean } | null)?.pushed === true;
 
 	useEffect(() => {
 		let active = true;
@@ -233,7 +236,24 @@ export default function Stories() {
 		};
 	}, [attempt]);
 
-	const showGroup = useCallback((id: string | null) => navigate(storyGroupPath(id), { replace: true }), [navigate]);
+	// Opening a list adds a history entry and moving between lists replaces it, so Back always closes the list rather than walking through each
+	// one. A list opened from a link has no entry of ours to step back over, so closing it replaces the address instead.
+	// Desktop Operator Records has no panel to close, so picking an operator there only replaces the address.
+	const showGroup = useCallback(
+		(id: string | null) => {
+			if (id === openGroup) {
+				return;
+			}
+			if (id === null && pushed) {
+				navigate(-1);
+			} else if (id === null || openGroup || (tab === "records" && !narrow)) {
+				navigate(storyGroupPath(id), { replace: true, state: pushed ? { pushed } : null });
+			} else {
+				navigate(storyGroupPath(id), { state: { pushed: true } });
+			}
+		},
+		[navigate, pushed, openGroup, tab, narrow]
+	);
 
 	// A `/stories/:group` address opens that group's tab and selects it. The list itself follows the address.
 	useEffect(() => {
