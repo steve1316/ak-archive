@@ -1,0 +1,21 @@
+# `COPY . .` in the Dockerfile would otherwise pull in the host's node_modules and the whole git history, which is slow and can leave a
+# platform-specific install inside the image.
+
+node_modules
+build
+.git
+.github
+
+# The asset pipeline's staging trees and caches, which run to tens of GB, plus local scratch and run logs.
+tools/assets/.staging*
+tools/assets/.cache
+tools/assets/.tools
+tools/assets/.pytest_cache
+tools/data/.cache
+**/__pycache__
+.superpowers
+.playwright-mcp
+.claude
+.vscode
+docs
+*.log

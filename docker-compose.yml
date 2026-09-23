@@ -1,0 +1,8 @@
+# Root-path preview of the built site, so the Docker build can be checked before a push.
+
+services:
+  archive:
+    build: .
+    ports:
+      - "8088:80"
+    restart: unless-stopped
