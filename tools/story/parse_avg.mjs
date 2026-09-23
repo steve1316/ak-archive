@@ -70,10 +70,10 @@ export const STEP_TYPES = new Set(["line", "cmd", "unknown", "decision", "predic
 
 /**
  * The inline tags a line can carry: `<i>` and `<color=...>` with their closers, which become spans, any other closer such as `</>`, a size tag
- * `<p=...>` that is dropped, and a bracketed title such as `<PRTS's First Functional Test>`, which keeps its words. Built on `CONTENT_TAG` so
- * titles are recognised exactly as the operator text's are.
+ * `<p=...>` that is dropped, a self-closing tag such as `<i/>` that upstream writes by mistake and is dropped too, and a bracketed title such
+ * as `<PRTS's First Functional Test>`, which keeps its words. Built on `CONTENT_TAG` so titles are recognised exactly as the operator text's are.
  */
-const INLINE_TAG = new RegExp(String.raw`<(\/?)(i|color)(?:=([^>]*))?>|<\/[^>]*>|<p=[^>]*>|` + CONTENT_TAG.source, "gi");
+const INLINE_TAG = new RegExp(String.raw`<(\/?)(i|color)(?:=([^>]*))?>|<\/[^>]*>|<p=[^>]*>|<[^<>]*\/>|` + CONTENT_TAG.source, "gi");
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -292,6 +292,24 @@ function splitList(value) {
 }
 
 /**
+ * Build a decision step whose options and values pair up one to one.
+ *
+ * Options are split on `;`, so an option whose own text holds a semicolon arrives as two. Those surplus pieces are joined back into the last
+ * option, which is where the data puts them. A decision that lists more values than options is an authoring slip upstream, and the values with
+ * no option to pick them are dropped.
+ *
+ * @param {string[]} options The option texts, split on `;`.
+ * @param {string[]} values The value each option sets, split on `;`.
+ * @returns {{t: "decision", options: string[], values: string[]}} The step.
+ */
+function decisionStep(options, values) {
+	if (options.length > values.length && values.length > 0) {
+		options = [...options.slice(0, values.length - 1), options.slice(values.length - 1).join("; ")];
+	}
+	return { t: "decision", options, values: values.slice(0, options.length) };
+}
+
+/**
  * Replace each `$name` argument with its value from `story_variables.json`. An unknown variable is kept as written, so the asset pipeline
  * can report it rather than it vanishing.
  *
@@ -330,7 +348,7 @@ export function parseScript(text, variables = {}) {
 		} else if (command === "multiline") {
 			steps.push({ ...lineStep(args.name || null, parsed.rest), append: true });
 		} else if (command === "decision") {
-			steps.push({ t: "decision", options: splitList(args.options), values: splitList(args.values) });
+			steps.push(decisionStep(splitList(args.options), splitList(args.values)));
 		} else if (command === "predicate") {
 			steps.push({ t: "predicate", refs: splitList(args.references) });
 		} else {

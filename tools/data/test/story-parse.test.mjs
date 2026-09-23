@@ -70,3 +70,13 @@ test("parseScript treats PlaySound and playsound as the same command", () => {
 	const [upper, lower] = parseScript('[PlaySound(key="a")]\n[playsound(key="a")]');
 	assert.deepEqual(upper, lower);
 });
+
+test("toSpans drops a self-closing tag such as <i/> that upstream writes by mistake", () => {
+	assert.deepEqual(toSpans("You sold<i/> it?!"), { text: "You sold it?!" });
+});
+
+test("a decision whose option text holds a semicolon keeps it in the last option, and extra values with no option are dropped", () => {
+	const [split, short] = parseScript('[Decision(options="Spite?;......;Be polite; things would ease.", values="1;2;3")]\n[Decision(options="The usual, or...?", values="1;2;3")]');
+	assert.deepEqual(split, { t: "decision", options: ["Spite?", "......", "Be polite; things would ease."], values: ["1", "2", "3"] });
+	assert.deepEqual(short, { t: "decision", options: ["The usual, or...?"], values: ["1"] });
+});
