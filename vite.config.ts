@@ -105,14 +105,21 @@ const SEARCH_INDEX_PATH = path.join(REPO_ROOT, "src/data/search-index.json");
 const ENEMIES_PATH = path.join(REPO_ROOT, "src/data/enemies.json");
 
 /**
- * Every operator id and enemy variant id the generated data names, which the presence lists are taken against.
+ * Every operator id, enemy variant id and enemy group head id the generated data names. The presence lists are taken against the first two,
+ * and the route pages are written for the operators and the group heads.
  *
  * @returns The ids, read from the search index and the enemy index.
  */
-async function dataIds(): Promise<{ operators: string[]; enemies: string[] }> {
-	const operators = JSON.parse(await fs.readFile(SEARCH_INDEX_PATH, "utf8")) as { id: string }[];
-	const enemies = JSON.parse(await fs.readFile(ENEMIES_PATH, "utf8")) as { variants: { id: string }[] }[];
-	return { operators: operators.map((entry) => entry.id), enemies: enemies.flatMap((group) => group.variants.map((variant) => variant.id)) };
+async function dataIds(): Promise<{ operators: string[]; enemies: string[]; enemyHeads: string[] }> {
+	const [operators, enemies] = await Promise.all([
+		fs.readFile(SEARCH_INDEX_PATH, "utf8").then((text) => JSON.parse(text) as { id: string }[]),
+		fs.readFile(ENEMIES_PATH, "utf8").then((text) => JSON.parse(text) as { id: string; variants: { id: string }[] }[])
+	]);
+	return {
+		operators: operators.map((entry) => entry.id),
+		enemies: enemies.flatMap((group) => group.variants.map((variant) => variant.id)),
+		enemyHeads: enemies.map((group) => group.id)
+	};
 }
 
 /**
@@ -155,18 +162,18 @@ function assetPresencePlugin(): Plugin {
  * @returns The plugin.
  */
 function routePagesPlugin(): Plugin {
-	let outDir = "";
 	return {
 		name: "route-pages",
 		apply: "build",
-		configResolved(config) {
-			outDir = path.resolve(config.root, config.build.outDir);
-		},
-		async closeBundle() {
-			const html = await fs.readFile(path.join(outDir, "index.html"), "utf8");
-			const operators = JSON.parse(await fs.readFile(SEARCH_INDEX_PATH, "utf8")) as { id: string }[];
-			const enemies = JSON.parse(await fs.readFile(ENEMIES_PATH, "utf8")) as { id: string }[];
-			const paths = routePagePaths({ operatorIds: operators.map((entry) => entry.id), enemyHeadIds: enemies.map((group) => group.id) });
+		// `writeBundle` rather than `closeBundle`, as in the kit's `spaFallback`: `closeBundle` also runs after a failed build, and its missing
+		// `index.html` would then hide the real error.
+		async writeBundle(options, bundle) {
+			const outDir = options.dir;
+			if (outDir === undefined || !Object.hasOwn(bundle, "index.html")) {
+				return;
+			}
+			const [html, ids] = await Promise.all([fs.readFile(path.join(outDir, "index.html"), "utf8"), dataIds()]);
+			const paths = routePagePaths({ operatorIds: ids.operators, enemyHeadIds: ids.enemyHeads });
 			const folders = new Set(paths.map((page) => path.dirname(path.join(outDir, page))));
 			await Promise.all([...folders].map((folder) => fs.mkdir(folder, { recursive: true })));
 			await Promise.all(paths.map((page) => fs.writeFile(path.join(outDir, `${page}.html`), html)));
