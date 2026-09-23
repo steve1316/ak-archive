@@ -193,7 +193,7 @@ const StageArt = memo(function StageArt({ stage, nickname, presence }: { stage: 
 });
 
 /**
- * The story stage: the art, the text box and the blocker, laid out with the values tuned against the game.
+ * The story stage: the art, the blocker and the text box, laid out with the values tuned against the game.
  *
  * @param props Component props.
  * @returns The stage.
@@ -207,6 +207,8 @@ function StoryStage({ stage, name, line, typed, nickname, presence, hideText, sh
 			data-region="story-stage"
 		>
 			<StageArt stage={stage} nickname={nickname} presence={presence} />
+			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
+			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
 			{!hideText && line ? (
 				<Box sx={TEXT_LAYER_SX}>
 					<Box sx={VIGNETTE_SX} />
@@ -232,7 +234,6 @@ function StoryStage({ stage, name, line, typed, nickname, presence, hideText, sh
 					</Box>
 				</Box>
 			) : null}
-			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
 			{children}
 		</Box>
 	);
