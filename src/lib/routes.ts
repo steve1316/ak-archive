@@ -1,41 +1,17 @@
+import { enemyNumber, operatorNumber } from "../../tools/data/lib/routePages.mjs";
 import { searchIndex } from "./data.js";
 
-/** The number inside an upstream operator id, such as `456` in `char_456_ash`. */
-const ID_NUMBER = /^char_(\d+)_/;
+// The route numbers live in `routePages.mjs`, which the build also uses to write a real page for every route, so the two cannot disagree.
+export { enemyNumber, operatorNumber };
 
 /** Upstream ids keyed by their short number. Every operator's number is unique, so the short URL is enough to find it. */
 const ID_BY_NUMBER = new Map(searchIndex.map((entry) => [operatorNumber(entry.id), entry.id]));
-
-/** The number inside an upstream enemy id, such as `1023` in `enemy_1023_jmage_2`. Every enemy group's head has its own number. */
-const ENEMY_NUMBER = /^enemy_(\d+)_/;
 
 /** A route parameter in its short form: digits only. */
 const SHORT_ID = /^\d+$/;
 
 /** The query key that picks a variant on an enemy's page. */
 export const VARIANT_PARAM = "variant";
-
-/**
- * The number inside an upstream id, without leading zeros.
- *
- * @param pattern Matches the id's prefix and captures its number, such as `ID_NUMBER`.
- * @param id The upstream id.
- * @returns The number as a string, or the id unchanged when it has no number.
- */
-function numberIn(pattern: RegExp, id: string): string {
-	const match = pattern.exec(id);
-	return match?.[1] === undefined ? id : String(Number(match[1]));
-}
-
-/**
- * The short number an operator's URL uses, without leading zeros, so `char_002_amiya` becomes `2`.
- *
- * @param id The upstream operator id.
- * @returns The number as a string, or the id unchanged when it has no number.
- */
-export function operatorNumber(id: string): string {
-	return numberIn(ID_NUMBER, id);
-}
 
 /**
  * The route for an operator's page, or for a page under it such as the art viewer.
@@ -72,16 +48,6 @@ export function resolveOperatorParam(param: string | undefined): string | undefi
 export function canonicalOperatorPath(param: string | undefined, suffix = ""): string | undefined {
 	const id = resolveOperatorParam(param);
 	return id === undefined ? undefined : operatorPath(id, suffix);
-}
-
-/**
- * The short number an enemy group's URL uses, without leading zeros, so `enemy_1023_jmage` becomes `1023`.
- *
- * @param id The upstream enemy id.
- * @returns The number as a string, or the id unchanged when it has no number.
- */
-export function enemyNumber(id: string): string {
-	return numberIn(ENEMY_NUMBER, id);
 }
 
 /**
