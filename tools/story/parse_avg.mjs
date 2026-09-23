@@ -44,6 +44,7 @@ export const KNOWN_COMMANDS = new Set([
 	"dialog",
 	"effect",
 	"focusout",
+	"gridbg",
 	"header",
 	"hidecgitem",
 	"hideitem",
@@ -62,18 +63,20 @@ export const KNOWN_COMMANDS = new Set([
 	"stopmusic",
 	"stopsound",
 	"subtitle",
-	"theater"
+	"theater",
+	"verticalbg"
 ]);
 
 /** Every step type `parseScript` emits. `check.mjs` rejects any other. */
 export const STEP_TYPES = new Set(["line", "cmd", "unknown", "decision", "predicate"]);
 
 /**
- * The inline tags a line can carry: `<i>` and `<color=...>` with their closers, which become spans, any other closer such as `</>`, a size tag
+ * The inline tags a line can carry: `<i>`, `<b>` and `<color=...>` with their closers, which become spans, `<u>`, `<s>` and `<size=...>`, which
+ * are dropped rather than left to read as titles, any other closer such as `</>`, a size tag
  * `<p=...>` that is dropped, a self-closing tag such as `<i/>` that upstream writes by mistake and is dropped too, and a bracketed title such
  * as `<PRTS's First Functional Test>`, which keeps its words. Built on `CONTENT_TAG` so titles are recognised exactly as the operator text's are.
  */
-const INLINE_TAG = new RegExp(String.raw`<(\/?)(i|color)(?:=([^>]*))?>|<\/[^>]*>|<p=[^>]*>|<[^<>]*\/>|` + CONTENT_TAG.source, "gi");
+const INLINE_TAG = new RegExp(String.raw`<(\/?)(i|b|u|s|color|size)(?:=([^>]*))?>|<\/[^>]*>|<p=[^>]*>|<[^<>]*\/>|` + CONTENT_TAG.source, "gi");
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -220,20 +223,21 @@ export function parseLine(line) {
  * Turn a line's inline markup into plain text plus styled spans, so no raw tag reaches the shipped data.
  *
  * @param {string} raw The line as the script writes it.
- * @returns {{text: string, spans?: {text: string, i?: true, color?: string}[]}} The plain text, and spans only when some of it is styled.
+ * @returns {{text: string, spans?: {text: string, i?: true, b?: true, color?: string}[]}} The plain text, and spans only when some of it is styled.
  */
 export function toSpans(raw) {
 	const spans = [];
 	const colors = [];
 	let italic = false;
+	let bold = false;
 	let last = 0;
 	const push = (text) => {
 		if (!text) {
 			return;
 		}
-		const style = { ...(italic ? { i: true } : {}), ...(colors.length ? { color: colors[colors.length - 1] } : {}) };
+		const style = { ...(italic ? { i: true } : {}), ...(bold ? { b: true } : {}), ...(colors.length ? { color: colors[colors.length - 1] } : {}) };
 		const previous = spans[spans.length - 1];
-		if (previous && previous.i === style.i && previous.color === style.color) {
+		if (previous && previous.i === style.i && previous.b === style.b && previous.color === style.color) {
 			previous.text += text;
 		} else {
 			spans.push({ text, ...style });
@@ -247,6 +251,8 @@ export function toSpans(raw) {
 			push(title);
 		} else if (name?.toLowerCase() === "i") {
 			italic = !closing;
+		} else if (name?.toLowerCase() === "b") {
+			bold = !closing;
 		} else if (name?.toLowerCase() === "color") {
 			if (closing) {
 				colors.pop();
@@ -264,7 +270,27 @@ export function toSpans(raw) {
 	}
 	push(raw.slice(last));
 	const text = spans.map((span) => span.text).join("");
-	return spans.some((span) => span.i || span.color) ? { text, spans } : { text };
+	return spans.some((span) => span.i || span.b || span.color) ? { text, spans } : { text };
+}
+
+/**
+ * A piece of text with its markup removed, for places that show plain text only, such as a speaker's name or a choice.
+ *
+ * @param {unknown} raw The text as the script writes it.
+ * @returns {string} The plain text.
+ */
+function plainText(raw) {
+	return toSpans(String(raw)).text;
+}
+
+/**
+ * Clean a command's `text` argument, as subtitles and stickers carry, into plain text plus spans, so no raw tag reaches the shipped data.
+ *
+ * @param {Record<string, unknown>} args The command's arguments.
+ * @returns {Record<string, unknown>} The arguments, with `text` cleaned and `spans` beside it when some of it is styled.
+ */
+function cleanTextArg(args) {
+	return typeof args.text === "string" ? { ...args, ...toSpans(args.text) } : args;
 }
 
 /**
@@ -343,16 +369,19 @@ export function parseScript(text, variables = {}) {
 		}
 		const command = parsed.name.toLowerCase();
 		const args = resolveVariables(parsed.args, variables);
+		const speaker = args.name ? plainText(args.name) : null;
 		if (command === "name") {
-			steps.push(lineStep(args.name || null, parsed.rest));
+			steps.push(lineStep(speaker, parsed.rest));
 		} else if (command === "multiline") {
-			steps.push({ ...lineStep(args.name || null, parsed.rest), append: true });
+			// `end=true` closes the box, so the next multiline starts a new one rather than adding to this.
+			steps.push({ ...lineStep(speaker, parsed.rest), append: true, ...(args.end === true ? { end: true } : {}) });
 		} else if (command === "decision") {
-			steps.push(decisionStep(splitList(args.options), splitList(args.values)));
+			steps.push(decisionStep(splitList(args.options).map(plainText), splitList(args.values)));
 		} else if (command === "predicate") {
-			steps.push({ t: "predicate", refs: splitList(args.references) });
+			// A bare `[Predicate]` rejoins every branch after a choice, so it is written as null refs rather than an empty list.
+			steps.push({ t: "predicate", refs: args.references === undefined ? null : splitList(args.references) });
 		} else {
-			steps.push({ t: KNOWN_COMMANDS.has(command) ? "cmd" : "unknown", c: command, a: args });
+			steps.push({ t: KNOWN_COMMANDS.has(command) ? "cmd" : "unknown", c: command, a: cleanTextArg(args) });
 		}
 	}
 	return steps;

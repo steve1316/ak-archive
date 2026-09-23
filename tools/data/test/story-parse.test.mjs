@@ -80,3 +80,32 @@ test("a decision whose option text holds a semicolon keeps it in the last option
 	assert.deepEqual(split, { t: "decision", options: ["Spite?", "......", "Be polite; things would ease."], values: ["1", "2", "3"] });
 	assert.deepEqual(short, { t: "decision", options: ["The usual, or...?"], values: ["1"] });
 });
+
+test("toSpans keeps bold as a span style and drops the size, underline and strike tags rather than leaving their letters behind", () => {
+	assert.deepEqual(toSpans("I <b>cannot</b> say, <size=30>Sir</size> <u>A</u><s>.</s>"), {
+		text: "I cannot say, Sir A.",
+		spans: [{ text: "I " }, { text: "cannot", b: true }, { text: " say, Sir A." }]
+	});
+});
+
+test("a bare Predicate rejoins every branch, written as null refs", () => {
+	assert.deepEqual(parseScript("[Predicate]"), [{ t: "predicate", refs: null }]);
+});
+
+test("markup is cleaned out of speaker names, decision options and the text of subtitles and stickers", () => {
+	const [line, decision, subtitle] = parseScript('[name="<i>Tech Review</i> Reporter"]  Hi.\n[Decision(options="<i>Wait</i>;Go", values="1;2")]\n[Subtitle(text="<i>Far</i> away", x=1)]');
+	assert.equal(line.name, "Tech Review Reporter");
+	assert.deepEqual(decision.options, ["Wait", "Go"]);
+	assert.deepEqual(subtitle.a, { text: "Far away", spans: [{ text: "Far", i: true }, { text: " away" }], x: 1 });
+});
+
+test("a multiline that ends its box keeps end", () => {
+	assert.deepEqual(parseScript('[multiline(name="A", end=true)]Done.'), [{ t: "line", name: "A", text: "Done.", append: true, end: true }]);
+});
+
+test("gridbg and verticalbg are known commands", () => {
+	assert.deepEqual(
+		parseScript('[gridbg(imagegroup="a")]\n[verticalbg(imagegroup="b")]').map((step) => step.t),
+		["cmd", "cmd"]
+	);
+});
