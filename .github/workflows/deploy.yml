@@ -1,0 +1,55 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Required by actions/deploy-pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it, so the live site is never left half-updated.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # archive-kit is a git dependency that builds itself at install, so the runner needs git. GitHub's runner image already has it.
+      - run: pnpm install --frozen-lockfile
+
+      # `pnpm build` runs tsc --noEmit first, so a type error fails the deploy rather than shipping.
+      - run: pnpm build
+
+      # Enabling Pages is not the same as switching how it publishes. `enablement` sets the source to Actions so this artifact goes live.
+      - uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
