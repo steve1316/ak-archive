@@ -6,10 +6,10 @@
  * Turns a rig's raw animation names into the list the Animations card cycles through.
  *
  * Upstream names come in file order, which is roughly alphabetical, so a skill's End sorts before its Loop and Idle lands mid-list. This drops
- * the static `Default` poses, merges each wind-up, middle and wind-down (`X_Begin`, `X_Loop`, `X_End`) into one entry that plays the whole move,
- * and orders the rest the way a unit lives through a battle: Idle, Move, Attack, the skills in number order, dorm actions, anything else, Die,
- * then Start, which leads back into Idle when the cycle wraps. A rig with phases (`A_Idle` and `B_Idle`, or `Idle_A` and `Idle_B`) gets that
- * order once per phase.
+ * the static `Default` poses, merges each wind-up, middle and wind-down (`X_Begin` or `X_Start`, `X_Loop`, `X_End`) into one entry that plays
+ * the whole move, and orders the rest the way a unit lives through a battle: Idle, Move, Attack, the skills in number order, dorm actions,
+ * anything else, Die, then Start, which leads back into Idle when the cycle wraps. A rig with phases (`A_Idle` and `B_Idle`, or `Idle_A` and
+ * `Idle_B`) gets that order once per phase.
  */
 
 /** One entry in the card's list. */
@@ -26,8 +26,8 @@ const MIDDLE_REPEATS = 2;
 /** Names the middle of a merged move can go by, most specific first. The bare base name is tried last. */
 const MIDDLE_SUFFIXES = ["_Loop", "_Idle"];
 
-/** A wind-up or wind-down animation, with its base name captured. */
-const EDGE = /^(.*)_(Begin|End)$/i;
+/** A wind-up (`_Begin`, or `_Start` on some rigs) or wind-down (`_End`) animation, with its base name captured. A bare `Start` is the deploy. */
+const EDGE = /^(.*)_(Begin|Start|End)$/i;
 
 /**
  * The categories in battle order, each with the name words that put an animation in it. A name takes the category of its first word that has
@@ -150,25 +150,34 @@ function compareKeys(a: readonly (string | number)[], b: readonly (string | numb
 }
 
 /**
- * Merge each wind-up, middle and wind-down into one entry. A group needs at least two of the three to merge, so a lone `X_Begin` stays as it is.
+ * Merge each wind-up, middle and wind-down into one entry. A group needs at least two of the three to merge, so a lone `X_Begin` or a
+ * phase's own deploy such as `B_Start` stays as it is.
  *
  * @param names The animation names, defaults already dropped.
  * @returns The entries, in the order their first animation appeared.
  */
 function mergeMoves(names: string[]): AnimationEntry[] {
 	const present = new Set(names);
-	const byBase = new Map<string, { begin?: string; end?: string }>();
+	const byBase = new Map<string, { begin?: string; end?: string; startOnly?: boolean }>();
 	for (const name of names) {
 		const match = EDGE.exec(name);
 		if (match?.[1] && match[2]) {
 			const edges = byBase.get(match[1]) ?? {};
-			edges[match[2].toLowerCase() === "begin" ? "begin" : "end"] = name;
+			const edge = match[2].toLowerCase();
+			if (edge === "end") {
+				edges.end = name;
+			} else {
+				edges.begin = name;
+				edges.startOnly = edge === "start";
+			}
 			byBase.set(match[1], edges);
 		}
 	}
 	const merged = new Map<string, AnimationEntry>();
-	for (const [base, { begin, end }] of byBase) {
-		const middle = [...MIDDLE_SUFFIXES.map((suffix) => `${base}${suffix}`), base].find((name) => present.has(name));
+	for (const [base, { begin, end, startOnly }] of byBase) {
+		// A phase's deploy such as `A_Start` sits beside that phase's `A_Idle`, so a `_Start` with no `_End` never takes an `_Idle` as its middle.
+		const suffixes = startOnly && !end ? MIDDLE_SUFFIXES.filter((suffix) => suffix !== "_Idle") : MIDDLE_SUFFIXES;
+		const middle = [...suffixes.map((suffix) => `${base}${suffix}`), base].find((name) => present.has(name));
 		const parts = [begin, middle, end].filter((part): part is string => part !== undefined);
 		if (parts.length < 2) {
 			continue;
