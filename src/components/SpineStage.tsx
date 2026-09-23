@@ -100,25 +100,28 @@ function releaseContext(canvas: HTMLCanvasElement): void {
 }
 
 /**
- * Fetches a rig index, and fetches it again on the next `retryKey` change after a failure. The loader shares one request across callers.
+ * Fetches a rig index bucket, fetches the new one when `file` changes, and fetches again on the next `retryKey` change after a failure. The
+ * loader shares one request across callers.
  *
- * @param load The index loader, such as `loadSpineIndex`. Must be stable.
+ * @param load The bucket loader, such as `loadSpineIndexFile`. Must be stable.
+ * @param file The bucket that holds the shown operator or enemy.
  * @param retryKey Changes when the selection changes, which is when a failed fetch is retried.
- * @returns The index once loaded, and where the fetch stands.
+ * @returns The bucket once loaded, and where the fetch stands.
  */
-export function useRigIndex<T>(load: () => Promise<T>, retryKey: string): { index: T | null; state: RigIndexState } {
-	const [index, setIndex] = useState<T | null>(null);
+export function useRigIndex<T>(load: (file: string) => Promise<T>, file: string, retryKey: string): { index: T | null; state: RigIndexState } {
+	const [loaded, setLoaded] = useState<{ file: string; index: T } | null>(null);
 	const [failed, setFailed] = useState(false);
+	const index = loaded?.file === file ? loaded.index : null;
 	useEffect(() => {
 		if (index !== null) {
 			return;
 		}
 		let active = true;
 		setFailed(false);
-		load().then(
-			(loaded) => {
+		load(file).then(
+			(next) => {
 				if (active) {
-					setIndex(() => loaded);
+					setLoaded({ file, index: next });
 				}
 			},
 			() => {
@@ -130,7 +133,7 @@ export function useRigIndex<T>(load: () => Promise<T>, retryKey: string): { inde
 		return () => {
 			active = false;
 		};
-	}, [index, load, retryKey]);
+	}, [index, load, file, retryKey]);
 	return { index, state: index !== null ? "ready" : failed ? "failed" : "loading" };
 }
 

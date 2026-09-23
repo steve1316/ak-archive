@@ -8,6 +8,9 @@
  */
 
 import { createDataStore } from "archive-kit";
+import rigIndexUrls from "virtual:rig-index-urls";
+
+import { RIG_BUCKET_COUNT, rigBucket } from "../../tools/data/lib/rigBuckets.mjs";
 
 import type { EnemySpineIndex, SpineEntry, SpineIndex } from "../types/spine.js";
 import type { RigUrls } from "../spine/player.js";
@@ -22,18 +25,10 @@ export const SPINE_DEV_ROOT = `${import.meta.env.BASE_URL}__spine/`;
 export const ENEMY_SPINE_DEV_ROOT = `${import.meta.env.BASE_URL}__spine-enemies/`;
 
 /**
- * Hosted URLs of the two generated rig indexes, keyed by bare file name, the way `src/lib/data.ts` builds its own map. The glob has to live in
- * the app rather than in the kit. The files are 515 KB and 246 KB, so they are fetched at runtime by the pages that need them.
+ * The store owns fetching an index bucket and the cache that shares one request and drops a failed load so a retry actually retries. The build
+ * splits each rig index into buckets of about 60 KB, so a page fetches only the one its operator or enemy is in.
  */
-const INDEX_URLS = Object.fromEntries(
-	Object.entries(import.meta.glob<string>(["../data/spine-index.json", "../data/enemy-spine-index.json"], { query: "?url", import: "default", eager: true })).map(([path, url]) => [
-		path.replace(/^.*\/|\.json$/g, ""),
-		url
-	])
-);
-
-/** The store owns fetching an index and the cache that shares one request and drops a failed load so a retry actually retries. */
-const store = createDataStore({ urls: INDEX_URLS });
+const store = createDataStore({ urls: rigIndexUrls });
 
 /** Matches a page form key for an operator's default outfit: a plain elite number, with or without the `plus` suffix. */
 const BASE_FORM_PATTERN = /^\d+(plus)?$/i;
@@ -113,19 +108,51 @@ export function spineFormKey(pageKey: string, entry: SpineEntry): string | null 
 }
 
 /**
- * Fetches the operator rig index once and caches it for every later call. Stable, since the stage's effect takes the loader as a dependency.
+ * The operator rig index bucket that holds an operator.
  *
- * @returns The index.
+ * @param operatorId The upstream operator id.
+ * @returns The bucket's file name, for `loadSpineIndexFile`.
  */
-export function loadSpineIndex(): Promise<SpineIndex> {
-	return store.loadFile<SpineIndex>("spine-index");
+export function spineIndexFile(operatorId: string): string {
+	return `spine-index-${rigBucket(operatorId)}`;
 }
 
 /**
- * Fetches the enemy rig index once and caches it for every later call. Stable, for the same reason as `loadSpineIndex`.
+ * The enemy rig index bucket that holds an enemy. Every variant of a group shares its head's bucket.
  *
- * @returns The index.
+ * @param enemyId The upstream enemy variant id.
+ * @returns The bucket's file name, for `loadEnemySpineIndexFile`.
  */
-export function loadEnemySpineIndex(): Promise<EnemySpineIndex> {
-	return store.loadFile<EnemySpineIndex>("enemy-spine-index");
+export function enemySpineIndexFile(enemyId: string): string {
+	return `enemy-spine-index-${rigBucket(enemyId)}`;
+}
+
+/**
+ * Fetches one operator rig index bucket once and caches it for every later call. Stable, since the stage's effect takes the loader as a dependency.
+ *
+ * @param file The bucket, from `spineIndexFile`.
+ * @returns The part of the index that bucket holds.
+ */
+export function loadSpineIndexFile(file: string): Promise<SpineIndex> {
+	return store.loadFile<SpineIndex>(file);
+}
+
+/**
+ * Fetches one enemy rig index bucket once and caches it for every later call. Stable, for the same reason as `loadSpineIndexFile`.
+ *
+ * @param file The bucket, from `enemySpineIndexFile`.
+ * @returns The part of the index that bucket holds.
+ */
+export function loadEnemySpineIndexFile(file: string): Promise<EnemySpineIndex> {
+	return store.loadFile<EnemySpineIndex>(file);
+}
+
+/**
+ * Fetches every operator rig index bucket and joins them into the whole index. Only the dev-only Spine lab needs it.
+ *
+ * @returns The whole index.
+ */
+export async function loadSpineIndex(): Promise<SpineIndex> {
+	const buckets = await Promise.all(Array.from({ length: RIG_BUCKET_COUNT }, (_, bucket) => loadSpineIndexFile(`spine-index-${bucket}`)));
+	return Object.assign({}, ...buckets) as SpineIndex;
 }

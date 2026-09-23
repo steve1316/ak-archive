@@ -4,7 +4,7 @@ import GenericSpineStage, { useRigIndex } from "../../components/SpineStage.js";
 import { StagePlaceholder } from "../../components/AnimationsCard.js";
 import type { RigFacing, RigKind, StageStatus } from "../../components/AnimationsCard.js";
 import { classIconUrl } from "../../lib/assets.js";
-import { loadSpineIndex, spineFormKey, spineRigUrls, spineRoot } from "../../lib/spine.js";
+import { loadSpineIndexFile, spineFormKey, spineIndexFile, spineRigUrls, spineRoot } from "../../lib/spine.js";
 
 /** Props for SpineStage. */
 interface SpineStageProps {
@@ -29,7 +29,7 @@ interface SpineStageProps {
  * @returns The stage.
  */
 export default function SpineStage({ operatorId, formKey, kind, facing, profession, onStatus }: SpineStageProps) {
-	const { index, state } = useRigIndex(loadSpineIndex, `${operatorId}/${formKey}/${kind}/${facing}`);
+	const { index, state } = useRigIndex(loadSpineIndexFile, spineIndexFile(operatorId), `${operatorId}/${formKey}/${kind}/${facing}`);
 	const entry = index?.[operatorId];
 	const spineKey = entry && formKey !== null ? spineFormKey(formKey, entry) : null;
 	const form = entry && spineKey !== null ? entry[spineKey] : undefined;

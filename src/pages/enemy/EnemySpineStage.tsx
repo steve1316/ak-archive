@@ -3,7 +3,7 @@ import { useCallback, useMemo } from "react";
 import GenericSpineStage, { useRigIndex } from "../../components/SpineStage.js";
 import { StagePlaceholder } from "../../components/AnimationsCard.js";
 import type { StageStatus } from "../../components/AnimationsCard.js";
-import { enemyRigUrls, enemySpineRoot, loadEnemySpineIndex } from "../../lib/spine.js";
+import { enemyRigUrls, enemySpineIndexFile, enemySpineRoot, loadEnemySpineIndexFile } from "../../lib/spine.js";
 
 /** Props for EnemySpineStage. */
 interface EnemySpineStageProps {
@@ -22,7 +22,7 @@ interface EnemySpineStageProps {
  * @returns The stage.
  */
 export default function EnemySpineStage({ enemyId, iconUrl, onStatus }: EnemySpineStageProps) {
-	const { index, state } = useRigIndex(loadEnemySpineIndex, enemyId);
+	const { index, state } = useRigIndex(loadEnemySpineIndexFile, enemySpineIndexFile(enemyId), enemyId);
 	const rig = index?.[enemyId] ?? null;
 	const urls = useMemo(() => (rig ? enemyRigUrls(enemySpineRoot(), enemyId, rig) : null), [rig, enemyId]);
 	const renderPlaceholder = useCallback((message: string) => <StagePlaceholder iconUrl={iconUrl} message={message} />, [iconUrl]);
