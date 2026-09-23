@@ -12,9 +12,9 @@
  * diff on an unchanged staged tree.
  *
  * Usage:
- *     node tools/assets/fill_spine_anims.mjs [--staging PATH] [--enemies]
+ *     node tools/assets/fill_spine_anims.mjs [--staging PATH] [--enemies] [--index PATH]
  *
- * Reads and rewrites src/data/spine-index.json, or src/data/enemy-spine-index.json with `--enemies`. Scans the staged tree under
+ * Reads and rewrites src/data/spine-index.json, or src/data/enemy-spine-index.json with `--enemies`, or the file `--index` names instead. Scans the staged tree under
  * `<staging>/assets/spine` or `<staging>/assets/spine-enemies`. `--staging` defaults to `tools/assets/.staging`. A missing or unparseable
  * rig, one no planned stage covers, or one whose animations do not match its kind prints its path and exits 1 before the file is written.
  */
@@ -34,7 +34,7 @@ const INDEX_PATH = path.join(REPO_ROOT, "src", "data", "spine-index.json");
 const ENEMY_INDEX_PATH = path.join(REPO_ROOT, "src", "data", "enemy-spine-index.json");
 
 /** Printed when the command line is wrong. */
-const USAGE = "Usage: node tools/assets/fill_spine_anims.mjs [--staging PATH] [--enemies]";
+const USAGE = "Usage: node tools/assets/fill_spine_anims.mjs [--staging PATH] [--enemies] [--index PATH]";
 
 /**
  * Animation names only a battle rig has, matched on the name's first word so suffixed sets such as Bena's `Idle_A` count. A dorm rig has none
@@ -136,9 +136,16 @@ function listRigs(index, staging, enemies) {
  * Reads the index, fills every rig's `anims` and `stage` from its staged skeleton, and writes the index back.
  */
 async function main() {
-	const staging = parseStaging(process.argv.slice(2), USAGE);
-	const enemies = process.argv.includes("--enemies");
-	const indexPath = enemies ? ENEMY_INDEX_PATH : INDEX_PATH;
+	const args = process.argv.slice(2);
+	const staging = parseStaging(args, USAGE);
+	const enemies = args.includes("--enemies");
+	const indexFlag = args.indexOf("--index");
+	const indexValue = indexFlag === -1 ? null : args[indexFlag + 1];
+	if (indexFlag !== -1 && (!indexValue || indexValue.startsWith("--"))) {
+		console.error(USAGE);
+		process.exit(1);
+	}
+	const indexPath = indexValue ? path.resolve(indexValue) : enemies ? ENEMY_INDEX_PATH : INDEX_PATH;
 	const index = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
 
 	const server = await startVite();

@@ -135,7 +135,7 @@ def write_index(path, index):
         path: The file to write.
         index: The index.
     """
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(index, handle, separators=(",", ":"), sort_keys=True)
         handle.write("\n")
@@ -146,16 +146,17 @@ def main():
     parser = argparse.ArgumentParser(description="Walk the staged Spine tree and write the index the site reads.")
     parser.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
     parser.add_argument("--enemies", action="store_true", help="Index the enemy rigs into enemy-spine-index.json instead of the operator rigs.")
+    parser.add_argument("--index", help="Where to write the index. Defaults to src/data/spine-index.json, or enemy-spine-index.json with --enemies.")
     args = parser.parse_args()
 
     if args.enemies:
         index = build_enemy_index(args.staging, load_enemy_ids())
-        write_index(ENEMY_INDEX_PATH, index)
+        write_index(args.index or ENEMY_INDEX_PATH, index)
         print(f"enemies   {len(index)}")
         return 0
 
     index = build_index(args.staging, load_operator_ids())
-    write_index(INDEX_PATH, index)
+    write_index(args.index or INDEX_PATH, index)
     forms = sum(len(entry) for entry in index.values())
     rigs = sum(len(form) for entry in index.values() for form in entry.values())
     print(f"operators {len(index)}")

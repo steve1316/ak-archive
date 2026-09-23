@@ -1,11 +1,16 @@
 """Tests for the enemy rig index: one flat rig per enemy, read from the staged tree."""
 
+import json
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from build_spine_index import build_enemy_index
+
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "build_spine_index.py")
+COMMITTED_ENEMY_INDEX = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "data", "enemy-spine-index.json")
 
 
 def touch(root, enemy_id, name):
@@ -37,3 +42,15 @@ def test_skips_a_rig_without_an_atlas(tmp_path):
     touch(tmp_path, "enemy_1007_slime", "enemy_1007_slime.skel")
 
     assert build_enemy_index(str(tmp_path), {"enemy_1007_slime"}) == {}
+
+
+def test_index_writes_the_enemy_index_where_asked_and_leaves_the_committed_one_alone(tmp_path):
+    touch(tmp_path, "enemy_1007_slime", "enemy_1007_slime.skel")
+    touch(tmp_path, "enemy_1007_slime", "enemy_1007_slime.atlas")
+    out = tmp_path / "partial" / "enemy-spine.json"
+    before = os.path.getmtime(COMMITTED_ENEMY_INDEX)
+
+    subprocess.run(["python3", SCRIPT, "--staging", str(tmp_path), "--enemies", "--index", str(out)], check=True, capture_output=True)
+
+    assert json.loads(out.read_text()) == {"enemy_1007_slime": {"skel": "enemy_1007_slime", "atlas": "enemy_1007_slime", "anims": []}}
+    assert os.path.getmtime(COMMITTED_ENEMY_INDEX) == before

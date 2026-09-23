@@ -240,6 +240,7 @@ def main():
     """Parse arguments, walk the encoded tree, write the manifest, and print the three counts."""
     parser = argparse.ArgumentParser(description="Walk the encoded asset tree and write the manifest the site reads for asset presence.")
     parser.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
+    parser.add_argument("--out", default=MANIFEST_PATH, help="Where to write the manifest. Defaults to src/data/assets-manifest.json.")
     args = parser.parse_args()
 
     operator_ids = load_operator_ids()
@@ -247,8 +248,8 @@ def main():
 
     # Compact, one line, no spaces after `:` or `,` - matches what the importer's `JSON.stringify(value)` writes for every sibling file
     # under `src/data/`, so this generated file is not the one outlier in that directory.
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(MANIFEST_PATH, "w", encoding="utf-8") as handle:
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, separators=(",", ":"))
         handle.write("\n")
 

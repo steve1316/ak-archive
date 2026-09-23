@@ -1,11 +1,14 @@
 """Tests for the per-kind variant record. The site resolves every form to a file through it, and a raw host is case-sensitive."""
 
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from build_manifest import build_manifest
+
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "build_manifest.py")
 
 
 def touch(root, kind, name):
@@ -65,3 +68,12 @@ def test_module_sections_list_encoded_keys(tmp_path):
 
 	assert manifest["moduleArt"] == ["uniequip_002_chen", "uniequip_002_chen2"]
 	assert manifest["moduleTypes"] == ["swo-x"]
+
+
+def test_out_writes_the_manifest_where_asked(tmp_path):
+	touch(tmp_path, "skills", "skcom_x.webp")
+	out = tmp_path / "partial" / "manifest.json"
+
+	subprocess.run(["python3", SCRIPT, "--staging", str(tmp_path), "--out", str(out)], check=True, capture_output=True)
+
+	assert '"skillIcons":["skcom_x"]' in out.read_text()
