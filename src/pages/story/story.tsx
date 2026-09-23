@@ -11,7 +11,9 @@ import { LoadError, ScrollToTop } from "archive-kit";
 
 import { loadStory, loadStoryGroup, loadStoryPresence, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
+import { isControlTarget } from "../../lib/keys.js";
 import { NAVBAR_HEIGHT } from "../../lib/layout.js";
+import { storyGroupPath } from "../../lib/routes.js";
 import type { LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
 import { START, advance, choose, emptyStage, fillNickname, skipToStop, upcomingArt } from "./engine.js";
 import type { Advance } from "./engine.js";
@@ -351,8 +353,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			// Space and Enter keep their own meaning in a field, a button or a link, and do nothing behind the open Log.
-			const onControl = event.target instanceof Element && event.target.closest("input, textarea, button, a, [contenteditable='true']") !== null;
-			if ((event.code === "Space" || event.code === "Enter") && !onControl && !logOpen) {
+			if ((event.code === "Space" || event.code === "Enter") && !isControlTarget(event.target) && !logOpen) {
 				event.preventDefault();
 				resumeAudio();
 				stepRef.current();
@@ -419,7 +420,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 									Next: {storyTitle(next)}
 								</Button>
 							) : null}
-							<Button component={Link} to={`/stories/${group.id}`} variant="outlined">
+							<Button component={Link} to={storyGroupPath(group.id)} variant="outlined">
 								Back to {group.name}
 							</Button>
 						</Box>
@@ -488,7 +489,7 @@ export default function Story() {
 			) : data ? (
 				<>
 					<Box sx={{ ...STAGE_BOX_SX, display: "flex", alignItems: "baseline", gap: 1.5, mb: 1, color: "#cfd3da" }}>
-						<Button component={Link} to={`/stories/${data.group.id}`} size="small">
+						<Button component={Link} to={storyGroupPath(data.group.id)} size="small">
 							{data.group.name}
 						</Button>
 						<Typography component="h1" variant="body1">

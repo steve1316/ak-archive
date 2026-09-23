@@ -4,6 +4,7 @@ import { Box, Chip, Paper, Typography } from "@mui/material";
 import { Link } from "react-router-dom";
 
 import { SECTION_HEADING_SX, SECTION_SX } from "../../lib/layout.js";
+import { storyGroupPath } from "../../lib/routes.js";
 
 /** Props for RecordsSection. */
 interface RecordsSectionProps {
@@ -28,7 +29,7 @@ function RecordsSection({ records }: RecordsSectionProps) {
 			</Typography>
 			<Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
 				{records.map((set) => (
-					<Chip key={set.group} label={set.name} component={Link} to={`/stories/${set.group}`} clickable />
+					<Chip key={set.group} label={set.name} component={Link} to={storyGroupPath(set.group)} clickable />
 				))}
 			</Box>
 		</Paper>

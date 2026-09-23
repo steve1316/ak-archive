@@ -8,7 +8,9 @@ import { ArtPlaceholder, LoadError, ScrollToTop } from "archive-kit";
 
 import { hasPortrait, portraitUrl } from "../../lib/assets.js";
 import { searchIndex } from "../../lib/data.js";
+import { isControlTarget } from "../../lib/keys.js";
 import { NAVBAR_HEIGHT } from "../../lib/layout.js";
+import { storyGroupPath } from "../../lib/routes.js";
 import { loadStoryIndex, loadStoryPresence, storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { StoryGroupMeta, StoryIndex } from "../../types/story.js";
@@ -194,7 +196,7 @@ export default function Stories() {
 		};
 	}, [attempt]);
 
-	const showGroup = useCallback((id: string | null) => navigate(id ? `/stories/${id}` : "/stories", { replace: true }), [navigate]);
+	const showGroup = useCallback((id: string | null) => navigate(storyGroupPath(id), { replace: true }), [navigate]);
 
 	// A `/stories/:group` address opens that group's tab and selects it. The list itself follows the address.
 	useEffect(() => {
@@ -258,7 +260,7 @@ export default function Stories() {
 				select(Math.min(groups.length - 1, position + 1));
 			} else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
 				select(Math.max(0, position - 1));
-			} else if (event.key === "Enter" && !(event.target instanceof Element && event.target.closest("button, a"))) {
+			} else if (event.key === "Enter" && !isControlTarget(event.target)) {
 				// Enter on a focused tab, link or button keeps its own meaning.
 				open();
 			}
@@ -366,7 +368,9 @@ export default function Stories() {
 						aria-selected={tab === entry.key}
 						onClick={() => {
 							setTab(entry.key);
-							showGroup(null);
+							if (openGroup) {
+								showGroup(null);
+							}
 						}}
 						sx={{
 							flex: 1,

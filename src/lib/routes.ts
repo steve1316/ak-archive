@@ -14,6 +14,16 @@ const SHORT_ID = /^\d+$/;
 export const VARIANT_PARAM = "variant";
 
 /**
+ * The route for the story picker, with a group's story list open when one is given.
+ *
+ * @param group The story group id, or null for the picker alone.
+ * @returns The route, without the site's base path.
+ */
+export function storyGroupPath(group: string | null = null): string {
+	return group ? `/stories/${group}` : "/stories";
+}
+
+/**
  * The route for an operator's page, or for a page under it such as the art viewer.
  *
  * @param id The upstream operator id.
