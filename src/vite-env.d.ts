@@ -15,6 +15,8 @@ interface ViteTypeOptions {
 interface ImportMetaEnv {
 	/** Base URL of the asset host, set in `.env`. Every asset URL is built from it, so an empty one makes every image path relative. */
 	readonly VITE_ASSET_BASE_URL: string;
+	/** Base URL of the story asset repo, with a trailing slash. A dev checkout can point it at the local `__story/` route. */
+	readonly VITE_STORY_ASSET_BASE_URL?: string;
 }
 
 /** Vite's own `import.meta`, redeclared so the typed `env` above is what the app sees. */
@@ -33,4 +35,10 @@ declare module "virtual:asset-presence" {
 declare module "virtual:rig-index-urls" {
 	const urls: Record<string, string>;
 	export default urls;
+}
+
+/** The story files' content version, built by `storyDataPlugin` in `vite.config.ts`. */
+declare module "virtual:story-data" {
+	const storyData: { version: string };
+	export default storyData;
 }
