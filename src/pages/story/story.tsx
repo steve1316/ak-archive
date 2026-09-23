@@ -335,7 +335,9 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			if (event.code === "Space" || event.code === "Enter") {
+			// Space and Enter keep their own meaning in a field, a button or a link, and do nothing behind the open Log.
+			const onControl = event.target instanceof Element && event.target.closest("input, textarea, button, a, [contenteditable='true']") !== null;
+			if ((event.code === "Space" || event.code === "Enter") && !onControl && !logOpen) {
 				event.preventDefault();
 				resumeAudio();
 				stepRef.current();
@@ -346,7 +348,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [resumeAudio]);
+	}, [resumeAudio, logOpen]);
 
 	const onStage = useCallback(() => {
 		resumeAudio();
