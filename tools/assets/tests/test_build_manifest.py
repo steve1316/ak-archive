@@ -54,3 +54,14 @@ def test_existing_sections_are_unchanged(tmp_path):
 
 	assert manifest["portraits"] == {"char_x": True}
 	assert manifest["illustrations"] == {"char_x": True}
+
+
+def test_module_sections_list_encoded_keys(tmp_path):
+	touch(tmp_path, "modules", "uniequip_002_chen.webp")
+	touch(tmp_path, "modules", "uniequip_002_chen2.webp")
+	touch(tmp_path, "module-types", "swo-x.webp")
+
+	manifest = build_manifest(str(tmp_path), set())
+
+	assert manifest["moduleArt"] == ["uniequip_002_chen", "uniequip_002_chen2"]
+	assert manifest["moduleTypes"] == ["swo-x"]

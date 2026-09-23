@@ -12,7 +12,7 @@ against the real staged tree, but both are silent, so this script counts what ea
 the end of every run - that is what makes a future upstream change visible in the run log instead of vanishing.
 
 Usage:
-    python3 -u tools/assets/encode.py [--dry-run] [--only {portraits,illustrations,classes,skills,potentials,elites,enemies}] [--staging PATH]
+    python3 -u tools/assets/encode.py [--dry-run] [--only {portraits,illustrations,classes,skills,potentials,elites,enemies,modules}] [--staging PATH]
 """
 
 import argparse
@@ -60,7 +60,7 @@ NUMBERED_ICONS = {"potentials": ("potential_hub", "potential_", 6), "elites": ("
 ENEMY_ICONS_DIR = os.path.join("enemies-upstream", "enemy")
 
 # Every stage, in the order they run when `--only` is omitted.
-STAGES = ("portraits", "illustrations", "classes", "skills", "potentials", "elites", "enemies")
+STAGES = ("portraits", "illustrations", "classes", "skills", "potentials", "elites", "enemies", "modules")
 
 # How often the real encode reports a running count and byte total.
 PROGRESS_EVERY = 100
@@ -258,19 +258,39 @@ def icon_key(stem):
     return re.sub(r"_+$", "", re.sub(r"[^a-z0-9_]+", "_", stem.lower()))
 
 
+def load_details():
+    """
+    Read every operator's details record the importer wrote.
+
+    Returns:
+        A list of details dicts, one per operator.
+    """
+    details = []
+    for path in sorted(glob.glob(os.path.join(DATA_DIR, "details-*.json"))):
+        with open(path, encoding="utf-8") as handle:
+            details.extend(json.load(handle).values())
+    return details
+
+
 def load_skill_icon_keys():
     """
-    Read every skill icon key the importer wrote, so only icons a page can show are encoded.
+    Read every skill icon key the importer wrote, so only icons a page can show are encoded. Skills live in the details files.
 
     Returns:
         A set of keys.
     """
-    keys = set()
-    for path in sorted(glob.glob(os.path.join(DATA_DIR, "operators-*.json"))):
-        with open(path, encoding="utf-8") as handle:
-            for operator in json.load(handle):
-                keys.update(skill["icon"] for skill in operator.get("skills", []))
-    return keys
+    return {skill["icon"] for detail in load_details() for skill in detail.get("skills", [])}
+
+
+def load_module_keys():
+    """
+    Read every module art key and badge key the importer wrote.
+
+    Returns:
+        An `(art_keys, type_keys)` pair of sets.
+    """
+    modules = [module for detail in load_details() for module in detail.get("modules", [])]
+    return {module["art"] for module in modules}, {module["typeIcon"] for module in modules}
 
 
 def plan_skills(staging_dir, wanted):
@@ -300,6 +320,38 @@ def plan_skills(staging_dir, wanted):
             found.add(key)
             jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, f"{key}.webp"), f"skills/{name} -> skills/{key}.webp", "skills"))
     return jobs, sorted(wanted - found)
+
+
+def plan_modules(staging_dir, art_keys, type_keys):
+    """
+    Work out a job for every module picture and branch badge a page can show.
+
+    Keys match exactly. A file such as `uniequip_002_chen2` is another operator's module (Ch'en the Holungday), not a stage of Ch'en's, so it
+    is encoded only when that operator's module names it. File names are compared lowercase, since two badge codes differ from their file
+    only in case, and everything publishes under the lowercase key.
+
+    Args:
+        staging_dir: The root of the `--staging` tree.
+        art_keys: Every module art key the importer wrote.
+        type_keys: Every badge key the importer wrote.
+
+    Returns:
+        A `(jobs, missing)` pair: the `(input_path, output_path, label, kind)` quadruples, `kind` `"modules"` or `"module-types"`, and the
+        sorted keys upstream has no file for.
+    """
+    jobs = []
+    found = set()
+    for folder, published, wanted in (("uniequipimgsmall", "modules", art_keys), ("uniequipdirection", "module-types", type_keys)):
+        source_dir = os.path.join(staging_dir, ICONS_ARTS_DIR, "ui", folder)
+        names = sorted(os.listdir(source_dir)) if os.path.isdir(source_dir) else []
+        for name in names:
+            stem = name[: -len(".png")].lower() if name.endswith(".png") else None
+            if stem in wanted and (published, stem) not in found:
+                found.add((published, stem))
+                out = os.path.join(staging_dir, "assets", published, f"{stem}.webp")
+                jobs.append((os.path.join(source_dir, name), out, f"{folder}/{name} -> {published}/{stem}.webp", published))
+    missing = {key for key in art_keys if ("modules", key) not in found} | {key for key in type_keys if ("module-types", key) not in found}
+    return jobs, sorted(missing)
 
 
 def load_enemy_ids():
@@ -395,7 +447,8 @@ def encode_one(job):
 
     Runs in a worker process, so it takes a plain (input_path, output_path, kind) triple rather than anything holding
     open file handles or process-local state. A `classes` job additionally passes through `whiten_glyph`, so the class
-    badge and the Animations placeholder get a transparent glyph instead of upstream's white-on-black square.
+    badge and the Animations placeholder get a transparent glyph instead of upstream's white-on-black square. A `module-types`
+    job is saved losslessly, since the branch badges are tiny flat glyphs that lossy encoding would smear.
 
     Args:
         job: An `(input_path, output_path, kind)` triple. `kind` is the published directory name, such as `portraits`
@@ -419,7 +472,10 @@ def encode_one(job):
             image = image.resize(new_size, Image.LANCZOS)
         if kind == "classes":
             image = whiten_glyph(image)
-        image.save(output_path, "WEBP", quality=QUALITY, method=6)
+        if kind == "module-types":
+            image.save(output_path, "WEBP", lossless=True, method=6)
+        else:
+            image.save(output_path, "WEBP", quality=QUALITY, method=6)
     return os.path.getsize(output_path)
 
 
@@ -499,6 +555,10 @@ def main():
     if "skills" in stages:
         skill_jobs, missing = plan_skills(args.staging, load_skill_icon_keys())
         jobs.extend(skill_jobs)
+    if "modules" in stages:
+        module_jobs, missing_modules = plan_modules(args.staging, *load_module_keys())
+        jobs.extend(module_jobs)
+        missing.extend(missing_modules)
     for published_name in NUMBERED_ICONS:
         if published_name in stages:
             jobs.extend(plan_numbered(args.staging, published_name))
@@ -517,7 +577,7 @@ def main():
             print(label)
         print_skip_summary(skipped)
         if missing:
-            print(f"missing skill icons: {len(missing)}: {', '.join(missing[:10])}")
+            print(f"missing icons: {len(missing)}: {', '.join(missing[:10])}")
             sys.exit(1)
         return
 
@@ -525,7 +585,7 @@ def main():
     print(f"encoded {count} files, {format_bytes(total_bytes)}")
     print_skip_summary(skipped)
     if missing:
-        print(f"missing skill icons: {len(missing)}: {', '.join(missing[:10])}")
+        print(f"missing icons: {len(missing)}: {', '.join(missing[:10])}")
         sys.exit(1)
 
 

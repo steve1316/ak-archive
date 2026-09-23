@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from encode import plan_variant_kind
+from encode import plan_modules, plan_variant_kind
 
 IDS = {"char_002_amiya", "char_1047_halo2"}
 
@@ -55,3 +55,30 @@ def test_no_fallback_keeps_the_old_behaviour(tmp_path):
     jobs, _skipped = plan_variant_kind(str(tmp_path), "charpor", "portraits", IDS)
 
     assert [os.path.basename(job[1]) for job in jobs] == ["char_002_amiya.webp"]
+
+
+def test_modules_encode_only_referenced_art_matched_exactly(tmp_path):
+    source = tmp_path / "icons-upstream" / "assets" / "dyn" / "arts" / "ui" / "uniequipimgsmall"
+    touch(source / "uniequip_002_chen.png")
+    touch(source / "uniequip_002_chen2.png")
+    touch(source / "uniequip_002_other.png")
+
+    jobs, missing = plan_modules(str(tmp_path), {"uniequip_002_chen", "uniequip_003_gone"}, set())
+
+    assert [os.path.basename(job[1]) for job in jobs] == ["uniequip_002_chen.webp"]
+    assert missing == ["uniequip_003_gone"]
+
+
+def test_module_badges_match_case_insensitively_and_publish_lowercase(tmp_path):
+    source = tmp_path / "icons-upstream" / "assets" / "dyn" / "arts" / "ui" / "uniequipdirection"
+    touch(source / "WAH-Y.png")
+    touch(source / "swo-x.png")
+
+    jobs, missing = plan_modules(str(tmp_path), set(), {"wah-y", "swo-x"})
+
+    assert sorted(os.path.relpath(job[1], tmp_path) for job in jobs) == [
+        os.path.join("assets", "module-types", "swo-x.webp"),
+        os.path.join("assets", "module-types", "wah-y.webp"),
+    ]
+    assert {job[3] for job in jobs} == {"module-types"}
+    assert missing == []

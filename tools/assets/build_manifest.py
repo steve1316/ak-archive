@@ -144,17 +144,18 @@ def scan_kind(staging_dir, kind, operator_ids):
     return canonical, variants
 
 
-def scan_skill_icons(staging_dir):
+def scan_keys(staging_dir, folder):
     """
-    List the skill icon keys the encoded tree actually holds.
+    List the keys one flat encoded folder actually holds, such as skill icons or module art.
 
     Args:
         staging_dir: Root of the `--staging` tree.
+        folder: The published folder under `assets`, such as `skills`.
 
     Returns:
-        The sorted keys. Empty when no skill icons are encoded.
+        The sorted keys. Empty when nothing is encoded there.
     """
-    folder = os.path.join(staging_dir, "assets", "skills")
+    folder = os.path.join(staging_dir, "assets", folder)
     if not os.path.isdir(folder):
         return []
     return sorted(name[: -len(".webp")] for name in os.listdir(folder) if name.endswith(".webp"))
@@ -200,12 +201,12 @@ def build_manifest(staging_dir, operator_ids, enemy_ids=frozenset()):
         enemy_ids: Every known enemy variant id.
 
     Returns:
-        A dict with `portraits`, `illustrations`, `skins`, `variants`, `skillIcons` and `enemies` keys, each with its entries sorted so a re-run of an unchanged
+        A dict with `portraits`, `illustrations`, `skins`, `variants`, `skillIcons`, `enemies`, `moduleArt` and `moduleTypes` keys, each with its entries sorted so a re-run of an unchanged
         tree produces no diff. `portraits` and `illustrations` name every operator, `skins` only those that have a variant. `variants` records each
         kind's variant keys separately, in that kind's own upstream spelling. `skins` merges them, which loses both whether a kind has the file and
         how it spells it - upstream lower-cases some keys under `charpor/` only. `skillIcons` is a flat list of the encoded skill icon keys, listed
-        because a page shows one per skill and the import gate checks every skill has one. Potentials, elites and classes are fixed sets and
-        are not part of the manifest.
+        because a page shows one per skill and the import gate checks every skill has one. `moduleArt` and `moduleTypes` list the encoded module
+        pictures and branch badges the same way. Potentials, elites and classes are fixed sets and are not part of the manifest.
     """
     portraits, portrait_variants = scan_kind(staging_dir, "portraits", operator_ids)
     illustrations, illustration_variants = scan_kind(staging_dir, "illustrations", operator_ids)
@@ -223,8 +224,10 @@ def build_manifest(staging_dir, operator_ids, enemy_ids=frozenset()):
             "portraits": {operator_id: sorted(keys) for operator_id, keys in sorted(portrait_variants.items())},
             "illustrations": {operator_id: sorted(keys) for operator_id, keys in sorted(illustration_variants.items())},
         },
-        "skillIcons": scan_skill_icons(staging_dir),
+        "skillIcons": scan_keys(staging_dir, "skills"),
         "enemies": scan_enemies(staging_dir, enemy_ids),
+        "moduleArt": scan_keys(staging_dir, "modules"),
+        "moduleTypes": scan_keys(staging_dir, "module-types"),
     }
 
 

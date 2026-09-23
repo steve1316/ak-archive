@@ -77,8 +77,9 @@ function readAssetBaseUrl() {
  *
  * This has to stay in step with `src/lib/assets.ts` by hand, not by import - that file is TypeScript and reads `import.meta.env`, which
  * is awkward to pull into plain Node. It wraps `archive-kit`'s `createAssetUrls` (strip trailing slashes from the base, then join
- * percent-encoded path segments onto it), and its own builders derive three path shapes from an operator id or class name:
- * `portraits/<id>.webp`, `illustrations/<id>.webp`, `classes/<lowercase class name>.webp` and `enemies/<enemy id>.webp`. If a future change to `src/lib/assets.ts`
+ * percent-encoded path segments onto it), and its own builders derive these path shapes from an id, class name or key:
+ * `portraits/<id>.webp`, `illustrations/<id>.webp`, `classes/<lowercase class name>.webp`, `enemies/<enemy id>.webp`,
+ * `modules/<art key>.webp` and `module-types/<badge key>.webp`. If a future change to `src/lib/assets.ts`
  * alters any of those shapes, this script drifts silently until it starts passing checks it should fail - keep both sides in sync.
  *
  * @param {string} baseUrl The asset host, with or without a trailing slash.
@@ -130,7 +131,8 @@ function loadManifest() {
  * Class icons carry no per-operator presence in the manifest, so all eight are always checked.
  *
  * @param {string} baseUrl The asset host.
- * @param {{portraits?: Record<string, boolean>, illustrations?: Record<string, boolean>, enemies?: Record<string, boolean>}} manifest The parsed asset manifest.
+ * @param {{portraits?: Record<string, boolean>, illustrations?: Record<string, boolean>, enemies?: Record<string, boolean>, moduleArt?: string[], moduleTypes?: string[]}} manifest
+ *   The parsed asset manifest.
  * @param {Array<{id: string, profession: string}>} operators Every operator's id and display class name.
  * @param {Record<string, {skel: string, atlas: string}>} enemySpine The enemy rig index, or an empty object when none is committed.
  * @returns {Array<{label: string, url: string}>} The checks to run.
@@ -160,6 +162,13 @@ function buildChecks(baseUrl, manifest, operators, enemySpine) {
 	for (const [id, rig] of Object.entries(enemySpine)) {
 		checks.push({ label: `enemy rig ${id} skel`, url: assetUrl(baseUrl, `spine-enemies/${id}/${rig.skel}.skel`) });
 		checks.push({ label: `enemy rig ${id} atlas`, url: assetUrl(baseUrl, `spine-enemies/${id}/${rig.atlas}.atlas`) });
+	}
+
+	for (const key of manifest.moduleArt ?? []) {
+		checks.push({ label: `module art ${key}`, url: assetUrl(baseUrl, `modules/${key}.webp`) });
+	}
+	for (const key of manifest.moduleTypes ?? []) {
+		checks.push({ label: `module badge ${key}`, url: assetUrl(baseUrl, `module-types/${key}.webp`) });
 	}
 	return checks;
 }
