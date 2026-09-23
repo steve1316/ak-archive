@@ -73,7 +73,8 @@ function StoryLog({ entries, nickname, onNickname, onClose }: StoryLogProps) {
 				pb: 2,
 				overflowY: "auto",
 				cursor: "default",
-				zIndex: 5
+				// Above the choices and the end card, which sit at 6.
+				zIndex: 7
 			}}
 		>
 			<Box sx={{ position: "sticky", top: 0, zIndex: 1, background: LOG_BG, pt: 2, pb: 2, mb: 0.5 }}>
