@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from encode import plan_modules, plan_variant_kind
+from encode import plan_module_names, plan_modules, plan_skill_names, plan_variant_kind, plan_variant_names
 
 IDS = {"char_002_amiya", "char_1047_halo2"}
 
@@ -81,4 +81,37 @@ def test_module_badges_match_case_insensitively_and_publish_lowercase(tmp_path):
         os.path.join("assets", "module-types", "wah-y.webp"),
     ]
     assert {job[3] for job in jobs} == {"module-types"}
+    assert missing == []
+
+
+def test_variant_names_give_a_new_outfit_a_suffix_beside_the_base():
+    names, _skipped = plan_variant_names(["char_002_amiya_1.png", "char_002_amiya_summer_9.png"], [], {"char_002_amiya"})
+
+    assert sorted(out for _source, _name, out in names) == ["char_002_amiya.webp", "char_002_amiya_summer_9.webp"]
+
+
+def test_variant_names_use_the_fallback_only_for_operators_with_no_primary_file():
+    names, _skipped = plan_variant_names(["char_002_amiya_1.png"], ["char_002_amiya_1.png", "char_1047_halo2_1.png"], {"char_002_amiya", "char_1047_halo2"})
+
+    assert sorted((source, name) for source, name, _out in names) == [("fallback", "char_1047_halo2_1.png"), ("primary", "char_002_amiya_1.png")]
+
+
+def test_variant_names_skip_tests_and_redundant_crops():
+    names, skipped = plan_variant_names(["char_x_1.png", "char_x_2.png", "char_x_2b.png", "char_x_test_1.png"], [], {"char_x"})
+
+    assert sorted(out for _s, _n, out in names) == ["char_x.webp", "char_x_2.webp"]
+    assert skipped == {"unrecognised": 0, "test": 1, "redundant": 1}
+
+
+def test_skill_names_keep_the_first_file_per_key():
+    pairs, missing = plan_skill_names(["skill_icon_skcom_powerstrike[3].png", "skill_icon_skcom_powerstrike_3.png"], {"skcom_powerstrike_3", "skchr_gone"})
+
+    assert pairs == [("skill_icon_skcom_powerstrike[3].png", "skcom_powerstrike_3")]
+    assert missing == ["skchr_gone"]
+
+
+def test_module_names_match_exactly_and_lowercase_badges():
+    triples, missing = plan_module_names(["uniequip_002_chen.png", "uniequip_002_chen2.png"], ["WAH-Y.png"], {"uniequip_002_chen"}, {"wah-y"})
+
+    assert triples == [("uniequipimgsmall", "uniequip_002_chen.png", "modules/uniequip_002_chen.webp"), ("uniequipdirection", "WAH-Y.png", "module-types/wah-y.webp")]
     assert missing == []

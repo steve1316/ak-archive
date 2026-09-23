@@ -41,9 +41,45 @@ ENEMY_PREFIX = "enemy_"
 # Planning
 
 
+def plan_enemy_rig_paths(paths, enemy_ids):
+    """
+    Decide where every upstream enemy rig file publishes, from relative paths alone.
+
+    Args:
+        paths: File paths relative to upstream `models_enemies`, such as `1007_slime/enemy_1007_slime.skel`.
+        enemy_ids: Every enemy variant id the importer wrote.
+
+    Returns:
+        A `(pairs, found, skipped)` triple. `pairs` is a sorted list of `(upstream_path, published_path)` pairs, published as
+        `spine-enemies/<enemy id>/<name>`. `found` is the set of enemy ids with a folder. `skipped` counts `unknown_enemy` folders, `duplicate`
+        files carrying a `$` and `other_file` files that are not part of a rig.
+    """
+    skipped = {"unknown_enemy": 0, "duplicate": 0, "other_file": 0}
+    pairs = []
+    found = set()
+    unknown = set()
+    for path in sorted(paths):
+        slug, _slash, name = path.partition("/")
+        if not name or "/" in name:
+            continue
+        enemy_id = ENEMY_PREFIX + slug
+        if enemy_id not in enemy_ids:
+            unknown.add(slug)
+            continue
+        found.add(enemy_id)
+        if not name.endswith(RIG_EXTENSIONS):
+            skipped["other_file"] += 1
+        elif "$" in name:
+            skipped["duplicate"] += 1
+        else:
+            pairs.append((path, f"{PUBLISHED_DIR}/{enemy_id}/{name}"))
+    skipped["unknown_enemy"] = len(unknown)
+    return pairs, found, skipped
+
+
 def plan_enemy_copies(staging_dir, enemy_ids):
     """
-    Pair every enemy rig file with where it will be published.
+    Pair every enemy rig file with where it will be published. The naming lives in `plan_enemy_rig_paths`.
 
     Args:
         staging_dir: Root of the staged tree.
@@ -55,27 +91,15 @@ def plan_enemy_copies(staging_dir, enemy_ids):
         files that are not part of a rig.
     """
     source_root = os.path.join(staging_dir, UPSTREAM_DIR)
-    output_root = os.path.join(staging_dir, "assets", PUBLISHED_DIR)
-    skipped = {"unknown_enemy": 0, "duplicate": 0, "other_file": 0}
-    jobs = []
-    found = set()
+    output_root = os.path.join(staging_dir, "assets")
+    paths = []
     if os.path.isdir(source_root):
         for slug in sorted(os.listdir(source_root)):
             folder = os.path.join(source_root, slug)
-            if not os.path.isdir(folder):
-                continue
-            enemy_id = ENEMY_PREFIX + slug
-            if enemy_id not in enemy_ids:
-                skipped["unknown_enemy"] += 1
-                continue
-            found.add(enemy_id)
-            for name in sorted(os.listdir(folder)):
-                if not name.endswith(RIG_EXTENSIONS):
-                    skipped["other_file"] += 1
-                elif "$" in name:
-                    skipped["duplicate"] += 1
-                else:
-                    jobs.append((os.path.join(folder, name), os.path.join(output_root, enemy_id, name)))
+            if os.path.isdir(folder):
+                paths.extend(f"{slug}/{name}" for name in os.listdir(folder))
+    pairs, found, skipped = plan_enemy_rig_paths(paths, enemy_ids)
+    jobs = [(os.path.join(source_root, *upstream.split("/")), os.path.join(output_root, *published.split("/"))) for upstream, published in pairs]
     return sorted(jobs), sorted(enemy_ids - found), skipped
 
 

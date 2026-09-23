@@ -111,9 +111,52 @@ def print_skip_summary(skipped):
 # Planning
 
 
+def plan_rig_paths(paths, operator_ids):
+    """
+    Decide where every upstream rig file publishes, from relative paths alone, so a folder on disk and a trees API listing plan the same way.
+
+    Args:
+        paths: File paths relative to the upstream `spine` folder, with forward slashes, such as
+            `char_002_amiya/build_char_002_amiya/Spine/build_char_002_amiya.skel`.
+        operator_ids: Every known operator id.
+
+    Returns:
+        A `(pairs, skipped)` pair. `pairs` is a list of `(upstream_path, published_path)` pairs, the published path relative to the asset root, such
+        as `spine/char_002_amiya/base/dorm/build_char_002_amiya.skel`. Two upstream files can share a published path, since upstream files a few
+        rigs twice, so the caller decides whether those copies agree. `skipped` counts `unmapped_kind`, `test`, `unrecognised_operator` and
+        `other_file`.
+    """
+    skipped = {"unmapped_kind": 0, "test": 0, "unrecognised_operator": 0, "other_file": 0}
+    folders = {}
+    for path in sorted(paths):
+        directory, _slash, name = path.rpartition("/")
+        folders.setdefault(directory, []).append(name)
+    rigs = []
+    for directory, names in folders.items():
+        parsed = parse_rig(directory, operator_ids)
+        if parsed is None:
+            parts = directory.split("/")
+            if len(parts) == 3:
+                skipped[classify_rejected_rig(parts)] += 1
+            continue
+        rigs.append((directory, directory.split("/")[1], parsed, names))
+    # A plain `Spine` folder is the battle rig when the same form also has a `build_` dorm folder. See `resolve_kind`.
+    build_dorms = {parsed[:2] for _directory, folder, parsed, _names in rigs if parsed[2] == "dorm" and folder.lower().startswith("build_")}
+    pairs = []
+    for directory, folder, parsed, names in rigs:
+        operator_id, key, kind = parsed
+        target = published_dir(operator_id, key, resolve_kind(folder, kind, (operator_id, key) in build_dorms))
+        for name in names:
+            if not name.endswith(RIG_EXTENSIONS):
+                skipped["other_file"] += 1
+                continue
+            pairs.append((f"{directory}/{name}", f"{target}/{name}"))
+    return pairs, skipped
+
+
 def plan_copies(staging_dir, operator_ids):
     """
-    Walk the staged Spine tree and pair every rig file with where it will be published.
+    Walk the staged Spine tree and pair every rig file with where it will be published. The naming lives in `plan_rig_paths`.
 
     Args:
         staging_dir: Root of the staged tree.
@@ -129,34 +172,14 @@ def plan_copies(staging_dir, operator_ids):
     """
     source_root = os.path.join(staging_dir, "upstream", "spine")
     output_root = os.path.join(staging_dir, "assets")
-    skipped = {"unmapped_kind": 0, "test": 0, "unrecognised_operator": 0, "other_file": 0}
     if not os.path.isdir(source_root):
-        return [], skipped
-
-    rigs = []
+        return [], {"unmapped_kind": 0, "test": 0, "unrecognised_operator": 0, "other_file": 0}
+    paths = []
     for directory, _subdirs, names in os.walk(source_root):
         relative = os.path.relpath(directory, source_root).replace(os.sep, "/")
-        parsed = parse_rig(relative, operator_ids)
-        if parsed is None:
-            parts = relative.split("/")
-            if len(parts) == 3:
-                skipped[classify_rejected_rig(parts)] += 1
-            continue
-        rigs.append((directory, relative.split("/")[1], parsed, names))
-
-    # A plain `Spine` folder is the battle rig when the same form also has a `build_` dorm folder. See `resolve_kind`.
-    build_dorms = {parsed[:2] for _directory, folder, parsed, _names in rigs if parsed[2] == "dorm" and folder.lower().startswith("build_")}
-
-    jobs = []
-    for directory, folder, parsed, names in rigs:
-        operator_id, key, kind = parsed
-        kind = resolve_kind(folder, kind, (operator_id, key) in build_dorms)
-        target = published_dir(operator_id, key, kind)
-        for name in sorted(names):
-            if not name.endswith(RIG_EXTENSIONS):
-                skipped["other_file"] += 1
-                continue
-            jobs.append((os.path.join(directory, name), os.path.join(output_root, target, name)))
+        paths.extend(f"{relative}/{name}" for name in names)
+    pairs, skipped = plan_rig_paths(paths, operator_ids)
+    jobs = [(os.path.join(source_root, *upstream.split("/")), os.path.join(output_root, *published.split("/"))) for upstream, published in pairs]
     # Upstream files a few rigs twice, under a second operator's folder (Fang under Knit's, Blade under Owl's). Those copies are identical
     # and collapse to one job. Two different files bound for one path would silently overwrite each other, so that fails.
     by_destination = {}

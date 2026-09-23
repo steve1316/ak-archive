@@ -137,12 +137,62 @@ def needs_encode(input_path, output_path):
 # a job needs the class-only glyph conversion.
 
 
+def plan_variant_names(primary_names, fallback_names, operator_ids):
+    """
+    Decide the published name of every upstream art file, from file names alone, so a folder on disk and a trees API listing plan the same way.
+
+    Every surviving variant key is grouped by operator first, since the canonical variant is a property of the operator's whole file set. The
+    fallback names count only for an operator with no file at all among the primary names, so the two sources never mix for one operator.
+
+    Args:
+        primary_names: File names in the primary upstream folder, such as `charpor`.
+        fallback_names: File names in the fallback folder, or an empty list for none.
+        operator_ids: Every known operator id.
+
+    Returns:
+        A `(names, skipped)` pair. `names` is a list of `(source, upstream_name, published_name)` triples, `source` being `"primary"` or
+        `"fallback"`. `skipped` is a dict with `unrecognised`, `test` and `redundant` counts.
+    """
+    skipped = {"unrecognised": 0, "test": 0, "redundant": 0}
+    files_by_operator = {}
+    for source, names in (("primary", primary_names), ("fallback", fallback_names)):
+        found = {}
+        for name in sorted(names):
+            if not name.endswith(".png"):
+                continue
+            parsed = parse_asset(name[: -len(".png")], operator_ids)
+            if parsed is None:
+                skipped["unrecognised"] += 1
+                continue
+            operator_id, key = parsed
+            if source == "fallback" and operator_id in files_by_operator:
+                continue
+            if is_test_variant(key):
+                skipped["test"] += 1
+                continue
+            found.setdefault(operator_id, []).append((source, name, key))
+        files_by_operator.update(found)
+
+    # The redundant check needs the operator's whole key set to tell a "b" crop from the base it duplicates.
+    result = []
+    for operator_id, files in files_by_operator.items():
+        keys = [key for _source, _name, key in files]
+        canonical = canonical_key(keys)
+        for source, name, key in files:
+            if is_redundant_crop(key, keys):
+                skipped["redundant"] += 1
+                continue
+            result.append((source, name, output_name(operator_id, key, canonical)))
+    return result, skipped
+
+
 def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids, fallback_dir=None):
     """
     Work out every job for one upstream art directory, and count what the naming rules skipped.
 
     Every surviving variant key is grouped by operator first, so `canonical_key` runs once per operator rather than
-    once per file - the canonical variant is a property of the operator's whole file set, not of any single file.
+    once per file - the canonical variant is a property of the operator's whole file set, not of any single file. The naming itself lives
+    in `plan_variant_names`, which a scheduled refresh also runs over a trees API listing.
 
     Args:
         staging_dir: The root of the `--staging` tree.
@@ -159,60 +209,17 @@ def plan_variant_kind(staging_dir, upstream_name, published_name, operator_ids, 
     """
     source_dir = os.path.join(staging_dir, "upstream", upstream_name)
     dest_dir = os.path.join(staging_dir, "assets", published_name)
-
-    jobs = []
-    skipped = {"unrecognised": 0, "test": 0, "redundant": 0}
     if not os.path.isdir(source_dir):
         print(f"skipping {published_name}: {source_dir} does not exist")
-        return jobs, skipped
-
-    keys_by_operator = {}
-    files_by_operator = {}
-
-    def collect(directory, only_new):
-        """
-        Group a directory's recognised files by operator into `keys_by_operator` and `files_by_operator`.
-
-        Args:
-            directory: The directory to read.
-            only_new: Skip operators an earlier call already collected, so a fallback never mixes with the primary source.
-        """
-        found = {}
-        for name in sorted(os.listdir(directory)):
-            if not name.endswith(".png"):
-                continue
-            parsed = parse_asset(name[: -len(".png")], operator_ids)
-            if parsed is None:
-                skipped["unrecognised"] += 1
-                continue
-            operator_id, key = parsed
-            if only_new and operator_id in files_by_operator:
-                continue
-            if is_test_variant(key):
-                skipped["test"] += 1
-                continue
-            found.setdefault(operator_id, []).append((os.path.join(directory, name), name, key))
-        for operator_id, files in found.items():
-            keys_by_operator[operator_id] = [key for _path, _name, key in files]
-            files_by_operator[operator_id] = files
-
-    collect(source_dir, False)
+        return [], {"unrecognised": 0, "test": 0, "redundant": 0}
     fallback_source = os.path.join(staging_dir, fallback_dir) if fallback_dir else None
-    if fallback_source and os.path.isdir(fallback_source):
-        collect(fallback_source, True)
-
-    # The redundant check runs here, once every key for an operator is known, rather than beside the test-variant
-    # check above - it needs the operator's whole key set to tell a "b" crop from the base it duplicates.
-    for operator_id, files in files_by_operator.items():
-        keys = keys_by_operator[operator_id]
-        canonical = canonical_key(keys)
-        for path, name, key in files:
-            if is_redundant_crop(key, keys):
-                skipped["redundant"] += 1
-                continue
-            out_name = output_name(operator_id, key, canonical)
-            label = f"{os.path.basename(os.path.dirname(path))}/{name} -> {published_name}/{out_name}"
-            jobs.append((path, os.path.join(dest_dir, out_name), label, published_name))
+    fallback_names = os.listdir(fallback_source) if fallback_source and os.path.isdir(fallback_source) else []
+    names, skipped = plan_variant_names(os.listdir(source_dir), fallback_names, operator_ids)
+    directories = {"primary": source_dir, "fallback": fallback_source}
+    jobs = []
+    for source, name, out_name in names:
+        label = f"{os.path.basename(directories[source])}/{name} -> {published_name}/{out_name}"
+        jobs.append((os.path.join(directories[source], name), os.path.join(dest_dir, out_name), label, published_name))
     return jobs, skipped
 
 
@@ -295,9 +302,32 @@ def load_module_keys():
     return {module["art"] for module in modules}, {module["typeIcon"] for module in modules}
 
 
+def plan_skill_names(names, wanted):
+    """
+    Pick the upstream file for every wanted skill icon key, from file names alone.
+
+    Args:
+        names: File names in the upstream `skills` folder.
+        wanted: Every key the importer wrote.
+
+    Returns:
+        A `(pairs, missing)` pair: `(upstream_name, key)` pairs, the first file per key in name order, and the sorted keys no file provides.
+    """
+    pairs = []
+    found = set()
+    for name in sorted(names):
+        if not (name.startswith("skill_icon_") and name.endswith(".png")):
+            continue
+        key = icon_key(name[len("skill_icon_") : -len(".png")])
+        if key in wanted and key not in found:
+            found.add(key)
+            pairs.append((name, key))
+    return pairs, sorted(set(wanted) - found)
+
+
 def plan_skills(staging_dir, wanted):
     """
-    Work out a job for every skill icon an operator uses.
+    Work out a job for every skill icon an operator uses. The naming lives in `plan_skill_names`.
 
     Args:
         staging_dir: The root of the `--staging` tree.
@@ -312,21 +342,39 @@ def plan_skills(staging_dir, wanted):
     if not os.path.isdir(source_dir):
         print(f"skipping skills: {source_dir} does not exist")
         return [], sorted(wanted)
-    jobs = []
+    pairs, missing = plan_skill_names(os.listdir(source_dir), wanted)
+    jobs = [(os.path.join(source_dir, name), os.path.join(dest_dir, f"{key}.webp"), f"skills/{name} -> skills/{key}.webp", "skills") for name, key in pairs]
+    return jobs, missing
+
+
+def plan_module_names(art_names, type_names, art_keys, type_keys):
+    """
+    Pick the upstream file for every module picture and branch badge, from file names alone. Keys match exactly and file names compare lowercase.
+
+    Args:
+        art_names: File names in upstream `ui/uniequipimgsmall`.
+        type_names: File names in upstream `ui/uniequipdirection`.
+        art_keys: Every module art key the importer wrote.
+        type_keys: Every badge key the importer wrote.
+
+    Returns:
+        A `(triples, missing)` pair: `(folder, upstream_name, published_path)` triples, and the sorted keys no file provides.
+    """
+    triples = []
     found = set()
-    for name in sorted(os.listdir(source_dir)):
-        if not (name.startswith("skill_icon_") and name.endswith(".png")):
-            continue
-        key = icon_key(name[len("skill_icon_") : -len(".png")])
-        if key in wanted and key not in found:
-            found.add(key)
-            jobs.append((os.path.join(source_dir, name), os.path.join(dest_dir, f"{key}.webp"), f"skills/{name} -> skills/{key}.webp", "skills"))
-    return jobs, sorted(wanted - found)
+    for folder, published, names, wanted in (("uniequipimgsmall", "modules", art_names, art_keys), ("uniequipdirection", "module-types", type_names, type_keys)):
+        for name in sorted(names):
+            stem = name[: -len(".png")].lower() if name.endswith(".png") else None
+            if stem in wanted and (published, stem) not in found:
+                found.add((published, stem))
+                triples.append((folder, name, f"{published}/{stem}.webp"))
+    missing = {key for key in art_keys if ("modules", key) not in found} | {key for key in type_keys if ("module-types", key) not in found}
+    return triples, sorted(missing)
 
 
 def plan_modules(staging_dir, art_keys, type_keys):
     """
-    Work out a job for every module picture and branch badge a page can show.
+    Work out a job for every module picture and branch badge a page can show. The naming lives in `plan_module_names`.
 
     Keys match exactly. A file such as `uniequip_002_chen2` is another operator's module (Ch'en the Holungday), not a stage of Ch'en's, so it
     is encoded only when that operator's module names it. File names are compared lowercase, since two badge codes differ from their file
@@ -341,19 +389,16 @@ def plan_modules(staging_dir, art_keys, type_keys):
         A `(jobs, missing)` pair: the `(input_path, output_path, label, kind)` quadruples, `kind` `"modules"` or `"module-types"`, and the
         sorted keys upstream has no file for.
     """
-    jobs = []
-    found = set()
-    for folder, published, wanted in (("uniequipimgsmall", "modules", art_keys), ("uniequipdirection", "module-types", type_keys)):
+    listings = {}
+    for folder in ("uniequipimgsmall", "uniequipdirection"):
         source_dir = os.path.join(staging_dir, ICONS_ARTS_DIR, "ui", folder)
-        names = sorted(os.listdir(source_dir)) if os.path.isdir(source_dir) else []
-        for name in names:
-            stem = name[: -len(".png")].lower() if name.endswith(".png") else None
-            if stem in wanted and (published, stem) not in found:
-                found.add((published, stem))
-                out = os.path.join(staging_dir, "assets", published, f"{stem}.webp")
-                jobs.append((os.path.join(source_dir, name), out, f"{folder}/{name} -> {published}/{stem}.webp", published))
-    missing = {key for key in art_keys if ("modules", key) not in found} | {key for key in type_keys if ("module-types", key) not in found}
-    return jobs, sorted(missing)
+        listings[folder] = os.listdir(source_dir) if os.path.isdir(source_dir) else []
+    triples, missing = plan_module_names(listings["uniequipimgsmall"], listings["uniequipdirection"], art_keys, type_keys)
+    jobs = []
+    for folder, name, published in triples:
+        source = os.path.join(staging_dir, ICONS_ARTS_DIR, "ui", folder, name)
+        jobs.append((source, os.path.join(staging_dir, "assets", *published.split("/")), f"{folder}/{name} -> {published}", published.split("/")[0]))
+    return jobs, missing
 
 
 def load_enemy_ids():

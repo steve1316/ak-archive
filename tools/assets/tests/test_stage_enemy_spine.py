@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stage_enemy_spine import plan_enemy_copies
+from stage_enemy_spine import plan_enemy_copies, plan_enemy_rig_paths
 
 
 def touch(root, slug, name):
@@ -79,3 +79,13 @@ def test_no_upstream_means_no_jobs(tmp_path):
 
     assert jobs == []
     assert missing == ["enemy_1007_slime"]
+
+
+def test_enemy_rig_paths_skip_duplicates_and_unknown_enemies():
+    paths = ["1007_slime/enemy_1007_slime.skel", "1007_slime/enemy_1007_slime$1.png", "9999_gone/enemy_9999_gone.skel", "1007_slime/notes.txt"]
+
+    pairs, found, skipped = plan_enemy_rig_paths(paths, {"enemy_1007_slime"})
+
+    assert pairs == [("1007_slime/enemy_1007_slime.skel", "spine-enemies/enemy_1007_slime/enemy_1007_slime.skel")]
+    assert found == {"enemy_1007_slime"}
+    assert skipped == {"unknown_enemy": 1, "duplicate": 1, "other_file": 1}
