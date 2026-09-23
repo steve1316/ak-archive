@@ -284,6 +284,9 @@ export interface Profile {
 	lore: LoreSection[];
 }
 
+/** One Operator Index card, from `operator-cards.json`: only the fields the index draws, filters and sorts by. */
+export type OperatorCardEntry = Pick<Operator, "id" | "name" | "rarity" | "profession" | "subProfession" | "position" | "tags" | "nation" | "group" | "team" | "releaseDate">;
+
 /** One entry in the navbar's search index. Deliberately tiny - it renders on every route. */
 export interface SearchEntry {
 	/** Upstream id. */

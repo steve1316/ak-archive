@@ -7,12 +7,12 @@ import { HighlightedName } from "archive-kit";
 import OperatorArtCard from "../../components/OperatorArtCard.js";
 import RarityStars from "../../components/RarityStars.js";
 import { operatorPath } from "../../lib/routes.js";
-import type { Operator } from "../../types/operator.js";
+import type { OperatorCardEntry } from "../../types/operator.js";
 
 /** Props for OperatorCard. */
 interface OperatorCardProps {
 	/** The operator to show. */
-	operator: Operator;
+	operator: OperatorCardEntry;
 	/** Where the current name search matched inside the operator's name, from `findNameMatch`, or null when nothing matched or is typed. */
 	match: [number, number] | null;
 }

@@ -16,7 +16,7 @@ import type { Shard } from "archive-kit";
 import searchIndexJson from "../data/search-index.json";
 import upstreamJson from "../data/upstream.json";
 import type { Enemy, EnemyDetails, EnemySearchEntry } from "../types/enemy.js";
-import type { Operator, OperatorDetails, Profile, SearchEntry, UpstreamInfo } from "../types/operator.js";
+import type { Operator, OperatorCardEntry, OperatorDetails, Profile, SearchEntry, UpstreamInfo } from "../types/operator.js";
 
 /**
  * Hosted URLs of the generated shards, keyed by bare file name.
@@ -29,6 +29,7 @@ const DATA_URLS = Object.fromEntries(
 		import.meta.glob<string>(
 			[
 				"../data/operators-*.json",
+				"../data/operator-cards.json",
 				"../data/profiles-*.json",
 				"../data/details-*.json",
 				"../data/module-lore-*.json",
@@ -174,17 +175,16 @@ export async function loadOperatorDetails(id: string): Promise<OperatorDetails |
 }
 
 /**
- * Load every operator, for the index, which genuinely renders all of them.
+ * Load every operator's card, for the index, which genuinely renders all of them.
  *
- * All eight shards come to 1122 KB raw and 116 KB gzipped, both measured from the production build at the pinned sha, now that skills and the
- * handbook record live in the details files instead. The filter axes the index needs - subclass, nation, tags - are deliberately not in the
- * search index, because that file renders on every route and must stay small.
+ * One file of just the card fields, about 11 KB gzipped, rather than all eight shards at about 150 KB, which also carry stats, talents and
+ * potentials the index never shows. The card art cannot start loading until this arrives, so its size is what the index's first paint waits on.
+ * The filter axes - subclass, nation, tags - are deliberately not in the search index, because that file renders on every route.
  *
- * @returns Every operator, in shard order.
+ * @returns Every operator's card, in shard order.
  */
-export async function loadAllOperators(): Promise<Operator[]> {
-	const shards = await Promise.all(SHARDS.map((shard) => loadShard(shard.file)));
-	return shards.flat();
+export function loadOperatorCards(): Promise<OperatorCardEntry[]> {
+	return store.loadFile<OperatorCardEntry[]>("operator-cards");
 }
 
 /**

@@ -5,9 +5,9 @@ import { Box, Button, Container, Typography } from "@mui/material";
 import { CardGrid, FilterPanel, IndexSummaryBar, LoadError, ScrollToTop, findNameMatch } from "archive-kit";
 import type { ActiveFilter, SortOption } from "archive-kit";
 
-import { loadAllOperators } from "../../lib/data.js";
+import { loadOperatorCards } from "../../lib/data.js";
 import { COLLATOR, compareReleaseDates, optionsOf, releaseYear, toggled, yearOptions } from "../../lib/filters.js";
-import type { Operator } from "../../types/operator.js";
+import type { OperatorCardEntry } from "../../types/operator.js";
 import OperatorCard from "./OperatorCard.js";
 import OperatorFilterRows, { CLASS_ORDER } from "./OperatorFilterRows.js";
 
@@ -45,7 +45,7 @@ const NATURAL_DESCENDING: Record<SortKey, boolean> = { rarity: true, name: false
  * @param descending Whether to reverse the order.
  * @returns A sorted copy.
  */
-function sortOperators(operators: Operator[], key: SortKey, descending: boolean): Operator[] {
+function sortOperators(operators: OperatorCardEntry[], key: SortKey, descending: boolean): OperatorCardEntry[] {
 	const direction = descending ? -1 : 1;
 	return [...operators].sort((a, b) => {
 		if (key === "release") {
@@ -77,7 +77,7 @@ function sortOperators(operators: Operator[], key: SortKey, descending: boolean)
  * @returns The page.
  */
 export default function OperatorIndex() {
-	const [operators, setOperators] = useState<Operator[] | null>(null);
+	const [operators, setOperators] = useState<OperatorCardEntry[] | null>(null);
 	const [error, setError] = useState(false);
 	// Bumped by the retry button to run the load again. Shards that did load stay cached in the data store.
 	const [attempt, setAttempt] = useState(0);
@@ -93,11 +93,11 @@ export default function OperatorIndex() {
 	const [sortKey, setSortKey] = useState<SortKey>("rarity");
 	const [sortDescending, setSortDescending] = useState(NATURAL_DESCENDING.rarity);
 
-	// The index is the one route that legitimately loads every shard, since it genuinely draws every operator.
+	// The index genuinely draws every operator, so it loads every card, from the one small card file rather than the eight class shards.
 	useEffect(() => {
 		let active = true;
 		setError(false);
-		loadAllOperators().then(
+		loadOperatorCards().then(
 			(loaded) => active && setOperators(loaded),
 			() => active && setError(true)
 		);
@@ -132,7 +132,7 @@ export default function OperatorIndex() {
 	const { filtered, nameMatches } = useMemo(() => {
 		const matches = new Map<string, [number, number]>();
 		if (!operators) {
-			return { filtered: [] as Operator[], nameMatches: matches };
+			return { filtered: [] as OperatorCardEntry[], nameMatches: matches };
 		}
 		const needle = query.trim();
 		const matched = operators.filter((operator) => {

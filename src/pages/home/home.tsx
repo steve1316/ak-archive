@@ -148,10 +148,9 @@ function randomOperatorIds(count: number): string[] {
 /**
  * The home page: a shuffling operator carousel and cards linking into each section.
  *
- * The carousel and the section card below it read only `searchIndex` (31 KB), already in the bundle, and never call a
- * shard loader such as `loadAllOperators`. That is a hard requirement for this page: the index genuinely needs every operator to filter by
- * class, nation and tag, but the home page only ever shows a handful of names, so it has no reason to pull the shard data the index needs:
- * 1122 KB raw and 116 KB gzipped, both measured from the production build at the pinned sha.
+ * The carousel and the section card below it read only `searchIndex` (31 KB), already in the bundle, and never call a data loader such as
+ * `loadOperatorCards`. That is a hard requirement for this page: the index genuinely needs every operator to filter by class, nation and tag,
+ * but the home page only ever shows a handful of names, so it has no reason to fetch the index's card file.
  *
  * @returns The page.
  */
