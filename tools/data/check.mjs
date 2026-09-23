@@ -18,6 +18,7 @@ import { ledgerProblems, missingAssets, publishedAssets, referencedAssets } from
 import { cardOf } from "./lib/operators.mjs";
 import { parseRecord } from "./lib/record.mjs";
 import { SHARDS } from "./lib/shards.mjs";
+import { spriteKey } from "../story/keys.mjs";
 import { STEP_TYPES } from "../story/parse_avg.mjs";
 
 /** Where the importer writes. */
@@ -1184,6 +1185,32 @@ for (const [id, detail] of detailsById) {
 }
 const storyRefs = read("story-asset-refs");
 
+// Story assets, once Stage 2 has published them. Every reference must be published or listed as unavailable upstream, and every group in the
+// picker needs a cover or an unavailable entry, so the player never asks the asset host for a file nobody knows about.
+const storyAssetsPath = path.join(OUT_DIR, "story-assets.json");
+const hasStoryAssets = fs.existsSync(storyAssetsPath);
+let storyAssetCount = 0;
+if (hasStoryAssets) {
+	const storyAssets = read("story-assets");
+	const publishedStory = Object.fromEntries(["backgrounds", "images", "items", "sprites", "audio", "covers", "maps"].map((kind) => [kind, new Set(storyAssets[kind] ?? [])]));
+	const unavailableStory = Object.fromEntries(Object.entries(storyAssets.unavailable ?? {}).map(([kind, names]) => [kind, new Set(names)]));
+	storyAssetCount = Object.values(publishedStory).reduce((sum, set) => sum + set.size, 0);
+	for (const [kind, names] of Object.entries(storyRefs)) {
+		const manifestKind = kind === "music" || kind === "sounds" ? "audio" : kind;
+		for (const name of names) {
+			const key = kind === "sprites" ? spriteKey(name) : name.toLowerCase();
+			if (!publishedStory[manifestKind].has(key) && !unavailableStory[manifestKind]?.has(name)) {
+				fail(`story ${kind} ${name} is neither published nor listed as unavailable in story-assets.json`);
+			}
+		}
+	}
+	for (const group of [...storyIndex.main, ...storyIndex.events, ...storyIndex.side]) {
+		if (!publishedStory.covers.has(group.id) && !unavailableStory.covers?.has(group.id)) {
+			fail(`story group ${group.id} has no cover and no unavailable entry in story-assets.json`);
+		}
+	}
+}
+
 // The asset gap ledger. Every core asset the data points at must be published or listed, and a pending gap may not outlive the grace period.
 // This replaces the old outright failure on any missing skill icon or module art, which a scheduled refresh would hit on every new operator.
 const ledgerPath = "tools/data/asset-gaps.json";
@@ -1238,6 +1265,9 @@ console.log(
 		.map(([kind, names]) => `${kind} ${names.length}`)
 		.join(", ")}`
 );
+if (hasStoryAssets) {
+	console.log(`story art   ${storyAssetCount} published, every reference accounted for`);
+}
 console.log("placeholders none leaked");
 if (hasManifest) {
 	console.log(`assets      ${portraitCount} portraits, ${illustrationCount} illustrations, ${enemyIconCount} enemy icons`);
