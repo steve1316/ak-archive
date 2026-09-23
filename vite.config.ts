@@ -10,6 +10,7 @@ import type { Plugin } from "vite";
 import { baseTrailingSlash, spaFallback } from "archive-kit/config";
 
 import { EMPTY_PRESENCE, slimManifest } from "./tools/data/lib/presence.mjs";
+import { routePagePaths } from "./tools/data/lib/routePages.mjs";
 
 // Pages serves the site from /ak-archive/, while Docker and local previews serve it from the root. VITE_BASE lets the same source produce both.
 const BASE = process.env.VITE_BASE ?? "/ak-archive/";
@@ -147,11 +148,38 @@ function assetPresencePlugin(): Plugin {
 	};
 }
 
+/**
+ * Writes a copy of `index.html` for every route a reader can land on directly, such as `operator/10.html`. GitHub Pages serves that file for
+ * `/operator/10`, so a shared link answers 200 rather than going through `404.html`, which search engines and link previews treat as missing.
+ *
+ * @returns The plugin.
+ */
+function routePagesPlugin(): Plugin {
+	let outDir = "";
+	return {
+		name: "route-pages",
+		apply: "build",
+		configResolved(config) {
+			outDir = path.resolve(config.root, config.build.outDir);
+		},
+		async closeBundle() {
+			const html = await fs.readFile(path.join(outDir, "index.html"), "utf8");
+			const operators = JSON.parse(await fs.readFile(SEARCH_INDEX_PATH, "utf8")) as { id: string }[];
+			const enemies = JSON.parse(await fs.readFile(ENEMIES_PATH, "utf8")) as { id: string }[];
+			const paths = routePagePaths({ operatorIds: operators.map((entry) => entry.id), enemyHeadIds: enemies.map((group) => group.id) });
+			const folders = new Set(paths.map((page) => path.dirname(path.join(outDir, page))));
+			await Promise.all([...folders].map((folder) => fs.mkdir(folder, { recursive: true })));
+			await Promise.all(paths.map((page) => fs.writeFile(path.join(outDir, `${page}.html`), html)));
+			this.info(`wrote ${paths.length} route pages`);
+		}
+	};
+}
+
 export default defineConfig({
 	base: BASE,
 	// spineStagingPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
 	// unmatched dev request with index.html before the staging route ever saw it.
-	plugins: [spineStagingPlugin(), assetPresencePlugin(), react(), spaFallback(), baseTrailingSlash()],
+	plugins: [spineStagingPlugin(), assetPresencePlugin(), react(), spaFallback(), baseTrailingSlash(), routePagesPlugin()],
 	build: {
 		outDir: "build",
 		sourcemap: true,
