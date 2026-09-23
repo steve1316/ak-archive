@@ -90,18 +90,19 @@ export default function App() {
 	// Enemies join the search once their index arrives. It is 101 KB, three times the operator index, so it is fetched only when the search box
 	// takes focus, which most visits never do. A failed fetch leaves operator search working and is retried on the next focus.
 	const [enemyOptions, setEnemyOptions] = useState<SearchOption[]>([]);
-	const handleNavbarFocus = useCallback((event: FocusEvent) => {
-		if (!(event.target instanceof HTMLInputElement)) {
-			return;
-		}
-		loadEnemySearchIndex().then(
-			(entries) =>
-				setEnemyOptions((current) =>
-					current.length > 0 ? current : entries.map((entry) => ({ path: enemyPath(entry.group ?? entry.id, entry.id), name: entry.name, keys: [normaliseName(entry.name)], tag: "Enemy" }))
-				),
-			() => undefined
-		);
-	}, []);
+	const enemiesLoaded = enemyOptions.length > 0;
+	const handleNavbarFocus = useCallback(
+		(event: FocusEvent) => {
+			if (enemiesLoaded || !(event.target instanceof HTMLInputElement)) {
+				return;
+			}
+			loadEnemySearchIndex().then(
+				(entries) => setEnemyOptions(entries.map((entry) => ({ path: enemyPath(entry.group ?? entry.id, entry.id), name: entry.name, keys: [normaliseName(entry.name)], tag: "Enemy" }))),
+				() => undefined
+			);
+		},
+		[enemiesLoaded]
+	);
 
 	const searchOptions = useMemo<SearchOption[]>(() => [...OPERATOR_OPTIONS, ...enemyOptions], [enemyOptions]);
 

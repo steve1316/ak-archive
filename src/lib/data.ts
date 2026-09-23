@@ -216,8 +216,8 @@ export async function loadEnemyGroup(matches: (enemy: Enemy) => boolean): Promis
 }
 
 /**
- * Load the navbar's enemy search entries. Kept out of the bundle, since at 101 KB it is three times the operator index, and fetched after the
- * first paint instead.
+ * Load the navbar's enemy search entries. Kept out of the bundle, since at 101 KB it is three times the operator index, and fetched when the
+ * search box first takes focus instead.
  *
  * @returns One entry per enemy variant.
  */
