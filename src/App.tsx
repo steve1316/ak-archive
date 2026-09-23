@@ -12,9 +12,14 @@ import { canonicalEnemyPath, canonicalOperatorPath, enemyPath, operatorPath } fr
 import CanonicalRoute from "./components/CanonicalRoute.js";
 import NotFound404 from "./not_found_404.js";
 import Home from "./pages/home/home.js";
-import Operator from "./pages/operator/operator.js";
-import OperatorIndex from "./pages/operator_index/operator_index.js";
 import { theme } from "./theme.js";
+
+/**
+ * The operator index and page load on first visit, like every route but the home page, so a reader landing on the home page does not also
+ * download the operator page's stats controls and tabs.
+ */
+const OperatorIndex = lazy(() => import("./pages/operator_index/operator_index.js"));
+const Operator = lazy(() => import("./pages/operator/operator.js"));
 
 /** The art viewer loads on first visit. Few readers open it, and it would otherwise add its zoom and pan code to every route. */
 const OperatorArt = lazy(() => import("./pages/operator_art/operator_art.js"));
@@ -90,7 +95,14 @@ export default function App() {
 				<ErrorBoundary key={pathname} fallback={<NotFound404 />}>
 					<Routes>
 						<Route path="/" element={<Home />} />
-						<Route path="/operators" element={<OperatorIndex />} />
+						<Route
+							path="/operators"
+							element={
+								<Suspense>
+									<OperatorIndex />
+								</Suspense>
+							}
+						/>
 						<Route
 							path="/operator/:id/art"
 							element={
@@ -105,7 +117,9 @@ export default function App() {
 							path="/operator/:id"
 							element={
 								<CanonicalRoute canonicalPath={canonicalOperatorPath}>
-									<Operator />
+									<Suspense>
+										<Operator />
+									</Suspense>
 								</CanonicalRoute>
 							}
 						/>
