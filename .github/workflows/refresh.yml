@@ -1,0 +1,212 @@
+name: Refresh game data
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Do everything except publishing assets, pushing to master and deploying
+        type: boolean
+        default: false
+      max_files:
+        description: The most asset files one run may fetch
+        type: number
+        default: 300
+
+# One refresh at a time. A second run queues behind the first rather than racing it to master.
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      work: ${{ steps.plan.outputs.work }}
+      heads: ${{ steps.plan.outputs.heads }}
+      moved: ${{ steps.plan.outputs.moved }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - id: plan
+        run: node tools/data/refresh_plan.mjs
+
+  refresh:
+    needs: plan
+    if: needs.plan.outputs.work == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: write
+    env:
+      DRY_RUN: ${{ inputs.dry_run == true }}
+      MAX_FILES: ${{ inputs.max_files || 300 }}
+      HEADS: ${{ needs.plan.outputs.heads }}
+      GITHUB_TOKEN: ${{ github.token }}
+    # The wiki's Cloudflare can challenge GitHub's runners, so the dates step loads its API pages in this browser.
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
+        ports:
+          - 8191:8191
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/assets/requirements.txt
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pip install -r tools/assets/requirements.txt
+
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Move the pins
+        run: node tools/data/set_locks.mjs --heads "$HEADS"
+
+      - name: Import game data
+        run: pnpm run import
+
+      # Dates only when the import changed the site's data. The enemy half reads about 180 MB of level files per game-data sha. A wiki failure
+      # keeps the committed snapshot, so new operators just show no date until a later run.
+      - name: Refresh release dates
+        run: |
+          if git diff --quiet -- src/data ':!src/data/upstream.json'; then
+            echo "game data unchanged, keeping the release dates snapshot"
+            exit 0
+          fi
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:8191/ > /dev/null && break
+            sleep 2
+          done
+          if FLARESOLVERR_URL=http://localhost:8191 pnpm data:dates > dates_run.log 2>&1; then
+            pnpm run import
+          else
+            tail -20 dates_run.log
+            echo "::warning::release dates could not be refreshed, keeping the committed snapshot"
+            git checkout -- tools/data/release-dates.json
+          fi
+
+      - name: Plan, fetch and build new assets
+        env:
+          S: ${{ runner.temp }}/staging
+        run: |
+          python3 -u tools/assets/refresh_assets.py plan --staging "$S" --max-files "$MAX_FILES"
+          python3 -u tools/assets/refresh_assets.py fetch --staging "$S"
+          python3 -u tools/assets/refresh_assets.py build --staging "$S"
+
+      # The builders see only this run's new files, so they write partial outputs that merge_indexes.py folds into the committed ones.
+      - name: Build and merge partial indexes
+        env:
+          S: ${{ runner.temp }}/staging
+        run: |
+          python3 tools/assets/build_manifest.py --staging "$S" --out "$S/manifest.partial.json"
+          python3 tools/assets/build_spine_index.py --staging "$S" --index "$S/spine.partial.json"
+          python3 tools/assets/build_spine_index.py --staging "$S" --enemies --index "$S/enemy-spine.partial.json"
+          if [ -d "$S/assets/spine" ]; then
+            node tools/assets/check_spine_rigs.mjs --staging "$S"
+            node tools/assets/fill_spine_anims.mjs --staging "$S" --index "$S/spine.partial.json"
+          fi
+          if [ -d "$S/assets/spine-enemies" ]; then
+            node tools/assets/check_spine_rigs.mjs --staging "$S" --dir spine-enemies
+            node tools/assets/fill_spine_anims.mjs --staging "$S" --enemies --index "$S/enemy-spine.partial.json"
+          fi
+          python3 tools/assets/merge_indexes.py --manifest-partial "$S/manifest.partial.json" --spine-partial "$S/spine.partial.json" --enemy-spine-partial "$S/enemy-spine.partial.json"
+
+      - name: Update the gap ledger
+        run: node tools/data/gaps.mjs
+
+      - name: Check the data
+        run: pnpm check
+
+      - name: Publish new assets
+        if: env.DRY_RUN != 'true'
+        env:
+          S: ${{ runner.temp }}/staging
+          ASSETS_KEY: ${{ secrets.ASSETS_DEPLOY_KEY }}
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/assets_key -o IdentitiesOnly=yes
+        run: |
+          if [ ! -d "$S/assets" ] || [ -z "$(ls -A "$S/assets")" ]; then
+            echo "no new assets"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ASSETS_KEY" > ~/.ssh/assets_key
+          chmod 600 ~/.ssh/assets_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+          python3 -u tools/assets/publish.py add --incremental --confirm --staging "$S"
+          python3 -u tools/assets/publish.py wait-live --staging "$S"
+
+      # The checkout keeps no token, so this is the only step that authenticates to this repo. upstream.json is committed but never read by the
+      # site, so it alone does not deploy.
+      - name: Commit the refreshed data
+        id: commit
+        run: |
+          git add tools/data/upstream.lock.json tools/assets/*.lock.json tools/data/release-dates.json tools/data/asset-gaps.json src/data
+          if git diff --cached --quiet; then
+            echo "nothing changed"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --cached --quiet -- src/data ':!src/data/upstream.json'; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+          DATA_SHA=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("tools/data/upstream.lock.json","utf8")).sha.slice(0,8))')
+          git commit -q -m "Refresh game data to ${DATA_SHA}"
+          git show --stat HEAD | head -40
+          if [ "$DRY_RUN" != true ]; then
+            git pull --rebase -q "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" master
+            git push -q "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:master
+          fi
+
+      # A push made with the workflow token does not start deploy.yml on its own, but dispatching it does.
+      - name: Deploy
+        if: steps.commit.outputs.deploy == 'true' && env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref master
+
+      - name: Summary
+        if: always()
+        env:
+          MOVED: ${{ needs.plan.outputs.moved }}
+          S: ${{ runner.temp }}/staging
+        run: |
+          {
+            echo "### Refresh"
+            echo "- Pins moved: ${MOVED:-none}"
+            if [ -f "$S/plan.json" ]; then echo "- Assets planned: $(node -e 'console.log(require(process.argv[1]).length)' "$S/plan.json")"; fi
+            echo "- Gaps:"
+            node -e 'const l=require("./tools/data/asset-gaps.json");for(const [k,v] of Object.entries(l.pending))console.log(`  - ${k} pending since ${v}`);console.log(`  - ${Object.keys(l.accepted).length} accepted`)'
+            if [ "$DRY_RUN" = true ]; then echo "- Dry run: nothing was published, pushed or deployed"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
