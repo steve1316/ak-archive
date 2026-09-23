@@ -10,19 +10,13 @@
 
 import { asArray } from "./json.mjs";
 import { phaseOf } from "./operators.mjs";
-import { resolveTemplate } from "./text.mjs";
+import { CONTENT_TAG, resolveTemplate } from "./text.mjs";
 
 /** The two value tags a skill description keeps as emphasis. Every other prefixed tag is dropped and its text kept. */
 const EMPHASIS = { "@ba.vup": "up", "@ba.vdown": "down" };
 
 /** An opening markup tag (`@` or `$`-prefixed) or the `</>` closer. Anything else in angle brackets is content, not markup. */
 const TAG = /<([@$][^>]*|\/)>/g;
-
-/**
- * An un-prefixed tag such as `<Substitute>` or `<Monoliths>`, which names real content rather than styling it. Stripped to its bare name before
- * the tag loop runs, since `check.mjs` forbids `<...>` in shipped text and the name itself is what the sentence needs.
- */
-const CONTENT_TAG = /<([A-Za-z][^<>@$/]*)>/g;
 
 /** Skill trigger by upstream `skillType`. */
 const TRIGGER = { AUTO: "auto", MANUAL: "manual", PASSIVE: "passive" };

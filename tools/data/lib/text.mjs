@@ -4,11 +4,24 @@
  * Upstream writes descriptions with inline styling tags around keywords and numbers, in several shapes: `<@ba.kw>` for a keyword,
  * `<@cc.vup>` for a buffed value, `<$ba.liftoff>` for a term with a tooltip, and `</>` to close any of them. None of it is content. Left in, it
  * either renders as literal angle brackets or forces the page to parse markup from an unlicensed upstream, so it comes out here and
- * `check.mjs` fails the import if any survives.
+ * `check.mjs` fails the import if any survives. Some game terms are wrapped in brackets too, such as `<Substitute>`, and those are content,
+ * so they are kept as the bare word.
  */
 
-/** Every inline tag shape upstream uses. */
-const MARKUP = /<[^>]*>/g;
+/** Styling tags: `@`- and `$`-prefixed openers, any closer such as `</>` or `</i>`, and bare `<i>` and `<color ...>`. Dropped, text kept. */
+const FORMAT_TAG = /<(?:[@$][^>]*|\/[^>]*|i|color[^>]*)>/g;
+
+/**
+ * An un-prefixed tag such as `<Substitute>` or `<'Certain Fates'>`, which names real content rather than styling it. Kept as its bare name,
+ * since `check.mjs` forbids `<...>` in shipped text and the name is what the sentence needs. Run after `FORMAT_TAG`, so `<i>` never reaches it.
+ */
+export const CONTENT_TAG = /<(['A-Za-z][^<>@$/]*)>/g;
+
+/**
+ * Anything still in angle brackets after the two passes above. At the pinned sha that is only glitch text in a redacted handbook field, which
+ * was always removed this way, so it keeps that behaviour rather than failing the gate.
+ */
+const LEFTOVER_TAG = /<[^>]*>/g;
 
 /**
  * Upstream ships a locked field - a talent name, a lore section's body - as literal full-width question marks when its
@@ -39,7 +52,9 @@ export function isPlaceholder(text) {
  */
 export function stripMarkup(text) {
 	return (text ?? "")
-		.replace(MARKUP, "")
+		.replace(FORMAT_TAG, "")
+		.replace(CONTENT_TAG, "$1")
+		.replace(LEFTOVER_TAG, "")
 		.replace(/[^\S\n]+/g, " ")
 		.replace(/ *\n */g, "\n")
 		.replace(/\n{3,}/g, "\n\n")

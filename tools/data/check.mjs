@@ -99,6 +99,15 @@ const FIXTURES = [
 	{ id: "char_010_chen", name: "Ch'en", maxHp: 2880, atk: 660, def: 402, magicResistance: 0, cost: 23, blockCnt: 2 }
 ];
 
+/**
+ * Text that must survive markup stripping. Upstream wraps some game terms in angle brackets, such as `<Substitute>`, and those are content,
+ * not styling, so the word has to reach the page.
+ */
+const TEXT_FIXTURES = [
+	{ id: "char_1023_ghost2", read: (operator) => operator.description, includes: "swaps to a Substitute" },
+	{ id: "char_4072_ironmn", read: (operator) => operator.talents[0]?.candidates[0]?.description, includes: "carry 2 Support Devices" }
+];
+
 /** Enemy counts at the pinned sha: 1560 visible handbook entries in 971 groups. Floors, since upstream only grows. */
 const MIN_ENEMY_VARIANTS = 1560;
 const MIN_ENEMY_GROUPS = 971;
@@ -371,6 +380,14 @@ for (const operator of operators) {
 }
 if (withTalents < MIN_TALENTS) {
 	fail(`${withTalents} operators have talents, below the floor of ${MIN_TALENTS}`);
+}
+
+// Bracketed game terms. A missing word here means `stripMarkup` deleted content along with the styling tags.
+for (const fixture of TEXT_FIXTURES) {
+	const text = byId.has(fixture.id) ? fixture.read(byId.get(fixture.id)) : undefined;
+	if (typeof text !== "string" || !text.includes(fixture.includes)) {
+		fail(`${fixture.id} text lost a bracketed term: expected ${JSON.stringify(fixture.includes)} in ${JSON.stringify(text)}`);
+	}
 }
 
 // Potential ranks. Rank 1 is the base state and has no entry, so the ranks run 2 upward. Whether an operator has a CUSTOM one at all varies:
