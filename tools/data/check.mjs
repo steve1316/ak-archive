@@ -1198,7 +1198,8 @@ if (hasStoryAssets) {
 	for (const [kind, names] of Object.entries(storyRefs)) {
 		const manifestKind = kind === "music" || kind === "sounds" ? "audio" : kind;
 		for (const name of names) {
-			const key = kind === "sprites" ? spriteKey(name) : name.toLowerCase();
+			// Audio keys are the lowercased reference. Every image kind takes the sprite rule, as `story_names.manifest_key` does.
+			const key = manifestKind === "audio" ? name.toLowerCase() : spriteKey(name);
 			if (!publishedStory[manifestKind].has(key) && !unavailableStory[manifestKind]?.has(name)) {
 				fail(`story ${kind} ${name} is neither published nor listed as unavailable in story-assets.json`);
 			}
