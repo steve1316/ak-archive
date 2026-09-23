@@ -51,7 +51,7 @@ const HANDBOOK_SX: SxProps<Theme> = { mt: 2 };
 function defaultControls(operator: OperatorFull): Controls {
 	const phase = Math.max(0, operator.stats.phases.length - 1);
 	const maxLevel = operator.stats.phases[phase]?.maxLevel ?? 1;
-	return { phase, level: maxLevel, trust: true, potential: 1, module: null, moduleStage: 3 };
+	return { ...INITIAL_CONTROLS, phase, level: maxLevel };
 }
 
 /**
@@ -198,7 +198,7 @@ export default function Operator() {
 								<AnimationsCard key={operator.id} interactive renderStage={renderStage} />
 							</Box>
 							<Box sx={STATS_ROW_STRETCH_SX}>
-								<StatsPanel operator={operator} modules={operator.modules} stage={effect?.stage ?? null} controls={controls} onChange={handleControlsChange} />
+								<StatsPanel operator={operator} stage={effect?.stage ?? null} controls={controls} onChange={handleControlsChange} />
 								<AbilitiesCard operator={operator} controls={controls} talents={effect?.talents ?? []} onChange={handleControlsChange} />
 							</Box>
 						</Box>

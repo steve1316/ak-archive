@@ -5,10 +5,9 @@ import { Box, Paper, Tab, Tabs, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { eliteIconUrl, potentialIconUrl } from "../../lib/icons.js";
-import type { EffectiveTalent } from "../../lib/modules.js";
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
-import type { Controls, OperatorFull } from "../../types/operator.js";
-import { RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "../../lib/layout.js";
+import type { Controls, OperatorFull, Talent } from "../../types/operator.js";
+import { GROUP_HEADING_SX, RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "../../lib/layout.js";
 import ModulesPanel from "./ModulesPanel.js";
 import SkillsPanel from "./SkillsPanel.js";
 
@@ -57,12 +56,6 @@ const TABS_SX: SxProps<Theme> = {
 	"& .MuiTab-root": { ...TAB_STRIP_SX["& .MuiTab-root"], minHeight: 40, py: 1 }
 };
 
-/**
- * A small heading over the Talents or Potentials group inside the combined tab. Drawn on a plain element, since a `Typography` variant's
- * breakpoint font sizes override an `sx` font size.
- */
-const GROUP_HEADING_SX = { m: 0, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "text.secondary", mb: 1 } satisfies SxProps<Theme>;
-
 /** The Potentials heading, set apart from the talent tiles above it. */
 const POTENTIALS_HEADING_SX: SxProps<Theme> = { ...GROUP_HEADING_SX, mt: 1.75 };
 
@@ -87,11 +80,12 @@ type AbilityTab = "skills" | "talents" | "modules";
 /**
  * One talent resolved for display at the page's current controls: either its unlocked candidate - with the base candidate's description kept
  * alongside for highlighting - or its locked name and unlock condition. Either way it carries `unlockPhase`, the elite phase its first version
- * unlocks at, since that is what the talent's badge shows regardless of which candidate is on screen, and `moduleNote` when a module changed it.
+ *unlocks at, since that is what the talent's badge shows regardless of which candidate is on screen. An unlocked talent also carries the
+ * module note of the candidate on screen, which is null unless a module's version won.
  */
 type ResolvedTalent =
 	| { key: number; locked: false; name: string; description: string; baseline: string | null; unlockPhase: number; moduleNote: string | null }
-	| { key: number; locked: true; name: string; unlockText: string; unlockPhase: number; moduleNote: string | null };
+	| { key: number; locked: true; name: string; unlockText: string; unlockPhase: number };
 
 /** Props for AbilitiesCard. */
 interface AbilitiesCardProps {
@@ -100,7 +94,7 @@ interface AbilitiesCardProps {
 	/** The page's controls, which pick each talent's candidate. */
 	controls: Controls;
 	/** Every talent to show, from the page's module effect. */
-	talents: EffectiveTalent[];
+	talents: Talent[];
 	/** Called when a module is picked in the Modules tab. */
 	onChange: (patch: Partial<Controls>) => void;
 }
@@ -119,9 +113,9 @@ interface AbilitiesCardProps {
  * @param potential The 1-based potential rank on screen.
  * @returns One resolved entry per talent that has at least one candidate.
  */
-function resolveTalents(talents: EffectiveTalent[], phase: number, level: number, potential: number): ResolvedTalent[] {
+function resolveTalents(talents: Talent[], phase: number, level: number, potential: number): ResolvedTalent[] {
 	const resolved: ResolvedTalent[] = [];
-	talents.forEach(({ talent, moduleNote }, index) => {
+	talents.forEach((talent, index) => {
 		const base = baseCandidate(talent);
 		const candidate = candidateFor(talent, phase, level, potential);
 		if (candidate) {
@@ -132,14 +126,14 @@ function resolveTalents(talents: EffectiveTalent[], phase: number, level: number
 				description: candidate.description,
 				baseline: base?.description ?? null,
 				unlockPhase: base?.unlockPhase ?? 0,
-				moduleNote
+				moduleNote: candidate.moduleNote ?? null
 			});
 			return;
 		}
 		if (!base) {
 			return;
 		}
-		resolved.push({ key: index, locked: true, name: base.name, unlockText: `Unlocks at E${base.unlockPhase} Lv${base.unlockLevel}`, unlockPhase: base.unlockPhase, moduleNote });
+		resolved.push({ key: index, locked: true, name: base.name, unlockText: `Unlocks at E${base.unlockPhase} Lv${base.unlockLevel}`, unlockPhase: base.unlockPhase });
 	});
 	return resolved;
 }
@@ -172,7 +166,6 @@ export default function AbilitiesCard({ operator, controls, talents, onChange }:
 	// A tab the new operator lacks falls back to the first, without an effect or a frame of the wrong tab.
 	const shown = tabs.some((entry) => entry.key === tab) ? tab : (tabs[0]?.key ?? "talents");
 	const handleTab = useCallback((_event: SyntheticEvent, value: AbilityTab) => setTab(value), []);
-	const handleSelectModule = useCallback((id: string) => onChange({ module: id }), [onChange]);
 
 	const talentTiles = resolved.map((talent) => (
 		<Box key={talent.key} sx={TILE_SX}>
@@ -181,7 +174,7 @@ export default function AbilitiesCard({ operator, controls, talents, onChange }:
 				<Typography component="h3" sx={talent.locked ? LOCKED_NAME_SX : NAME_SX}>
 					{talent.name}
 				</Typography>
-				{talent.moduleNote ? (
+				{!talent.locked && talent.moduleNote ? (
 					<Box component="span" sx={MODULE_NOTE_SX}>
 						{talent.moduleNote}
 					</Box>
@@ -243,9 +236,7 @@ export default function AbilitiesCard({ operator, controls, talents, onChange }:
 			</Tabs>
 			{shown === "skills" ? <SkillsPanel key={operator.id} skills={operator.skills} phase={controls.phase} traitRangeId={operator.traitRangeId} /> : null}
 			{shown === "talents" ? talentsAndPotentials : null}
-			{shown === "modules" ? (
-				<ModulesPanel key={operator.id} operatorId={operator.id} modules={operator.modules} selected={controls.module} stage={controls.moduleStage} onSelect={handleSelectModule} />
-			) : null}
+			{shown === "modules" ? <ModulesPanel key={operator.id} operator={operator} controls={controls} onChange={onChange} /> : null}
 		</Paper>
 	);
 }

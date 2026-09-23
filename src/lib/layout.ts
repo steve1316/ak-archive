@@ -149,3 +149,9 @@ export const STATS_SIDE_COLUMN_SX: SxProps<Theme> = { display: "grid", gap: 2, g
 
 /** A stats card's row: a thin rule under each row but the last. */
 export const STAT_ROW_SX = { py: 0.625, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } } as const satisfies SxProps<Theme>;
+
+/**
+ * A small uppercase heading over a group inside a card, such as Talents or a module effect's label. Drawn on a plain element, since a
+ * `Typography` variant's breakpoint font sizes override an `sx` font size.
+ */
+export const GROUP_HEADING_SX = { m: 0, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "text.secondary", mb: 1 } as const satisfies SxProps<Theme>;

@@ -9,14 +9,6 @@
 
 import type { Controls, ModuleStage, ModuleStats, OperatorFull, OperatorModule, StatValues, Talent, TalentCandidate } from "../types/operator.js";
 
-/** A talent as the page shows it, with a note naming the module stage that changed it. */
-export interface EffectiveTalent {
-	/** The talent, with the module's versions appended to its candidates when a module changes it. */
-	talent: Talent;
-	/** Such as `SWO-X Stage 3`, or null when no module touches this talent. */
-	moduleNote: string | null;
-}
-
 /** The trait as the page shows it. */
 export interface EffectiveTrait {
 	/** The operator's own trait, or null when a module replaces it. */
@@ -33,8 +25,8 @@ export interface ModuleEffect {
 	stage: ModuleStage | null;
 	/** The trait to show. */
 	trait: EffectiveTrait;
-	/** Every talent to show, in order, including any the module adds. */
-	talents: EffectiveTalent[];
+	/** Every talent to show, in order, including any the module adds. A module's versions carry `moduleNote`. */
+	talents: Talent[];
 }
 
 /**
@@ -78,7 +70,8 @@ export function applyControlsPatch(operator: OperatorFull, current: Controls, pa
 
 /**
  * The selected module's effect at the current controls. Talent upgrades are appended as extra candidates gated at the module's unlock point, so
- * the existing candidate picker chooses them and the base candidate stays the highlighting baseline.
+ * the existing candidate picker chooses them and the base candidate stays the highlighting baseline. Each carries `moduleNote`, so the note
+ * only shows when the module's version is the one on screen.
  *
  * @param operator The operator, with its details.
  * @param controls The page's controls.
@@ -89,7 +82,7 @@ export function applyModule(operator: OperatorFull, controls: Controls): ModuleE
 	const module = selected && isModuleUnlocked(selected, controls.phase, controls.level) ? selected : null;
 	const stage = module?.stages[controls.moduleStage - 1] ?? null;
 	if (!module || !stage) {
-		return { module: null, stage: null, trait: { base: operator.description, extra: null }, talents: operator.talents.map((talent) => ({ talent, moduleNote: null })) };
+		return { module: null, stage: null, trait: { base: operator.description, extra: null }, talents: operator.talents };
 	}
 
 	const note = `${module.code} Stage ${controls.moduleStage}`;
@@ -98,18 +91,19 @@ export function applyModule(operator: OperatorFull, controls: Controls): ModuleE
 		description: entry.description,
 		unlockPhase: module.unlockPhase,
 		unlockLevel: module.unlockLevel,
-		requiredPotential: entry.requiredPotential
+		requiredPotential: entry.requiredPotential,
+		moduleNote: note
 	});
-	const talents: EffectiveTalent[] = operator.talents.map((talent, index) => {
+	const talents: Talent[] = operator.talents.map((talent, index) => {
 		const upgrades = stage.talents.filter((entry) => entry.index === index);
-		return upgrades.length > 0 ? { talent: { candidates: [...talent.candidates, ...upgrades.map(toCandidate)] }, moduleNote: note } : { talent, moduleNote: null };
+		return upgrades.length > 0 ? { candidates: [...talent.candidates, ...upgrades.map(toCandidate)] } : talent;
 	});
 	const added = new Map<string, TalentCandidate[]>();
 	for (const entry of stage.talents.filter((talent) => talent.index === null)) {
 		added.set(entry.name, [...(added.get(entry.name) ?? []), toCandidate(entry)]);
 	}
 	for (const candidates of added.values()) {
-		talents.push({ talent: { candidates }, moduleNote: note });
+		talents.push({ candidates });
 	}
 
 	const trait: EffectiveTrait =

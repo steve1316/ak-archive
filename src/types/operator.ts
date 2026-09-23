@@ -65,6 +65,8 @@ export interface TalentCandidate {
 	unlockLevel: number;
 	/** The 1-based potential rank this candidate needs. */
 	requiredPotential: number;
+	/** Set only on a version a module adds, naming the module stage, such as `SWO-X Stage 3`. */
+	moduleNote?: string;
 }
 
 /** One talent, which is a set of candidates rather than a single description. */
@@ -280,8 +282,6 @@ export interface HandbookRecord {
 export interface Profile {
 	/** Handbook sections, in the game's order. */
 	lore: LoreSection[];
-	/** Each module's story text, by module id. Absent for operators without modules. */
-	moduleLore?: Record<string, string>;
 }
 
 /** One entry in the navbar's search index. Deliberately tiny - it renders on every route. */

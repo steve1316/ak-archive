@@ -7,18 +7,18 @@ import type { SxProps, Theme } from "@mui/material";
 import { LevelSlider } from "archive-kit";
 
 import RangeGrid from "../../components/RangeGrid.js";
-import { hasModuleType, moduleTypeUrl } from "../../lib/assets.js";
 import { withModuleStats } from "../../lib/modules.js";
-import { statsAt } from "../../lib/stats.js";
-import type { Controls, ModuleStage, Operator, OperatorModule, StatValues, TrustBonus } from "../../types/operator.js";
+import { STAT_LABELS, statsAt } from "../../lib/stats.js";
+import type { Controls, ModuleStage, OperatorFull, StatValues, TrustBonus } from "../../types/operator.js";
 import { SECTION_HEADING_SX, SECTION_SX, STAT_ROW_SX } from "../../lib/layout.js";
+import ModuleBadge from "./ModuleBadge.js";
 
-/** One single-stat row: its label, the `StatValues` field it reads, and the `TrustBonus` field that marks what full trust adds to it. */
-const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues; trustKey: keyof TrustBonus }> = [
-	{ label: "HP", key: "maxHp", trustKey: "maxHp" },
-	{ label: "ATK", key: "atk", trustKey: "atk" },
-	{ label: "DEF", key: "def", trustKey: "def" },
-	{ label: "Arts resist", key: "magicResistance", trustKey: "magicResistance" }
+/** One single-stat row: the `StatValues` field it reads, and the `TrustBonus` field that marks what full trust adds to it. */
+const STAT_ROWS: ReadonlyArray<{ key: keyof StatValues; trustKey: keyof TrustBonus }> = [
+	{ key: "maxHp", trustKey: "maxHp" },
+	{ key: "atk", trustKey: "atk" },
+	{ key: "def", trustKey: "def" },
+	{ key: "magicResistance", trustKey: "magicResistance" }
 ];
 
 /** The potential ranks offered, 1 through 6. Rank 1 is the operator as recruited and never carries a `potentials` entry. */
@@ -30,16 +30,13 @@ const MODULE_STAGES: ReadonlyArray<number> = [1, 2, 3];
 /** The module row's value for "No module", since a toggle group cannot hold null. */
 const NO_MODULE = "none";
 
-/** A branch badge inside a module chip. */
-const MODULE_BADGE_SX: SxProps<Theme> = { width: 20, height: "auto", mr: 0.75 };
-
 /** One row of the stat list: label on the left, value (and any trust badge) on the right. */
 const ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "baseline", justifyContent: "space-between", ...STAT_ROW_SX };
 
 /** The stat list itself, above the controls. */
 const ROWS_SX: SxProps<Theme> = { flex: "none" };
 
-/** The trust bonus badge shown after a stat's value. */
+/** A bonus badge shown after a stat's value, for full trust or the applied module. */
 const TRUST_BADGE_SX: SxProps<Theme> = { ml: 0.75, color: "primary.main" };
 
 /** The controls block below the stat list. */
@@ -51,12 +48,27 @@ const RANGE_SX: SxProps<Theme> = { flex: "none", mt: 1.25, pt: 1.25, borderTop: 
 /** The trust and potential row: a single trust toggle beside the potential group. */
 const TRUST_POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1 };
 
+/**
+ * A bonus badge after a stat's value, such as `+50` for full trust or `ASPD +7` for a module.
+ *
+ * @param text The badge text.
+ * @param title What the bonus comes from, shown on hover.
+ * @returns The badge.
+ */
+function renderBadge(text: string, title: string) {
+	return (
+		<Box component="span" sx={TRUST_BADGE_SX} title={title}>
+			<Typography component="span" variant="caption">
+				{text}
+			</Typography>
+		</Box>
+	);
+}
+
 /** Props for StatsPanel. */
 interface StatsPanelProps {
-	/** The operator whose stats the panel shows. */
-	operator: Operator;
-	/** The operator's modules, in the game's order. */
-	modules: OperatorModule[];
+	/** The operator whose stats the panel shows, with its modules. */
+	operator: OperatorFull;
 	/** The applied module stage, or null for none. */
 	stage: ModuleStage | null;
 	/** The page's shared controls: phase, level, trust, potential, module and module stage. */
@@ -76,8 +88,9 @@ interface StatsPanelProps {
  * @param props Component props.
  * @returns The card.
  */
-export default function StatsPanel({ operator, modules, stage, controls, onChange }: StatsPanelProps) {
+export default function StatsPanel({ operator, stage, controls, onChange }: StatsPanelProps) {
 	const { phase, level, trust, potential } = controls;
+	const { modules } = operator;
 
 	const maxLevel = operator.stats.phases[phase]?.maxLevel ?? 1;
 	const rangeId = operator.stats.phases[phase]?.rangeId;
@@ -122,20 +135,12 @@ export default function StatsPanel({ operator, modules, stage, controls, onChang
 					return (
 						<Box key={row.key} sx={ROW_SX}>
 							<Typography variant="body2" color="text.secondary">
-								{row.label}
+								{STAT_LABELS[row.key]}
 							</Typography>
 							<Typography variant="body2">
 								{stats[row.key]}
-								{trust && bonus > 0 ? (
-									<Box component="span" sx={TRUST_BADGE_SX} title="Full trust">
-										<Typography component="span" variant="caption">{`+${bonus}`}</Typography>
-									</Box>
-								) : null}
-								{stage?.stats[row.key] ? (
-									<Box component="span" sx={TRUST_BADGE_SX} title="Module">
-										<Typography component="span" variant="caption">{`+${stage.stats[row.key]}`}</Typography>
-									</Box>
-								) : null}
+								{trust && bonus > 0 ? renderBadge(`+${bonus}`, "Full trust") : null}
+								{stage?.stats[row.key] ? renderBadge(`+${stage.stats[row.key]}`, "Module") : null}
 							</Typography>
 						</Box>
 					);
@@ -152,11 +157,7 @@ export default function StatsPanel({ operator, modules, stage, controls, onChang
 					</Typography>
 					<Typography variant="body2">
 						{`${stats.baseAttackTime}s`}
-						{stage?.stats.aspd ? (
-							<Box component="span" sx={TRUST_BADGE_SX}>
-								<Typography component="span" variant="caption">{`ASPD +${stage.stats.aspd}`}</Typography>
-							</Box>
-						) : null}
+						{stage?.stats.aspd ? renderBadge(`ASPD +${stage.stats.aspd}`, "Module") : null}
 						{` / ${stats.respawnTime}s`}
 					</Typography>
 				</Box>
@@ -198,8 +199,7 @@ export default function StatsPanel({ operator, modules, stage, controls, onChang
 							<ToggleButton value={NO_MODULE}>No module</ToggleButton>
 							{modules.map((module) => (
 								<ToggleButton key={module.id} value={module.id} title={module.name}>
-									{hasModuleType(module.typeIcon) ? <Box component="img" src={moduleTypeUrl(module.typeIcon)} alt="" sx={MODULE_BADGE_SX} /> : null}
-									{module.code}
+									<ModuleBadge module={module} />
 								</ToggleButton>
 							))}
 						</ToggleButtonGroup>
