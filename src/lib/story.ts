@@ -14,13 +14,13 @@ import storyData from "virtual:story-data";
 import { spriteKey } from "../../tools/story/keys.mjs";
 import type { StoryAssets, StoryFile, StoryGroup, StoryIndex } from "../types/story.js";
 
-/** The kinds of story image the manifest records by sprite key. */
-export type StoryImageKind = "backgrounds" | "images" | "items" | "sprites";
+/** The kinds of story image: art the manifest records by sprite key, plus covers and map art recorded by group id. */
+type StoryAssetKind = "backgrounds" | "images" | "sprites" | "covers" | "maps";
 
 /** Which story assets are published. Anything absent renders nothing. */
 export interface StoryPresence {
 	/** Whether an image, cover or map art is published. */
-	has: (kind: StoryImageKind | "covers" | "maps", name: string) => boolean;
+	has: (kind: StoryAssetKind, name: string) => boolean;
 	/** Whether an audio reference is published. */
 	hasAudio: (ref: string) => boolean;
 }
@@ -41,6 +41,17 @@ const STORY_FILE_BASE = `${import.meta.env.BASE_URL}data/story/`;
 
 /** The story asset host. */
 const storyAssets = createAssetUrls(import.meta.env.VITE_STORY_ASSET_BASE_URL ?? "");
+
+/**
+ * The key an image is published under, the same rule as `manifest_key` in `tools/assets/story_names.py`.
+ *
+ * @param kind What it is.
+ * @param name The reference, or the group id for covers and maps.
+ * @returns The key.
+ */
+function assetKey(kind: StoryAssetKind, name: string): string {
+	return kind === "covers" || kind === "maps" ? name : spriteKey(name);
+}
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -99,9 +110,9 @@ export function loadStory(id: string): Promise<StoryFile> {
 export function loadStoryPresence(): Promise<StoryPresence> {
 	return store.loadOnce("presence", async () => {
 		const manifest = Object.hasOwn(INDEX_URLS, "story-assets") ? await store.loadFile<StoryAssets>("story-assets") : null;
-		const sets = new Map((["backgrounds", "images", "items", "sprites", "covers", "maps", "audio"] as const).map((kind) => [kind, new Set(manifest?.[kind] ?? [])]));
+		const sets = new Map((["backgrounds", "images", "sprites", "covers", "maps", "audio"] as const).map((kind) => [kind, new Set(manifest?.[kind] ?? [])]));
 		return {
-			has: (kind, name) => sets.get(kind)?.has(kind === "covers" || kind === "maps" ? name : spriteKey(name)) ?? false,
+			has: (kind, name) => sets.get(kind)?.has(assetKey(kind, name)) ?? false,
 			hasAudio: (ref) => sets.get("audio")?.has(ref.toLowerCase()) ?? false
 		};
 	});
@@ -119,11 +130,11 @@ export function loadStoryPresence(): Promise<StoryPresence> {
  * @param presence Which assets are published.
  * @returns The URL, or null when it is not published.
  */
-export function storyAssetUrl(kind: StoryImageKind | "covers" | "maps", name: string, presence: StoryPresence): string | null {
+export function storyAssetUrl(kind: StoryAssetKind, name: string, presence: StoryPresence): string | null {
 	if (!presence.has(kind, name)) {
 		return null;
 	}
-	return storyAssets.url(`${kind}/${kind === "covers" || kind === "maps" ? name : spriteKey(name)}.webp`);
+	return storyAssets.url(`${kind}/${assetKey(kind, name)}.webp`);
 }
 
 /**
