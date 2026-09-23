@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { START, advance, applyCommand, choose, emptyEffects, emptyStage, skipToStop } from "../../../src/pages/story/engine.ts";
+import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, skipToStop } from "../../../src/pages/story/engine.ts";
 
 /**
  * A line step.
@@ -120,4 +120,55 @@ test("each layer records the asset kind its art is published under, so a large b
 	assert.equal(applyCommand(emptyStage(), cmd("background", { image: "bg_a" }), effects).background.kind, "backgrounds");
 	assert.equal(applyCommand(emptyStage(), cmd("largebg", { imagegroup: "bg_b/bg_c" }), effects).background.kind, "images");
 	assert.equal(applyCommand(emptyStage(), cmd("image", { image: "avg_1" }), effects).image.kind, "images");
+});
+
+test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {
+	const steps = [cmd("subtitle", { text: "Nightfall." }), cmd("subtitle", { text: "The boilers rumble." }), cmd("subtitle"), line(null, "After.")];
+	const first = advance(steps, START, emptyStage());
+	assert.deepEqual([first.stop.kind, first.stop.text, first.stage.subtitle.text], ["caption", "Nightfall.", "Nightfall."]);
+	const second = advance(steps, first.cursor, first.stage);
+	assert.deepEqual([second.stop.kind, second.stop.text], ["caption", "The boilers rumble."]);
+	const third = advance(steps, second.cursor, second.stage);
+	assert.deepEqual([third.stop.kind, third.stage.subtitle], ["line", null]);
+});
+
+test("stickers stack by id, multi appends to its id, block=false does not stop, and an id with no text or stickerclear removes them", () => {
+	const steps = [
+		cmd("sticker", { id: "st1", multi: true, block: true, text: "Dear K," }),
+		cmd("sticker", { id: "st1", multi: true, block: true, text: "\n\nI write." }),
+		cmd("sticker", { id: "st2", block: false, text: "Seal" }),
+		cmd("sticker", { id: "st3", text: "P.S." }),
+		cmd("sticker", { id: "st1" }),
+		line(null, "Read."),
+		cmd("stickerclear"),
+		line(null, "Cleared.")
+	];
+	const first = advance(steps, START, emptyStage());
+	assert.deepEqual([first.stop.kind, first.stop.text, first.stage.stickers], ["caption", "Dear K,", [{ id: "st1", text: "Dear K," }]]);
+	const second = advance(steps, first.cursor, first.stage);
+	assert.deepEqual([second.stop.text, second.stage.stickers[0].text], ["I write.", "Dear K,\n\nI write."]);
+	const third = advance(steps, second.cursor, second.stage);
+	assert.deepEqual([third.stop.text, third.stage.stickers.map((entry) => entry.id)], ["P.S.", ["st1", "st2", "st3"]]);
+	const fourth = advance(steps, third.cursor, third.stage);
+	assert.deepEqual([fourth.stop.kind, fourth.stage.stickers.map((entry) => entry.id)], ["line", ["st2", "st3"]]);
+	assert.deepEqual(advance(steps, fourth.cursor, fourth.stage).stage.stickers, []);
+});
+
+test("skipToStop passes captions too and returns their text with the lines", () => {
+	const steps = [line(null, "a"), cmd("subtitle", { text: "Narration." }), line("K", "b")];
+	const first = advance(steps, START, emptyStage());
+	const skipped = skipToStop(steps, first.cursor, first.stage);
+	assert.equal(skipped.result.stop.kind, "end");
+	assert.deepEqual(skipped.lines, [
+		{ name: null, text: "Narration." },
+		{ name: "K", text: "b" }
+	]);
+});
+
+test("fillNickname puts the reader's name into a line's text and every styled run", () => {
+	assert.equal(fillNickname("Hello, {@nickname}. {@nickname}?", "Kal"), "Hello, Kal. Kal?");
+	assert.deepEqual(fillNickname({ text: "Hi {@nickname}", spans: [{ text: "Hi " }, { text: "{@nickname}", i: true }] }, "Kal"), {
+		text: "Hi Kal",
+		spans: [{ text: "Hi " }, { text: "Kal", i: true }]
+	});
 });

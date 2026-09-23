@@ -3,6 +3,8 @@ import { memo } from "react";
 import { Box, IconButton, TextField, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 
+import { fillNickname } from "./engine.js";
+
 /** One entry in the Log: a line, or a choice the reader picked. */
 export type LogEntry = { kind: "line"; name: string | null; text: string } | { kind: "pick"; text: string };
 
@@ -55,7 +57,7 @@ function StoryLog({ entries, nickname, onNickname, onClose }: StoryLogProps) {
 				entry.kind === "pick" ? (
 					<Typography key={index} sx={{ color: "#f0c36a", mb: 1.25 }}>
 						{"> "}
-						{entry.text}
+						{fillNickname(entry.text, nickname)}
 					</Typography>
 				) : (
 					<Box key={index} sx={{ mb: 1.25 }}>
@@ -64,7 +66,7 @@ function StoryLog({ entries, nickname, onNickname, onClose }: StoryLogProps) {
 								{entry.name}
 							</Typography>
 						) : null}
-						<Typography variant="body2">{entry.text}</Typography>
+						<Typography variant="body2">{fillNickname(entry.text, nickname)}</Typography>
 					</Box>
 				)
 			)}

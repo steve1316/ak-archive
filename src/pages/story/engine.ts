@@ -61,8 +61,8 @@ export interface StageState {
 	music: { intro: string | null; loop: string; volume: number; crossfade: number } | null;
 	/** Centred narration, or null. */
 	subtitle: { text: string; spans?: Span[] } | null;
-	/** Letter-style text shown over the scene, or null. */
-	sticker: string | null;
+	/** Letter-style text shown over the scene, in the order it appeared, keyed by the script's sticker id. */
+	stickers: { id: string; text: string }[];
 	/** Whether the scene is drawn in grey. */
 	grayscale: boolean;
 }
@@ -92,7 +92,7 @@ export interface Cursor {
 }
 
 /** Where a walk stopped. */
-export type Stop = { kind: "line"; line: LineStep } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
+export type Stop = { kind: "line"; line: LineStep } | { kind: "caption"; text: string } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
 
 /** The result of one walk. */
 export interface Advance {
@@ -115,6 +115,9 @@ const CHARACTER_SLOTS: Record<number, Slot[]> = { 1: ["m"], 2: ["l", "r"], 3: ["
 /** The start of a story. */
 export const START: Cursor = { index: 0, pick: null, hidden: false };
 
+/** The tag the scripts write where the reader's name goes. */
+const NICKNAME_TAG = "{@nickname}";
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -125,7 +128,7 @@ export const START: Cursor = { index: 0, pick: null, hidden: false };
  * @returns The stage.
  */
 export function emptyStage(): StageState {
-	return { background: null, image: null, sprites: {}, focus: "all", blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 }, music: null, subtitle: null, sticker: null, grayscale: false };
+	return { background: null, image: null, sprites: {}, focus: "all", blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 }, music: null, subtitle: null, stickers: [], grayscale: false };
 }
 
 /**
@@ -135,6 +138,22 @@ export function emptyStage(): StageState {
  */
 export function emptyEffects(): Effects {
 	return { sounds: [], stopSounds: false, shake: 0, delay: 0, clearText: false };
+}
+
+/**
+ * Put the reader's name where the script writes `{@nickname}`, in a plain string or in a line's text and every styled run.
+ *
+ * @param value The string or line.
+ * @param nickname The reader's name.
+ * @returns The same shape with the name filled in.
+ */
+export function fillNickname(value: string, nickname: string): string;
+export function fillNickname<T extends { text: string; spans?: Span[] }>(value: T, nickname: string): T;
+export function fillNickname(value: string | { text: string; spans?: Span[] }, nickname: string): string | { text: string; spans?: Span[] } {
+	if (typeof value === "string") {
+		return value.replaceAll(NICKNAME_TAG, nickname);
+	}
+	return { ...value, text: fillNickname(value.text, nickname), ...(value.spans ? { spans: value.spans.map((span) => ({ ...span, text: fillNickname(span.text, nickname) })) } : {}) };
 }
 
 /**
@@ -294,11 +313,18 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return { ...stage, subtitle: line ? { text: line, ...(Array.isArray(a.spans) ? { spans: a.spans as Span[] } : {}) } : null };
 		}
 		case "sticker": {
+			const id = text(a.id) ?? "";
 			const line = text(a.text);
-			return { ...stage, sticker: line === null ? null : a.multi === true && stage.sticker ? stage.sticker + line : line };
+			if (line === null) {
+				return { ...stage, stickers: stage.stickers.filter((entry) => entry.id !== id) };
+			}
+			if (!stage.stickers.some((entry) => entry.id === id)) {
+				return { ...stage, stickers: [...stage.stickers, { id, text: line }] };
+			}
+			return { ...stage, stickers: stage.stickers.map((entry) => (entry.id === id ? { id, text: a.multi === true ? entry.text + line : line } : entry)) };
 		}
 		case "stickerclear":
-			return { ...stage, sticker: null };
+			return { ...stage, stickers: [] };
 		case "camerashake":
 			effects.shake = Math.max(effects.shake, num(a.duration, 0.5));
 			return stage;
@@ -313,7 +339,19 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 }
 
 /**
- * Walk from the cursor to the next line, choice or the end.
+ * The text a command shows that the reader clicks past, as the game waits on it: a subtitle with text, or a sticker with text that does not
+ * set `block=false`.
+ *
+ * @param step The command.
+ * @returns The new text, or null when the command is not a stop.
+ */
+function captionOf(step: CommandStep): string | null {
+	const shown = step.c === "subtitle" || (step.c === "sticker" && step.a.block !== false) ? text(step.a.text) : null;
+	return shown === null ? null : shown.trim() || null;
+}
+
+/**
+ * Walk from the cursor to the next line, caption, choice or the end.
  *
  * @param steps The story's steps.
  * @param cursor Where to start.
@@ -345,6 +383,10 @@ export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advan
 			return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "decision", decision: step }, effects };
 		}
 		next = applyCommand(next, step, effects);
+		const caption = captionOf(step);
+		if (caption !== null) {
+			return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "caption", text: caption }, effects };
+		}
 	}
 	return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "end" }, effects };
 }
@@ -366,13 +408,13 @@ export function choose(cursor: Cursor, value: string): Cursor {
  * @param steps The story's steps.
  * @param cursor Where to start.
  * @param stage The stage at the start.
- * @returns Where it stopped, and every line passed on the way, for the Log.
+ * @returns Where it stopped, and every line and caption passed on the way, for the Log. A caption has no speaker.
  */
-export function skipToStop(steps: Step[], cursor: Cursor, stage: StageState): { result: Advance; lines: LineStep[] } {
-	const lines: LineStep[] = [];
+export function skipToStop(steps: Step[], cursor: Cursor, stage: StageState): { result: Advance; lines: { name: string | null; text: string }[] } {
+	const lines: { name: string | null; text: string }[] = [];
 	let result = advance(steps, cursor, stage);
-	while (result.stop.kind === "line") {
-		lines.push(result.stop.line);
+	while (result.stop.kind === "line" || result.stop.kind === "caption") {
+		lines.push(result.stop.kind === "line" ? { name: result.stop.line.name, text: result.stop.line.text } : { name: null, text: result.stop.text });
 		result = advance(steps, result.cursor, result.stage);
 	}
 	return { result, lines };

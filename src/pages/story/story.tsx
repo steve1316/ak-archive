@@ -13,7 +13,7 @@ import { loadStory, loadStoryGroup, loadStoryPresence, storyAudioUrl } from "../
 import type { StoryPresence } from "../../lib/story.js";
 import { NAVBAR_HEIGHT } from "../../lib/layout.js";
 import type { LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
-import { START, advance, choose, emptyStage, skipToStop } from "./engine.js";
+import { START, advance, choose, emptyStage, fillNickname, skipToStop } from "./engine.js";
 import type { Advance } from "./engine.js";
 import StoryLog from "./StoryLog.js";
 import type { LogEntry } from "./StoryLog.js";
@@ -132,23 +132,26 @@ function writeStored(key: string, value: string) {
 }
 
 /**
- * A line as a Log entry.
+ * A line or caption as a Log entry.
  *
- * @param line The line.
+ * @param line The speaker, or null for narration, and the text.
  * @returns The entry.
  */
-function lineEntry(line: LineStep): LogEntry {
+function lineEntry(line: { name: string | null; text: string }): LogEntry {
 	return { kind: "line", name: line.name, text: line.text };
 }
 
 /**
- * The Log entries a walk adds: the line it stopped at, if any.
+ * The Log entries a walk adds: the line or caption it stopped at, if any.
  *
  * @param result The walk.
  * @returns The new entries.
  */
 function stopEntries(result: Advance): LogEntry[] {
-	return result.stop.kind === "line" ? [lineEntry(result.stop.line)] : [];
+	if (result.stop.kind === "line") {
+		return [lineEntry(result.stop.line)];
+	}
+	return result.stop.kind === "caption" ? [lineEntry({ name: null, text: result.stop.text })] : [];
 }
 
 /**
@@ -262,12 +265,12 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const resumeAudio = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, urlOf });
 
 	const line: LineStep | null = run.stop.kind === "line" ? run.stop.line : null;
+	const caption = run.stop.kind === "caption" ? fillNickname(run.stop.text, nickname) : null;
 	const decision = run.stop.kind === "decision" ? run.stop.decision : null;
-	const shown = useMemo(
-		() => (line ? { ...line, text: line.text.replaceAll("{@nickname}", nickname), spans: line.spans?.map((span) => ({ ...span, text: span.text.replaceAll("{@nickname}", nickname) })) } : null),
-		[line, nickname]
-	);
+	const shown = useMemo(() => (line ? fillNickname(line, nickname) : null), [line, nickname]);
 	const length = shown?.text.length ?? 0;
+	// A line or a caption waits for the reader, and SKIP and AUTO move past either.
+	const reading = line !== null || caption !== null;
 	const index = group.stories.findIndex((entry) => entry.id === story.id);
 	const next = index >= 0 ? group.stories[index + 1] : undefined;
 
@@ -281,7 +284,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	}, []);
 
 	const step = useCallback(() => {
-		if (run.stop.kind !== "line") {
+		if (run.stop.kind !== "line" && run.stop.kind !== "caption") {
 			return;
 		}
 		if (typed < length) {
@@ -299,7 +302,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	);
 
 	const skip = useCallback(() => {
-		if (run.stop.kind !== "line") {
+		if (run.stop.kind !== "line" && run.stop.kind !== "caption") {
 			return;
 		}
 		const { result, lines } = skipToStop(steps, run.cursor, run.stage);
@@ -317,12 +320,12 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 
 	// AUTO: once a line has typed out, wait in proportion to its length plus any pause the script asked for, then move on.
 	useEffect(() => {
-		if (!auto || logOpen || run.stop.kind !== "line" || typed < length) {
+		if (!auto || logOpen || !reading || typed < length) {
 			return;
 		}
-		const timer = window.setTimeout(step, AUTO_BASE_MS + AUTO_PER_CHAR_MS * length + run.effects.delay * 1000);
+		const timer = window.setTimeout(step, AUTO_BASE_MS + AUTO_PER_CHAR_MS * (caption?.length ?? length) + run.effects.delay * 1000);
 		return () => window.clearTimeout(timer);
-	}, [auto, logOpen, run, typed, length, step]);
+	}, [auto, logOpen, reading, caption, run, typed, length, step]);
 
 	// The key listener reads `step` through a ref, so the typewriter's ticks do not re-attach it.
 	const stepRef = useRef(step);
@@ -376,13 +379,13 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	return (
 		<Box sx={PLAYER_SX}>
 			<GlobalStyles styles={KEYFRAMES} />
-			<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
-				{!hideUi ? <PlayerChrome muted={muted} auto={auto} canSkip={line !== null} onLog={openLog} onHide={hide} onMute={toggleMute} onAuto={toggleAuto} onSkip={skip} /> : null}
+			<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} nickname={nickname} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
+				{!hideUi ? <PlayerChrome muted={muted} auto={auto} canSkip={reading} onLog={openLog} onHide={hide} onMute={toggleMute} onAuto={toggleAuto} onSkip={skip} /> : null}
 				{decision ? (
 					<Box sx={CHOICES_SX} onClick={(event) => event.stopPropagation()}>
 						{decision.options.map((option, choice) => (
 							<Button key={choice} sx={CHOICE_SX} onClick={() => pick(option, decision.values[choice] ?? "")}>
-								{option.replaceAll("{@nickname}", nickname)}
+								{fillNickname(option, nickname)}
 							</Button>
 						))}
 					</Box>
@@ -404,14 +407,14 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 				) : null}
 				{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={onNickname} onClose={closeLog} /> : null}
 			</StoryStage>
-			{!hideUi && shown ? (
+			{!hideUi && (shown || caption) ? (
 				<Box sx={NARROW_TEXT_SX} onClick={onStage}>
-					{shown.name ? (
+					{shown?.name ? (
 						<Typography variant="subtitle2" sx={{ color: "primary.main", fontFamily: "inherit" }}>
 							{shown.name}
 						</Typography>
 					) : null}
-					<Typography sx={{ fontFamily: "inherit" }}>{typedRuns(shown, typed)}</Typography>
+					<Typography sx={{ fontFamily: "inherit" }}>{shown ? typedRuns(shown, typed) : caption}</Typography>
 				</Box>
 			) : null}
 		</Box>

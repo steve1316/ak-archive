@@ -7,6 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
+import { fillNickname } from "./engine.js";
 import type { LayerState, Slot, StageState } from "./engine.js";
 
 /** Where a sprite stands, as % of the stage: height, bottom edge and centre. Tuned against the in-game capture `9.png`. */
@@ -66,6 +67,8 @@ interface StoryStageProps {
 	line: { text: string; spans?: Span[] } | null;
 	/** How many characters of the line have typed out. */
 	typed: number;
+	/** The reader's name, which fills `{@nickname}` in subtitles and stickers. */
+	nickname: string;
 	/** Which story assets are published. */
 	presence: StoryPresence;
 	/** Whether the text and chrome are hidden. */
@@ -147,7 +150,7 @@ export function typedRuns(line: { text: string; spans?: Span[] }, typed: number)
  * @param props Component props.
  * @returns The art.
  */
-const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState; presence: StoryPresence }) {
+const StageArt = memo(function StageArt({ stage, nickname, presence }: { stage: StageState; nickname: string; presence: StoryPresence }) {
 	const slots = (Object.keys(stage.sprites) as Slot[]).filter((slot) => stage.sprites[slot]);
 	const alone = slots.length === 1;
 	return (
@@ -175,10 +178,16 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 			})}
 			{stage.subtitle ? (
 				<Box sx={{ position: "absolute", left: "15%", right: "15%", top: "42%", textAlign: "center", fontSize: "2.6cqh", lineHeight: 1.5 }}>
-					{typedRuns(stage.subtitle, Number.MAX_SAFE_INTEGER)}
+					{typedRuns(fillNickname(stage.subtitle, nickname), Number.MAX_SAFE_INTEGER)}
 				</Box>
 			) : null}
-			{stage.sticker ? <Box sx={{ position: "absolute", left: "10%", right: "10%", top: "15%", fontSize: "2.4cqh", whiteSpace: "pre-line" }}>{stage.sticker}</Box> : null}
+			{stage.stickers.length ? (
+				<Box sx={{ position: "absolute", left: "10%", right: "10%", top: "15%", display: "grid", gap: "2cqh", fontSize: "2.4cqh", whiteSpace: "pre-line" }}>
+					{stage.stickers.map((entry) => (
+						<div key={entry.id}>{fillNickname(entry.text, nickname)}</div>
+					))}
+				</Box>
+			) : null}
 		</>
 	);
 });
@@ -189,7 +198,7 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
  * @param props Component props.
  * @returns The stage.
  */
-function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+function StoryStage({ stage, name, line, typed, nickname, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
 	return (
 		<Box
 			sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }}
@@ -197,7 +206,7 @@ function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, ch
 			onClick={onClick}
 			data-region="story-stage"
 		>
-			<StageArt stage={stage} presence={presence} />
+			<StageArt stage={stage} nickname={nickname} presence={presence} />
 			{!hideText && line ? (
 				<Box sx={TEXT_LAYER_SX}>
 					<Box sx={VIGNETTE_SX} />
