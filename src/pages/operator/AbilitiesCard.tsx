@@ -5,9 +5,11 @@ import { Box, Paper, Tab, Tabs, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { eliteIconUrl, potentialIconUrl } from "../../lib/icons.js";
+import type { EffectiveTalent } from "../../lib/modules.js";
 import { baseCandidate, candidateFor, changedValueSegments } from "../../lib/talents.js";
 import type { Controls, OperatorFull } from "../../types/operator.js";
 import { RAISED_TILE_SX, SECTION_SX, TAB_STRIP_SX } from "../../lib/layout.js";
+import ModulesPanel from "./ModulesPanel.js";
 import SkillsPanel from "./SkillsPanel.js";
 
 /** The gap between tiles, both across columns and from one tile to the next down a column. */
@@ -36,6 +38,9 @@ const BODY_SX: SxProps<Theme> = { mt: 0.875, fontSize: 13.5, lineHeight: 1.55 };
 
 /** A value the controls changed. */
 const CHANGED_SX: SxProps<Theme> = { color: "primary.main", fontWeight: 600 };
+
+/** The note naming the module stage that changed a talent, pushed to the tile's right edge. */
+const MODULE_NOTE_SX: SxProps<Theme> = { ml: "auto", fontSize: 11.5, fontWeight: 600, color: "primary.main", whiteSpace: "nowrap" };
 
 /** Talent name style when its candidate is unlocked. */
 const NAME_SX: SxProps<Theme> = { fontWeight: 700 };
@@ -77,16 +82,16 @@ const POTENTIAL_TEXT_SX: SxProps<Theme> = { fontSize: 13, lineHeight: 1.4 };
 const POTENTIAL_ICON_SX: SxProps<Theme> = { width: 30, height: 30, flex: "none" };
 
 /** Which tab of the Abilities card is open. */
-type AbilityTab = "skills" | "talents";
+type AbilityTab = "skills" | "talents" | "modules";
 
 /**
  * One talent resolved for display at the page's current controls: either its unlocked candidate - with the base candidate's description kept
  * alongside for highlighting - or its locked name and unlock condition. Either way it carries `unlockPhase`, the elite phase its first version
- * unlocks at, since that is what the talent's badge shows regardless of which candidate is on screen.
+ * unlocks at, since that is what the talent's badge shows regardless of which candidate is on screen, and `moduleNote` when a module changed it.
  */
 type ResolvedTalent =
-	| { key: number; locked: false; name: string; description: string; baseline: string | null; unlockPhase: number }
-	| { key: number; locked: true; name: string; unlockText: string; unlockPhase: number };
+	| { key: number; locked: false; name: string; description: string; baseline: string | null; unlockPhase: number; moduleNote: string | null }
+	| { key: number; locked: true; name: string; unlockText: string; unlockPhase: number; moduleNote: string | null };
 
 /** Props for AbilitiesCard. */
 interface AbilitiesCardProps {
@@ -94,6 +99,10 @@ interface AbilitiesCardProps {
 	operator: OperatorFull;
 	/** The page's controls, which pick each talent's candidate. */
 	controls: Controls;
+	/** Every talent to show, from the page's module effect. */
+	talents: EffectiveTalent[];
+	/** Called when a module is picked in the Modules tab. */
+	onChange: (patch: Partial<Controls>) => void;
 }
 
 /**
@@ -104,61 +113,79 @@ interface AbilitiesCardProps {
  * disappearing, so a reader at a low elite phase can see what is still ahead. A talent with no candidates at all - which `baseCandidate`
  * reports as null - contributes nothing, since there is no name to show either way.
  *
- * @param operator The operator whose talents are being resolved.
+ * @param talents The talents to resolve, with any module changes already merged in.
  * @param phase The 0-based elite phase on screen.
  * @param level The level on screen.
  * @param potential The 1-based potential rank on screen.
  * @returns One resolved entry per talent that has at least one candidate.
  */
-function resolveTalents(operator: OperatorFull, phase: number, level: number, potential: number): ResolvedTalent[] {
+function resolveTalents(talents: EffectiveTalent[], phase: number, level: number, potential: number): ResolvedTalent[] {
 	const resolved: ResolvedTalent[] = [];
-	operator.talents.forEach((talent, index) => {
+	talents.forEach(({ talent, moduleNote }, index) => {
 		const base = baseCandidate(talent);
 		const candidate = candidateFor(talent, phase, level, potential);
 		if (candidate) {
-			resolved.push({ key: index, locked: false, name: candidate.name, description: candidate.description, baseline: base?.description ?? null, unlockPhase: base?.unlockPhase ?? 0 });
+			resolved.push({
+				key: index,
+				locked: false,
+				name: candidate.name,
+				description: candidate.description,
+				baseline: base?.description ?? null,
+				unlockPhase: base?.unlockPhase ?? 0,
+				moduleNote
+			});
 			return;
 		}
 		if (!base) {
 			return;
 		}
-		resolved.push({ key: index, locked: true, name: base.name, unlockText: `Unlocks at E${base.unlockPhase} Lv${base.unlockLevel}`, unlockPhase: base.unlockPhase });
+		resolved.push({ key: index, locked: true, name: base.name, unlockText: `Unlocks at E${base.unlockPhase} Lv${base.unlockLevel}`, unlockPhase: base.unlockPhase, moduleNote });
 	});
 	return resolved;
 }
 
 /**
- * The operator page's Abilities card: a Skills tab, then one tab with the talents over a strip of potentials. A talent value is highlighted when
+ * The operator page's Abilities card: a Skills tab, then one tab with the talents over a strip of potentials, then a Modules tab for operators
+ * that have modules. A talent a module changed carries a note naming the module stage. A talent value is highlighted when
  * it differs from the talent's base candidate, and a parenthesised potential delta - such as `(+2%)` in `ATK +7% (+2%)` - is always highlighted,
  * since it is upstream's own mark for what the current potential adds.
  *
  * @param props Component props.
  * @returns The card.
  */
-export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps) {
+export default function AbilitiesCard({ operator, controls, talents, onChange }: AbilitiesCardProps) {
 	const { phase, level, potential } = controls;
 
-	const talents = useMemo(() => resolveTalents(operator, phase, level, potential), [operator, phase, level, potential]);
+	const resolved = useMemo(() => resolveTalents(talents, phase, level, potential), [talents, phase, level, potential]);
 	const tabs = useMemo(() => {
 		const list: { key: AbilityTab; label: string }[] = [];
 		if (operator.skills.length > 0) {
 			list.push({ key: "skills", label: "Skills" });
 		}
 		list.push({ key: "talents", label: operator.potentials.length > 0 ? "Talents & Potentials" : "Talents" });
+		if (operator.modules.length > 0) {
+			list.push({ key: "modules", label: "Modules" });
+		}
 		return list;
 	}, [operator]);
 	const [tab, setTab] = useState<AbilityTab>("skills");
 	// A tab the new operator lacks falls back to the first, without an effect or a frame of the wrong tab.
 	const shown = tabs.some((entry) => entry.key === tab) ? tab : (tabs[0]?.key ?? "talents");
 	const handleTab = useCallback((_event: SyntheticEvent, value: AbilityTab) => setTab(value), []);
+	const handleSelectModule = useCallback((id: string) => onChange({ module: id }), [onChange]);
 
-	const talentTiles = talents.map((talent) => (
+	const talentTiles = resolved.map((talent) => (
 		<Box key={talent.key} sx={TILE_SX}>
 			<Box sx={TILE_TITLE_SX}>
 				<Box component="img" src={eliteIconUrl(talent.unlockPhase)} alt={`Elite ${talent.unlockPhase}`} title={`Unlocks at Elite ${talent.unlockPhase}`} sx={ELITE_BADGE_SX} />
 				<Typography component="h3" sx={talent.locked ? LOCKED_NAME_SX : NAME_SX}>
 					{talent.name}
 				</Typography>
+				{talent.moduleNote ? (
+					<Box component="span" sx={MODULE_NOTE_SX}>
+						{talent.moduleNote}
+					</Box>
+				) : null}
 			</Box>
 			{talent.locked ? (
 				<Typography variant="body2" color="text.secondary" sx={BODY_SX}>
@@ -216,6 +243,9 @@ export default function AbilitiesCard({ operator, controls }: AbilitiesCardProps
 			</Tabs>
 			{shown === "skills" ? <SkillsPanel key={operator.id} skills={operator.skills} phase={controls.phase} traitRangeId={operator.traitRangeId} /> : null}
 			{shown === "talents" ? talentsAndPotentials : null}
+			{shown === "modules" ? (
+				<ModulesPanel key={operator.id} operatorId={operator.id} modules={operator.modules} selected={controls.module} stage={controls.moduleStage} onSelect={handleSelectModule} />
+			) : null}
 		</Paper>
 	);
 }

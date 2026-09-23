@@ -199,7 +199,7 @@ export default function Operator() {
 							</Box>
 							<Box sx={STATS_ROW_STRETCH_SX}>
 								<StatsPanel operator={operator} modules={operator.modules} stage={effect?.stage ?? null} controls={controls} onChange={handleControlsChange} />
-								<AbilitiesCard operator={operator} controls={controls} />
+								<AbilitiesCard operator={operator} controls={controls} talents={effect?.talents ?? []} onChange={handleControlsChange} />
 							</Box>
 						</Box>
 						<Box sx={HANDBOOK_SX}>
