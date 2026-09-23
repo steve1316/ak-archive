@@ -31,6 +31,10 @@ type AssetManifest = {
 	skins?: Record<string, string[]>;
 	/** Enemy variant ids with a handbook icon. */
 	enemies?: Record<string, boolean>;
+	/** Encoded module picture keys, such as `uniequip_002_chen`. */
+	moduleArt?: string[];
+	/** Encoded branch badge keys, such as `swo-x`. */
+	moduleTypes?: string[];
 };
 
 /**
@@ -39,6 +43,12 @@ type AssetManifest = {
  * Read from `src/data/assets-manifest.json`. The glob tolerates no match, so the site still builds when the pipeline has not written one.
  */
 const MANIFEST: AssetManifest = Object.values(import.meta.glob<AssetManifest>("../data/assets-manifest.json", { import: "default", eager: true }))[0] ?? {};
+
+/** Published module picture keys, as a set so a lookup does not scan the list. */
+const MODULE_ART = new Set(MANIFEST.moduleArt ?? []);
+
+/** Published branch badge keys. */
+const MODULE_TYPES = new Set(MANIFEST.moduleTypes ?? []);
 
 /**
  * URL of an operator's portrait, the 180x360 image the index card and the page hero use.
@@ -127,4 +137,44 @@ export function enemyIconUrl(id: string): string {
  */
 export function hasEnemyIcon(id: string): boolean {
 	return MANIFEST.enemies?.[id] === true;
+}
+
+/**
+ * A module picture.
+ *
+ * @param key The module's `art` key.
+ * @returns The picture's URL on the asset host.
+ */
+export function moduleArtUrl(key: string): string {
+	return assets.url(`modules/${key}.webp`);
+}
+
+/**
+ * Whether a module picture was published.
+ *
+ * @param key The picture key.
+ * @returns True when the manifest lists it.
+ */
+export function hasModuleArt(key: string): boolean {
+	return MODULE_ART.has(key);
+}
+
+/**
+ * A module branch badge.
+ *
+ * @param key The module's `typeIcon`, such as `swo-x`.
+ * @returns The badge's URL on the asset host.
+ */
+export function moduleTypeUrl(key: string): string {
+	return assets.url(`module-types/${key}.webp`);
+}
+
+/**
+ * Whether a branch badge was published.
+ *
+ * @param key The badge key.
+ * @returns True when the manifest lists it.
+ */
+export function hasModuleType(key: string): boolean {
+	return MODULE_TYPES.has(key);
 }

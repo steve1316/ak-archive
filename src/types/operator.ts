@@ -137,6 +137,64 @@ export interface OperatorSkill {
 	levels: SkillLevel[];
 }
 
+/** A module's flat stat bonus at one stage. `aspd` is attack speed, which no base stat carries. */
+export type ModuleStats = Partial<StatValues> & {
+	/** Attack speed added, in the game's ASPD points. */
+	aspd?: number;
+};
+
+/** A module stage's change to the operator's trait. */
+export interface ModuleTrait {
+	/** `append` adds the text after the base trait, `replace` shows it instead. */
+	mode: "append" | "replace";
+	/** The trait text, with markup stripped and values filled in. */
+	text: string;
+}
+
+/** One talent change a module stage makes. */
+export interface ModuleTalent {
+	/** The position in `Operator.talents` it upgrades, or null for a talent only the module grants. */
+	index: number | null;
+	/** The talent's name. */
+	name: string;
+	/** The talent's effect at this stage and potential. */
+	description: string;
+	/** The 1-based potential rank this version needs. */
+	requiredPotential: number;
+}
+
+/** One of a module's three stages. */
+export interface ModuleStage {
+	/** Flat stats the stage adds. */
+	stats: ModuleStats;
+	/** The trait change, or null when the stage leaves the trait alone. */
+	trait: ModuleTrait | null;
+	/** Talent changes, in upstream order. */
+	talents: ModuleTalent[];
+	/** Effects on the operator's summons, as plain lines. */
+	summon: string[];
+}
+
+/** One module an operator can equip. */
+export interface OperatorModule {
+	/** The upstream id, such as `uniequip_002_chen`. */
+	id: string;
+	/** The module's name. */
+	name: string;
+	/** The branch code the game shows, such as `SWO-X`. */
+	code: string;
+	/** The lowercase key of the branch badge on the asset host, such as `swo-x`. */
+	typeIcon: string;
+	/** The lowercase key of the module picture on the asset host, such as `uniequip_002_chen`. */
+	art: string;
+	/** The 0-based elite phase the module unlocks at. */
+	unlockPhase: number;
+	/** The level within `unlockPhase` the module unlocks at. */
+	unlockLevel: number;
+	/** Stages 1 to 3, in order. */
+	stages: ModuleStage[];
+}
+
 /** One operator, as a class shard holds it. */
 export interface Operator {
 	/** Upstream id, such as `char_002_amiya`. */
@@ -183,6 +241,8 @@ export interface Operator {
 export interface OperatorDetails {
 	/** Combat skills in slot order. Empty for the operators that have none. */
 	skills: OperatorSkill[];
+	/** The operator's modules, in the game's order. Empty for operators without any. */
+	modules: OperatorModule[];
 	/** The handbook's Basic Info and Physical Exam, parsed. Those two sections are not in the lore. */
 	record: HandbookRecord;
 }
@@ -220,6 +280,8 @@ export interface HandbookRecord {
 export interface Profile {
 	/** Handbook sections, in the game's order. */
 	lore: LoreSection[];
+	/** Each module's story text, by module id. Absent for operators without modules. */
+	moduleLore?: Record<string, string>;
 }
 
 /** One entry in the navbar's search index. Deliberately tiny - it renders on every route. */
@@ -235,7 +297,7 @@ export interface SearchEntry {
 }
 
 /**
- * The operator page's four control values. The Stats and Abilities cards both read the same four, so the page owns them in one place and
+ * The operator page's six control values. The Stats and Abilities cards both read the same six, so the page owns them in one place and
  * passes them down, rather than each card keeping its own copy.
  */
 export interface Controls {
@@ -247,6 +309,10 @@ export interface Controls {
 	trust: boolean;
 	/** Selected potential rank, 1 to 6. */
 	potential: number;
+	/** The selected module's id, or null for no module. */
+	module: string | null;
+	/** The selected module stage, 1 to 3. */
+	moduleStage: number;
 }
 
 /** Where the site's data was pulled from, written by `tools/data/import.mjs` to `src/data/upstream.json`. */
