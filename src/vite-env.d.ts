@@ -28,3 +28,9 @@ declare module "virtual:asset-presence" {
 	const presence: import("../tools/data/lib/presence.mjs").AssetPresence;
 	export default presence;
 }
+
+/** The URL of each chibi rig index bucket, keyed by file name such as `spine-index-3`, built by `rigIndexPlugin` in `vite.config.ts`. */
+declare module "virtual:rig-index-urls" {
+	const urls: Record<string, string>;
+	export default urls;
+}

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import path from "node:path";
@@ -10,6 +11,7 @@ import type { Plugin } from "vite";
 import { baseTrailingSlash, spaFallback } from "archive-kit/config";
 
 import { EMPTY_PRESENCE, slimManifest } from "./tools/data/lib/presence.mjs";
+import { splitRigIndex } from "./tools/data/lib/rigBuckets.mjs";
 import { routePagePaths } from "./tools/data/lib/routePages.mjs";
 
 // Pages serves the site from /ak-archive/, while Docker and local previews serve it from the root. VITE_BASE lets the same source produce both.
@@ -104,6 +106,19 @@ const MANIFEST_PATH = path.join(REPO_ROOT, "src/data/assets-manifest.json");
 const SEARCH_INDEX_PATH = path.join(REPO_ROOT, "src/data/search-index.json");
 const ENEMIES_PATH = path.join(REPO_ROOT, "src/data/enemies.json");
 
+/** The virtual module that maps each rig index bucket file to its URL, and the id Vite resolves it to. */
+const RIG_INDEX_MODULE = "virtual:rig-index-urls";
+const RIG_INDEX_RESOLVED = `\0${RIG_INDEX_MODULE}`;
+
+/** The two committed rig indexes the buckets are split from, keyed by the name their bucket files take. */
+const RIG_INDEX_PATHS: Record<string, string> = {
+	"spine-index": path.join(REPO_ROOT, "src/data/spine-index.json"),
+	"enemy-spine-index": path.join(REPO_ROOT, "src/data/enemy-spine-index.json")
+};
+
+/** The dev route the rig index buckets are served under, since the dev server cannot serve emitted files. */
+const RIG_INDEX_DEV_PREFIX = "__rig-index/";
+
 /**
  * Every operator id, enemy variant id and enemy group head id the generated data names. The presence lists are taken against the first two,
  * and the route pages are written for the operators and the group heads.
@@ -182,11 +197,86 @@ function routePagesPlugin(): Plugin {
 	};
 }
 
+/**
+ * Every rig index bucket, split fresh from the committed indexes.
+ *
+ * @returns Each bucket's JSON text, keyed by its file name without extension, such as `spine-index-3`.
+ */
+async function rigIndexBuckets(): Promise<Map<string, string>> {
+	const buckets = new Map<string, string>();
+	for (const [name, file] of Object.entries(RIG_INDEX_PATHS)) {
+		const index = JSON.parse(await fs.readFile(file, "utf8")) as Record<string, unknown>;
+		splitRigIndex(index).forEach((bucket, number) => buckets.set(`${name}-${number}`, JSON.stringify(bucket)));
+	}
+	return buckets;
+}
+
+/**
+ * Serves `virtual:rig-index-urls`: the URL of each bucket of the two chibi rig indexes. A page then fetches the one bucket its operator or enemy
+ * is in, about 60 KB, rather than the whole 500 KB index. A build emits each bucket under a content-hashed name, and the dev server serves them
+ * from memory under `__rig-index/`.
+ *
+ * @returns The plugin.
+ */
+function rigIndexPlugin(): Plugin {
+	let base = "/";
+	let building = false;
+	return {
+		name: "rig-index",
+		configResolved(config) {
+			base = config.base;
+			building = config.command === "build";
+		},
+		configureServer(server) {
+			server.middlewares.use((req, res, next) => {
+				const prefix = `${server.config.base}${RIG_INDEX_DEV_PREFIX}`;
+				if (!req.url?.startsWith(prefix)) {
+					next();
+					return;
+				}
+				const name =
+					req.url
+						.slice(prefix.length)
+						.split("?")[0]
+						?.replace(/\.json$/, "") ?? "";
+				void rigIndexBuckets().then((buckets) => {
+					const text = buckets.get(name);
+					res.statusCode = text === undefined ? 404 : 200;
+					res.setHeader("Content-Type", "application/json");
+					res.end(text ?? "Not found");
+				}, next);
+			});
+		},
+		resolveId(source) {
+			return source === RIG_INDEX_MODULE ? RIG_INDEX_RESOLVED : null;
+		},
+		async load(id) {
+			if (id !== RIG_INDEX_RESOLVED) {
+				return null;
+			}
+			for (const file of Object.values(RIG_INDEX_PATHS)) {
+				this.addWatchFile(file);
+			}
+			const urls: Record<string, string> = {};
+			for (const [name, text] of await rigIndexBuckets()) {
+				if (building) {
+					const fileName = `assets/${name}-${createHash("sha256").update(text).digest("hex").slice(0, 8)}.json`;
+					this.emitFile({ type: "asset", fileName, source: text });
+					urls[name] = `${base}${fileName}`;
+				} else {
+					urls[name] = `${base}${RIG_INDEX_DEV_PREFIX}${name}.json`;
+				}
+			}
+			return `export default ${JSON.stringify(urls)};`;
+		}
+	};
+}
+
 export default defineConfig({
 	base: BASE,
 	// spineStagingPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
 	// unmatched dev request with index.html before the staging route ever saw it.
-	plugins: [spineStagingPlugin(), assetPresencePlugin(), react(), spaFallback(), baseTrailingSlash(), routePagesPlugin()],
+	plugins: [spineStagingPlugin(), assetPresencePlugin(), rigIndexPlugin(), react(), spaFallback(), baseTrailingSlash(), routePagesPlugin()],
 	build: {
 		outDir: "build",
 		sourcemap: true,
