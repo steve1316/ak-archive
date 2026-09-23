@@ -121,6 +121,9 @@ export const START: Cursor = { index: 0, pick: null, hidden: false };
 /** The tag the scripts write where the reader's name goes. */
 const NICKNAME_TAG = "{@nickname}";
 
+/** The title the scripts put before the name, which a reader named Doctor drops so no line reads "Dr. Doctor". */
+const TITLED_NICKNAME = /Dr\. ?\{@nickname\}/g;
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -144,7 +147,8 @@ export function emptyEffects(): Effects {
 }
 
 /**
- * Put the reader's name where the script writes `{@nickname}`, in a plain string or in a line's text and every styled run.
+ * Put the reader's name where the script writes `{@nickname}`, in a plain string or in a line's text and every styled run. A reader named Doctor
+ * loses the script's "Dr." in front of it.
  *
  * @param value The string or line.
  * @param nickname The reader's name.
@@ -154,7 +158,7 @@ export function fillNickname(value: string, nickname: string): string;
 export function fillNickname<T extends { text: string; spans?: Span[] }>(value: T, nickname: string): T;
 export function fillNickname(value: string | { text: string; spans?: Span[] }, nickname: string): string | { text: string; spans?: Span[] } {
 	if (typeof value === "string") {
-		return value.replaceAll(NICKNAME_TAG, nickname);
+		return (nickname === "Doctor" ? value.replace(TITLED_NICKNAME, nickname) : value).replaceAll(NICKNAME_TAG, nickname);
 	}
 	return { ...value, text: fillNickname(value.text, nickname), ...(value.spans ? { spans: value.spans.map((span) => ({ ...span, text: fillNickname(span.text, nickname) })) } : {}) };
 }

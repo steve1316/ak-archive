@@ -219,3 +219,8 @@ test("upcomingArt lists the art the next few stops show, once each, and stops lo
 	]);
 	assert.deepEqual(upcomingArt(steps, first.cursor, first.stage, 1).length, 3);
 });
+
+test("fillNickname drops the Dr. before a reader named Doctor, so no line reads Dr. Doctor", () => {
+	assert.equal(fillNickname("Hello, Dr. {@nickname}. Dr.{@nickname}? {@nickname}!", "Doctor"), "Hello, Doctor. Doctor? Doctor!");
+	assert.equal(fillNickname("Hello, Dr. {@nickname}.", "Kal"), "Hello, Dr. Kal.");
+});
