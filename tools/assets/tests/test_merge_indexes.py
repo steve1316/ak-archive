@@ -61,3 +61,11 @@ def test_enemy_spine_index_adds_new_enemies():
     merged = merge_enemy_spine_index({"enemy_1": {"skel": "a"}}, {"enemy_2": {"skel": "b"}})
 
     assert merged == {"enemy_1": {"skel": "a"}, "enemy_2": {"skel": "b"}}
+
+
+def test_variants_keep_the_builders_kind_order():
+    committed = {"variants": {"portraits": {"char_a": ["2"]}, "illustrations": {"char_a": ["2"]}}}
+
+    merged = merge_manifest(committed, {"variants": {"portraits": {}, "illustrations": {"char_b": ["3"]}}})
+
+    assert list(merged["variants"]) == ["portraits", "illustrations"]

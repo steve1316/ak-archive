@@ -79,7 +79,9 @@ def merge_manifest(committed, partial):
         elif section == "skins":
             merged[section] = merge_key_lists(old, new)
         elif section == "variants":
-            merged[section] = {kind: merge_key_lists(old.get(kind, {}), new.get(kind, {})) for kind in sorted(set(old) | set(new))}
+            # The builder writes `portraits` before `illustrations`, so kinds keep the committed order rather than being sorted.
+            kinds = list(old) + [kind for kind in new if kind not in old]
+            merged[section] = {kind: merge_key_lists(old.get(kind, {}), new.get(kind, {})) for kind in kinds}
         else:
             raise ValueError(f"unknown manifest section {section}, so it cannot be merged safely")
     return merged
