@@ -79,7 +79,7 @@ function sortOperators(operators: OperatorCardEntry[], key: SortKey, descending:
 export default function OperatorIndex() {
 	const [operators, setOperators] = useState<OperatorCardEntry[] | null>(null);
 	const [error, setError] = useState(false);
-	// Bumped by the retry button to run the load again. Shards that did load stay cached in the data store.
+	// Bumped by the retry button to run the load again. The data store drops a failed file, so a retry really refetches.
 	const [attempt, setAttempt] = useState(0);
 
 	const [rarities, setRarities] = useState<number[]>([]);

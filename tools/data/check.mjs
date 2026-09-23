@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { ledgerProblems, missingAssets, publishedAssets, referencedAssets } from "./lib/gaps.mjs";
-import { CARD_FIELDS } from "./lib/operators.mjs";
+import { cardOf } from "./lib/operators.mjs";
 import { parseRecord } from "./lib/record.mjs";
 import { SHARDS } from "./lib/shards.mjs";
 
@@ -598,9 +598,8 @@ if (cards.length !== operators.length) {
 }
 for (const [index, card] of cards.entries()) {
 	const operator = operators[index];
-	if (JSON.stringify(Object.keys(card)) !== JSON.stringify(CARD_FIELDS)) {
-		fail(`operator-cards.json entry ${index} has fields ${Object.keys(card).join(", ")}`);
-	} else if (!operator || CARD_FIELDS.some((field) => JSON.stringify(card[field]) !== JSON.stringify(operator[field]))) {
+	// Stringified, so a field out of order fails as well as a wrong value.
+	if (!operator || JSON.stringify(card) !== JSON.stringify(cardOf(operator))) {
 		fail(`operator-cards.json entry ${index} (${card.id}) does not match its shard record`);
 	}
 }

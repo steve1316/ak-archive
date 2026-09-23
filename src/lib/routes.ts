@@ -2,7 +2,7 @@ import { enemyNumber, operatorNumber } from "../../tools/data/lib/routePages.mjs
 import { searchIndex } from "./data.js";
 
 // The route numbers live in `routePages.mjs`, which the build also uses to write a real page for every route, so the two cannot disagree.
-export { enemyNumber, operatorNumber };
+export { enemyNumber };
 
 /** Upstream ids keyed by their short number. Every operator's number is unique, so the short URL is enough to find it. */
 const ID_BY_NUMBER = new Map(searchIndex.map((entry) => [operatorNumber(entry.id), entry.id]));
