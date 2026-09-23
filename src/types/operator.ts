@@ -247,6 +247,8 @@ export interface OperatorDetails {
 	modules: OperatorModule[];
 	/** The handbook's Basic Info and Physical Exam, parsed. Those two sections are not in the lore. */
 	record: HandbookRecord;
+	/** The operator's record story sets, each linking to its story list. Empty for operators without any. */
+	records: { group: string; name: string }[];
 }
 
 /** An operator plus its details, which is what the operator page renders. */

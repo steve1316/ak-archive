@@ -17,6 +17,7 @@ import AnimationsCard from "../../components/AnimationsCard.js";
 import type { StageRequest } from "../../components/AnimationsCard.js";
 import ArtCard from "./ArtCard.js";
 import HandbookSection from "./HandbookSection.js";
+import RecordsSection from "./RecordsSection.js";
 import IdentityBlock from "./IdentityBlock.js";
 import { HERO_ROW_SX, NAVBAR_HEIGHT, PAGE_SX, PAGE_TOP_PADDING, STATS_ROW_STRETCH_SX } from "../../lib/layout.js";
 import RecordBlock from "../../components/RecordBlock.js";
@@ -205,6 +206,7 @@ export default function Operator() {
 						</Box>
 						<Box sx={HANDBOOK_SX}>
 							<HandbookSection id={operator.id} artUrl={form?.illustration ?? null} />
+							<RecordsSection records={operator.records ?? []} />
 						</Box>
 					</>
 				) : (
