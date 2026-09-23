@@ -187,15 +187,7 @@ export default function App() {
 							}
 						/>
 						<Route
-							path="/stories"
-							element={
-								<Suspense>
-									<Stories />
-								</Suspense>
-							}
-						/>
-						<Route
-							path="/stories/:group"
+							path="/stories/:group?"
 							element={
 								<Suspense>
 									<Stories />
