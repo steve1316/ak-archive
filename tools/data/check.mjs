@@ -43,7 +43,17 @@ const OPERATOR_SECTIONS = new Set(["portraits", "illustrations", "skins", "varia
 
 /** Module floors at the pinned sha: every ADVANCED module of an imported operator. */
 const MIN_MODULES = 473;
-const MIN_MODULE_OPERATORS = 371;
+const MIN_MODULE_OPERATORS = 373;
+
+/**
+ * Which operator owns a module, where upstream's own `charId` is wrong. Amiya's Guard and Medic modules name Caster Amiya as their `charId`, and
+ * only `charEquip` puts them on the right form.
+ */
+const MODULE_OWNER_FIXTURES = [
+	{ id: "char_002_amiya", modules: ["uniequip_002_amiya"] },
+	{ id: "char_1001_amiya2", modules: ["uniequip_002_amiya2"] },
+	{ id: "char_1037_amiya3", modules: ["uniequip_002_amiya3"] }
+];
 
 /**
  * Module stages checked by hand against the upstream tables. Ch'en's SWO-X adds ATK and ASPD, appends to her trait and upgrades Scolding.
@@ -539,6 +549,12 @@ for (const operator of operators) {
 }
 if (moduleCount < MIN_MODULES || withModules < MIN_MODULE_OPERATORS) {
 	fail(`${moduleCount} modules across ${withModules} operators, below the floor of ${MIN_MODULES} across ${MIN_MODULE_OPERATORS}`);
+}
+for (const fixture of MODULE_OWNER_FIXTURES) {
+	const ids = (detailsById.get(fixture.id)?.modules ?? []).map((module) => module.id);
+	if (JSON.stringify(ids) !== JSON.stringify(fixture.modules)) {
+		fail(`${fixture.id} has modules ${JSON.stringify(ids)}, expected ${JSON.stringify(fixture.modules)}`);
+	}
 }
 for (const fixture of MODULE_FIXTURES) {
 	const module = detailsById.get(fixture.id)?.modules?.find((entry) => entry.id === fixture.module);

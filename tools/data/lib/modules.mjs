@@ -186,20 +186,23 @@ function buildSummon(phase, characterTable) {
 }
 
 /**
- * Every ADVANCED module, grouped by operator id and in the game's order.
+ * Every ADVANCED module, grouped by the operator that equips it. Ownership comes from `charEquip`, not from each module's `charId`: Amiya's
+ * Guard and Medic modules name Caster Amiya as their `charId`, and only `charEquip` puts them on the right form. Each list is sorted by
+ * `charEquipOrder`, which puts X before Y the way the game's module screen does, where `charEquip`'s own order is not always that.
  *
  * @param {object} uniequip `uniequip_table`.
  * @returns {Map<string, Array<object>>} Raw module rows by operator id.
  */
 export function indexModules(uniequip) {
 	const byChar = new Map();
-	for (const equip of Object.values(uniequip.equipDict ?? {})) {
-		if (equip?.type === "ADVANCED") {
-			byChar.set(equip.charId, [...(byChar.get(equip.charId) ?? []), equip]);
+	for (const [charId, ids] of Object.entries(uniequip.charEquip ?? {})) {
+		const equips = asArray(ids)
+			.map((id) => uniequip.equipDict?.[id])
+			.filter((equip) => equip?.type === "ADVANCED")
+			.sort((a, b) => a.charEquipOrder - b.charEquipOrder);
+		if (equips.length > 0) {
+			byChar.set(charId, equips);
 		}
-	}
-	for (const list of byChar.values()) {
-		list.sort((a, b) => a.charEquipOrder - b.charEquipOrder);
 	}
 	return byChar;
 }
