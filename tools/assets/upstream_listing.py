@@ -8,6 +8,8 @@ largest folder read, fexli's `spine`, is about 14,500 entries.
 
 import json
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -18,6 +20,10 @@ import urllib.request
 API_BASE = "https://api.github.com"
 USER_AGENT = "ak-archive-refresh/1.0 (https://github.com/steve1316/ak-archive)"
 REQUEST_TIMEOUT_SECONDS = 60
+
+# A large recursive tree can answer 500 on a cold cache and succeed seconds later, so server errors are retried a few times with a growing delay.
+RETRY_ATTEMPTS = 4
+RETRY_DELAY_SECONDS = 5
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -40,15 +46,22 @@ def list_folder(repo, sha, folder, token=None):
 
     Raises:
         RuntimeError: When the API reports the listing as truncated.
-        urllib.error.HTTPError: When the request fails.
+        urllib.error.HTTPError: When the request fails with a client error, or with a server error on every attempt.
     """
     ref = urllib.parse.quote(f"{sha}:{folder}", safe="")
     request = urllib.request.Request(f"{API_BASE}/repos/{repo}/git/trees/{ref}?recursive=1", headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
     token = token or os.environ.get("GITHUB_TOKEN")
     if token:
         request.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        body = json.load(response)
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                body = json.load(response)
+            break
+        except urllib.error.HTTPError as error:
+            if error.code < 500 or attempt == RETRY_ATTEMPTS:
+                raise
+            time.sleep(RETRY_DELAY_SECONDS * attempt)
     if body.get("truncated"):
         raise RuntimeError(f"the listing of {repo}:{folder} at {sha[:10]} came back truncated, so planning from it would miss files")
     return [{"path": item["path"], "sha": item["sha"], "size": item.get("size", 0)} for item in body["tree"] if item["type"] == "blob"]
