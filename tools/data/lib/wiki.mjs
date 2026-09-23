@@ -2,8 +2,11 @@
  * A small client for the Arknights Wiki's MediaWiki API, used only by `tools/data/dates.mjs`.
  *
  * Requests run one at a time and carry a descriptive User-Agent, as the wiki asks of bots. Nothing here is cached, since the output this feeds is a
- * committed snapshot rather than something rebuilt on every import.
+ * committed snapshot rather than something rebuilt on every import. When `FLARESOLVERR_URL` is set, which only the scheduled refresh does, every
+ * request goes through a FlareSolverr browser session instead, since the wiki's Cloudflare can challenge GitHub's runners.
  */
+
+import { createFlareSolverrClient } from "./flaresolverr.mjs";
 
 /** The wiki's API endpoint. */
 const API_URL = "https://arknights.wiki.gg/api.php";
@@ -14,6 +17,9 @@ const USER_AGENT = "ak-archive data importer (https://github.com/steve1316/ak-ar
 /** Rows per Cargo page. The wiki serves up to 500 per request. */
 const PAGE_SIZE = 500;
 
+/** The FlareSolverr session, opened on the first request when `FLARESOLVERR_URL` is set. */
+let solver = null;
+
 /**
  * Call the API once.
  *
@@ -23,7 +29,10 @@ const PAGE_SIZE = 500;
  */
 async function call(params) {
 	const url = `${API_URL}?${new URLSearchParams({ format: "json", ...params })}`;
-	const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+	if (process.env.FLARESOLVERR_URL && !solver) {
+		solver = await createFlareSolverrClient(process.env.FLARESOLVERR_URL);
+	}
+	const response = solver ? await solver.get(url) : await fetch(url, { headers: { "User-Agent": USER_AGENT } });
 	if (!response.ok) {
 		throw new Error(`wiki request failed with HTTP ${response.status}: ${url}`);
 	}
@@ -68,4 +77,16 @@ export async function pageWikitext(title) {
 		throw new Error(`wiki page ${title} failed: ${body.error.code} ${body.error.info}`);
 	}
 	return body.parse?.wikitext?.["*"] ?? "";
+}
+
+/**
+ * Close the FlareSolverr session if one was opened. A no-op for a local run.
+ *
+ * @returns {Promise<void>}
+ */
+export async function closeWiki() {
+	if (solver) {
+		await solver.close().catch((error) => console.warn(`warning: closing the FlareSolverr session failed (${error.message})`));
+		solver = null;
+	}
 }

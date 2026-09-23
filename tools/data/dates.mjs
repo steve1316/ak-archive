@@ -17,7 +17,7 @@ import { chapterDay, enemyDates, ID_ALIASES, operatorDates, stageDates } from ".
 import { asArray, sortedObject } from "./lib/json.mjs";
 import { selectOperators } from "./lib/operators.mjs";
 import { loadTable, readLock } from "./lib/upstream.mjs";
-import { cargoQuery, pageWikitext } from "./lib/wiki.mjs";
+import { cargoQuery, closeWiki, pageWikitext } from "./lib/wiki.mjs";
 
 /** Where the snapshot is written. */
 const OUT_PATH = "tools/data/release-dates.json";
@@ -145,4 +145,8 @@ async function main() {
 	console.log(`wrote ${OUT_PATH}`);
 }
 
-await main();
+try {
+	await main();
+} finally {
+	await closeWiki();
+}
