@@ -204,6 +204,57 @@ def run_plan(args):
     return 0
 
 
+# //////////////////////////////////////////////////////////////////////////////////////////////////
+# //////////////////////////////////////////////////////////////////////////////////////////////////
+# Manifest
+
+
+def build_manifest(existing, wants, unavailable, built):
+    """
+    Merge this run's published assets into the manifest. Only wants whose output was actually built are claimed, so a failed encode is planned
+    again next run rather than claimed as published.
+
+    Args:
+        existing: The committed manifest, or an empty dict before the first run.
+        wants: This run's plan.
+        unavailable: This run's references the mirror lacks, by manifest kind.
+        built: Published paths present under the run's `assets` folder.
+
+    Returns:
+        The manifest: one sorted key list per manifest kind, plus `unavailable`.
+    """
+    keys = {kind: set(existing.get(kind, [])) for kind in MANIFEST_KINDS}
+    for want in wants:
+        if want["published"] in built:
+            keys[want["kind"]].add(want["key"])
+    manifest = {kind: sorted(values) for kind, values in keys.items()}
+    manifest["unavailable"] = {kind: sorted(names) for kind, names in unavailable.items() if names}
+    return manifest
+
+
+def run_manifest(args):
+    """
+    Write `src/data/story-assets.json` from this run's plan and built tree.
+
+    Args:
+        args: Parsed arguments carrying `staging`.
+
+    Returns:
+        0 on success.
+    """
+    wants = read_json(os.path.join(args.staging, "plan.json"))
+    unavailable = read_json(os.path.join(args.staging, "unavailable.json"))
+    assets_dir = os.path.join(args.staging, "assets")
+    built = {want["published"] for want in wants if os.path.exists(os.path.join(assets_dir, *want["published"].split("/")))}
+    existing = read_json(MANIFEST_PATH) if os.path.exists(MANIFEST_PATH) else {}
+    manifest = build_manifest(existing, wants, unavailable, built)
+    with open(MANIFEST_PATH, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, separators=(",", ":"))
+        handle.write("\n")
+    print(f"manifest: {json.dumps({kind: len(manifest[kind]) for kind in MANIFEST_KINDS})}, {len(built)} of {len(wants)} planned files built")
+    return 0
+
+
 def main():
     """Parse arguments and run one command."""
     parser = argparse.ArgumentParser(description="Plan and record the story assets the site does not have yet.")
@@ -212,8 +263,10 @@ def main():
     plan_command.add_argument("--staging", required=True, help="The run's staging root, such as tools/assets/.staging-story.")
     plan_command.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES, help=f"The most files one run may fetch. Defaults to {DEFAULT_MAX_FILES}.")
     plan_command.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES, help=f"The most raw bytes one run may fetch. Defaults to {DEFAULT_MAX_BYTES}.")
+    manifest_command = commands.add_parser("manifest")
+    manifest_command.add_argument("--staging", required=True, help="The run's staging root.")
     args = parser.parse_args()
-    return {"plan": run_plan}[args.command](args)
+    return {"plan": run_plan, "manifest": run_manifest}[args.command](args)
 
 
 if __name__ == "__main__":

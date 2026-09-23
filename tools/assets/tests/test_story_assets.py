@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from story_assets import manifest_paths, plan_story
+from story_assets import build_manifest, manifest_paths, plan_story
 from story_names import index_by_name, index_by_path
 
 
@@ -67,3 +67,17 @@ def test_plan_skips_published_paths():
 def test_manifest_paths_turn_manifest_keys_back_into_published_paths():
     manifest = {"backgrounds": ["bg_a"], "images": [], "items": [], "sprites": ["char_1-2"], "audio": ["sound_beta_2/music/m_a"], "covers": ["main_0"], "maps": [], "unavailable": {}}
     assert manifest_paths(manifest) == {"backgrounds/bg_a.webp", "sprites/char_1-2.webp", "audio/sound_beta_2/music/m_a.mp3", "covers/main_0.webp"}
+
+
+def test_manifest_claims_only_built_outputs():
+    existing = {"backgrounds": ["bg_old"], "images": [], "items": [], "sprites": [], "audio": [], "covers": [], "maps": [], "unavailable": {"backgrounds": ["bg_gone"]}}
+    wants = [
+        {"kind": "backgrounds", "key": "bg_new", "published": "backgrounds/bg_new.webp"},
+        {"kind": "sprites", "key": "char_1-2", "published": "sprites/char_1-2.webp"},
+    ]
+    unavailable = {"backgrounds": ["bg_missing"], "audio": ["$x"]}
+    manifest = build_manifest(existing, wants, unavailable, {"backgrounds/bg_new.webp"})
+    assert manifest["backgrounds"] == ["bg_new", "bg_old"]
+    assert manifest["sprites"] == []
+    assert manifest["unavailable"] == {"backgrounds": ["bg_missing"], "audio": ["$x"]}
+    assert set(manifest) == {"backgrounds", "images", "items", "sprites", "audio", "covers", "maps", "unavailable"}

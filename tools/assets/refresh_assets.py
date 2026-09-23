@@ -21,6 +21,7 @@ import shutil
 import sys
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from encode import encode_all, load_enemy_ids, load_module_keys, load_operator_ids, load_skill_icon_keys
@@ -38,6 +39,7 @@ MAX_BYTES = 200_000_000
 DEFAULT_MAX_FILES = 300
 USER_AGENT = "ak-archive-refresh/1.0 (https://github.com/steve1316/ak-archive)"
 REQUEST_TIMEOUT_SECONDS = 120
+DEFAULT_FETCH_WORKERS = 8
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -145,12 +147,52 @@ def run_plan(args):
     return 0
 
 
-def run_fetch(args):
+def fetch_one(entry, staging):
     """
-    Download every planned file, checking each against the size the listing gave.
+    Download one planned file and check it against the size the listing gave.
 
     Args:
-        args: Parsed arguments carrying `staging`.
+        entry: One planned want, carrying `source`, `repo`, `commit`, `repo_path` and `size`.
+        staging: The run's staging root.
+
+    Returns:
+        The downloaded file's path.
+
+    Raises:
+        RuntimeError: When the download's size does not match the listing.
+    """
+    target = os.path.join(staging, "upstream-refresh", entry["source"], *entry["repo_path"].split("/"))
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    request = urllib.request.Request(raw_url(entry["repo"], entry["commit"], entry["repo_path"]), headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response, open(target, "wb") as handle:
+        shutil.copyfileobj(response, handle)
+    if os.path.getsize(target) != entry["size"]:
+        raise RuntimeError(f"{entry['repo_path']} downloaded {os.path.getsize(target)} bytes, the listing said {entry['size']}")
+    return target
+
+
+def already_fetched(entry, staging):
+    """
+    Whether a planned file is already on disk at the size the listing gave.
+
+    Args:
+        entry: One planned want.
+        staging: The run's staging root.
+
+    Returns:
+        True when the file exists at the listed size.
+    """
+    target = os.path.join(staging, "upstream-refresh", entry["source"], *entry["repo_path"].split("/"))
+    return os.path.exists(target) and os.path.getsize(target) == entry["size"]
+
+
+def run_fetch(args):
+    """
+    Download every planned file, several at a time, checking each against the size the listing gave. A file already downloaded at the right size
+    is kept, so a re-run after a failure resumes rather than starting over.
+
+    Args:
+        args: Parsed arguments carrying `staging` and `workers`.
 
     Returns:
         0 on success.
@@ -159,17 +201,14 @@ def run_fetch(args):
         RuntimeError: When a download's size does not match the listing.
     """
     wants = read_json(os.path.join(args.staging, "plan.json"))
-    for index, entry in enumerate(wants, start=1):
-        target = os.path.join(args.staging, "upstream-refresh", entry["source"], *entry["repo_path"].split("/"))
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        request = urllib.request.Request(raw_url(entry["repo"], entry["commit"], entry["repo_path"]), headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response, open(target, "wb") as handle:
-            shutil.copyfileobj(response, handle)
-        if os.path.getsize(target) != entry["size"]:
-            raise RuntimeError(f"{entry['repo_path']} downloaded {os.path.getsize(target)} bytes, the listing said {entry['size']}")
-        if index % 50 == 0:
-            print(f"fetched {index} of {len(wants)}")
-    print(f"fetched {len(wants)} files")
+    pending = [entry for entry in wants if not already_fetched(entry, args.staging)]
+    done = len(wants) - len(pending)
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        for _path in executor.map(lambda entry: fetch_one(entry, args.staging), pending):
+            done += 1
+            if done % 200 == 0:
+                print(f"fetched {done} of {len(wants)}")
+    print(f"fetched {len(wants)} files ({len(wants) - len(pending)} already on disk)")
     return 0
 
 
@@ -201,6 +240,8 @@ def main():
         command.add_argument("--staging", required=True, help="The refresh run's staging root, such as $RUNNER_TEMP/staging.")
         if name == "plan":
             command.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES, help=f"The most files one run may fetch. Defaults to {DEFAULT_MAX_FILES}.")
+        if name == "fetch":
+            command.add_argument("--workers", type=int, default=DEFAULT_FETCH_WORKERS, help=f"How many downloads run at once. Defaults to {DEFAULT_FETCH_WORKERS}.")
     args = parser.parse_args()
     return {"plan": run_plan, "fetch": run_fetch, "build": run_build}[args.command](args)
 
