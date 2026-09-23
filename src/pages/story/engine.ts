@@ -422,22 +422,23 @@ export function upcomingArt(steps: Step[], cursor: Cursor, stage: StageState, st
 			found.set(`${kind}/${name}`, { kind, name });
 		}
 	};
-	let result: Advance = { cursor, stage, stop: { kind: "end" }, effects: emptyEffects() };
+	let at: { cursor: Cursor; stage: StageState } = { cursor, stage };
 	for (let count = 0; count < stops; count++) {
-		result = advance(steps, result.cursor, result.stage);
-		for (const layer of [result.stage.background, result.stage.image]) {
+		const next = advance(steps, at.cursor, at.stage);
+		for (const layer of [next.stage.background, next.stage.image]) {
 			if (layer && !(layer === stage.background || layer === stage.image)) {
 				add(layer.kind, layer.name);
 			}
 		}
-		for (const name of Object.values(result.stage.sprites)) {
+		for (const name of Object.values(next.stage.sprites)) {
 			if (name && !Object.values(stage.sprites).includes(name)) {
 				add("sprites", name);
 			}
 		}
-		if (result.stop.kind !== "line" && result.stop.kind !== "caption") {
+		if (next.stop.kind !== "line" && next.stop.kind !== "caption") {
 			break;
 		}
+		at = next;
 	}
 	return [...found.values()];
 }
