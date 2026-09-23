@@ -33,7 +33,7 @@ const DRAG_STEP_PX = 70;
  * @param count How many covers the disc holds.
  * @returns The nearest position that exists.
  */
-function clampIndex(position: number, count: number): number {
+export function clampIndex(position: number, count: number): number {
 	return Math.max(0, Math.min(count - 1, position));
 }
 

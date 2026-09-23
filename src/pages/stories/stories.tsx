@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Box, ButtonBase, Typography } from "@mui/material";
+import { Box, Button, ButtonBase, Typography, useMediaQuery } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -17,6 +17,7 @@ import DiscWheel from "./DiscWheel.js";
 import RecordsBrowser from "./RecordsBrowser.js";
 import type { DiscItem } from "./DiscWheel.js";
 import StoryList from "./StoryList.js";
+import SwipeStrip from "./SwipeStrip.js";
 
 /** The picker's tabs, in order. */
 const TABS = [
@@ -54,6 +55,21 @@ const FRAME_SX: SxProps<Theme> = (theme) => ({
 	background: "#0d0f14",
 	color: "#e6e8ec"
 });
+
+/** The phone's layout for the disc tabs: the rail's chips, the strip, and the selected item's name and button, above the tab bar. */
+const PHONE_SX: SxProps<Theme> = { position: "absolute", inset: `0 0 ${TAB_BAR_HEIGHT}px 0`, display: "flex", flexDirection: "column", zIndex: 3 };
+
+/** The rail as a row of chips along the top on a phone. */
+const CHIPS_SX: SxProps<Theme> = { display: "flex", gap: 1, p: "12px 14px", overflowX: "auto", flex: "none", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } };
+
+/** One rail chip. */
+const CHIP_SX: SxProps<Theme> = { flex: "none", px: 1.5, py: 0.75, borderRadius: 4, border: "1px solid rgba(255,255,255,0.3)", fontSize: 14, background: "rgba(0,0,0,0.5)" };
+
+/** The selected rail chip. */
+const CHIP_ON_SX: SxProps<Theme> = { ...CHIP_SX, background: "#1e9bd7", borderColor: "#1e9bd7", fontWeight: 600 };
+
+/** The previous and next arrows under the strip. */
+const ARROW_SX: SxProps<Theme> = { fontSize: 28, px: 2, "&.Mui-disabled": { opacity: 0.3 } };
 
 /** The tab bar along the bottom. */
 const TAB_BAR_SX: SxProps<Theme> = {
@@ -119,6 +135,8 @@ interface PickerEntry {
 	backdrop: string | null;
 	/** The rail entry the item sits under: an act id or a year. */
 	rail: string;
+	/** How many stories the group holds. */
+	stories: number;
 }
 
 /** One entry on the rail. */
@@ -153,7 +171,8 @@ function entriesOf(index: StoryIndex, presence: StoryPresence, tab: DiscTab): Pi
 			label: tab === "main" ? `EPISODE ${episodeNumber(position)}` : year,
 			cover,
 			backdrop: storyAssetUrl("maps", group.id, presence) ?? cover,
-			rail: tab === "main" ? (acts.get(group.id) ?? "") : year
+			rail: tab === "main" ? (acts.get(group.id) ?? "") : year,
+			stories: group.stories
 		};
 	});
 }
@@ -193,6 +212,7 @@ function railOf(index: StoryIndex, tab: DiscTab, entries: PickerEntry[]): RailEn
 export default function Stories() {
 	const { group: groupParam } = useParams();
 	const navigate = useNavigate();
+	const narrow = useMediaQuery((theme: Theme) => theme.breakpoints.down("md"));
 	const [data, setData] = useState<{ index: StoryIndex; presence: StoryPresence } | null>(null);
 	const [error, setError] = useState(false);
 	const [attempt, setAttempt] = useState(0);
@@ -254,6 +274,17 @@ export default function Stories() {
 
 	const railGroups = useMemo(() => (data && tab !== "records" ? railOf(data.index, tab, entries) : []), [data, tab, entries]);
 
+	const selectRail = useCallback(
+		(entry: RailEntry) =>
+			select(
+				Math.max(
+					0,
+					entries.findIndex((item) => item.id === entry.holds[0])
+				)
+			),
+		[entries, select]
+	);
+
 	const open = useCallback(() => {
 		if (current) {
 			showGroup(current.id);
@@ -305,61 +336,85 @@ export default function Stories() {
 			{backdrop ? <Backdrop key={backdrop} url={backdrop} /> : null}
 			<Box sx={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at 70% 50%, transparent 30%, rgba(0,0,0,0.75) 100%)", pointerEvents: "none" }} />
 			{tab === "records" ? <RecordsBrowser index={data.index} selectedGroup={groupParam ?? null} onSelect={showGroup} /> : null}
-			{tab !== "records" ? (
-				<Box sx={{ position: "absolute", left: 0, top: 0, bottom: TAB_BAR_HEIGHT, width: { xs: "100%", md: "40%" }, p: "28px 0 0 28px", overflowY: "auto", zIndex: 3 }}>
-					{railGroups.map((entry) => {
-						const holdsCurrent = current ? entry.holds.includes(current.id) : false;
-						return (
-							<Box key={entry.key} sx={{ mb: 2.25 }}>
-								<ButtonBase
-									onClick={() =>
-										select(
-											Math.max(
-												0,
-												entries.findIndex((item) => item.id === entry.holds[0])
-											)
-										)
-									}
-									sx={{ display: "flex", gap: 1.75, alignItems: "center", opacity: holdsCurrent ? 1 : 0.55, textAlign: "left" }}
-								>
-									<Box
-										sx={{
-											width: 46,
-											height: 46,
-											borderRadius: "50%",
-											border: "2px solid",
-											borderColor: holdsCurrent ? "#fff" : "rgba(255,255,255,0.5)",
-											display: "grid",
-											placeItems: "center"
-										}}
-									>
-										<Box sx={{ width: 14, height: 14, borderRadius: "50%", background: "#fff" }} />
-									</Box>
-									<Box>
-										<Typography sx={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 700, fontSize: 22 }}>{entry.heading}</Typography>
-										<Typography variant="body2" sx={{ color: "#ddd" }}>
-											{entry.title}
-										</Typography>
-									</Box>
-								</ButtonBase>
-								{holdsCurrent && current ? (
-									<Box sx={{ m: "4px 0 0 60px", p: "10px 14px", background: "rgba(0,0,0,0.7)", borderLeft: "3px solid", borderColor: "primary.main", width: "fit-content" }}>
-										<Typography component="span" sx={{ fontSize: 22, fontWeight: 600 }}>
-											{current.name}
-										</Typography>
-										<Typography component="span" variant="caption" sx={{ letterSpacing: "0.12em", color: "text.secondary", ml: 1 }}>
-											{current.detail}
-										</Typography>
-									</Box>
-								) : null}
-							</Box>
-						);
-					})}
-				</Box>
+			{tab !== "records" && !narrow ? (
+				<>
+					<Box sx={{ position: "absolute", left: 0, top: 0, bottom: TAB_BAR_HEIGHT, width: "40%", p: "28px 0 0 28px", overflowY: "auto", zIndex: 3 }}>
+						{railGroups.map((entry) => {
+							const holdsCurrent = current ? entry.holds.includes(current.id) : false;
+							return (
+								<Box key={entry.key} sx={{ mb: 2.25 }}>
+									<ButtonBase onClick={() => selectRail(entry)} sx={{ display: "flex", gap: 1.75, alignItems: "center", opacity: holdsCurrent ? 1 : 0.55, textAlign: "left" }}>
+										<Box
+											sx={{
+												width: 46,
+												height: 46,
+												borderRadius: "50%",
+												border: "2px solid",
+												borderColor: holdsCurrent ? "#fff" : "rgba(255,255,255,0.5)",
+												display: "grid",
+												placeItems: "center"
+											}}
+										>
+											<Box sx={{ width: 14, height: 14, borderRadius: "50%", background: "#fff" }} />
+										</Box>
+										<Box>
+											<Typography sx={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 700, fontSize: 22 }}>{entry.heading}</Typography>
+											<Typography variant="body2" sx={{ color: "#ddd" }}>
+												{entry.title}
+											</Typography>
+										</Box>
+									</ButtonBase>
+									{holdsCurrent && current ? (
+										<Box sx={{ m: "4px 0 0 60px", p: "10px 14px", background: "rgba(0,0,0,0.7)", borderLeft: "3px solid", borderColor: "primary.main", width: "fit-content" }}>
+											<Typography component="span" sx={{ fontSize: 22, fontWeight: 600 }}>
+												{current.name}
+											</Typography>
+											<Typography component="span" variant="caption" sx={{ letterSpacing: "0.12em", color: "text.secondary", ml: 1 }}>
+												{current.detail}
+											</Typography>
+										</Box>
+									) : null}
+								</Box>
+							);
+						})}
+					</Box>
+					<Box sx={{ position: "absolute", inset: `0 0 ${TAB_BAR_HEIGHT}px 0`, zIndex: 2 }}>
+						<DiscWheel items={discItems} index={position} onSelect={select} onOpen={open} />
+					</Box>
+				</>
 			) : null}
-			{tab !== "records" ? (
-				<Box sx={{ position: "absolute", inset: `0 0 ${TAB_BAR_HEIGHT}px 0`, zIndex: 2 }}>
-					<DiscWheel items={discItems} index={position} onSelect={select} onOpen={open} />
+			{tab !== "records" && narrow ? (
+				<Box sx={PHONE_SX}>
+					<Box sx={CHIPS_SX}>
+						{railGroups.map((entry) => (
+							<ButtonBase key={entry.key} title={entry.title} onClick={() => selectRail(entry)} sx={current && entry.holds.includes(current.id) ? CHIP_ON_SX : CHIP_SX}>
+								{entry.heading}
+							</ButtonBase>
+						))}
+					</Box>
+					<SwipeStrip items={discItems} index={position} onSelect={select} onOpen={open} />
+					{current ? (
+						<Box sx={{ flex: "none", textAlign: "center", p: "0 14px 14px" }}>
+							<Typography variant="caption" sx={{ letterSpacing: "0.14em", color: "text.secondary" }}>
+								{current.label}
+							</Typography>
+							<Typography component="h2" sx={{ fontSize: 24, fontWeight: 700, lineHeight: 1.25 }}>
+								{current.name}
+							</Typography>
+							<Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, my: 1, color: "#8a93a3" }}>
+								<ButtonBase aria-label="Previous" disabled={position === 0} onClick={() => select(position - 1)} sx={ARROW_SX}>
+									&#8249;
+								</ButtonBase>
+								{position + 1} / {entries.length}
+								<ButtonBase aria-label="Next" disabled={position === entries.length - 1} onClick={() => select(position + 1)} sx={ARROW_SX}>
+									&#8250;
+								</ButtonBase>
+							</Box>
+							<Button variant="contained" fullWidth size="large" onClick={open}>
+								View {current.stories} {current.stories === 1 ? "story" : "stories"}
+							</Button>
+						</Box>
+					) : null}
 				</Box>
 			) : null}
 			{openGroup && tab !== "records" ? (
