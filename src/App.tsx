@@ -32,6 +32,9 @@ const EnemyPage = lazy(() => import("./pages/enemy/enemy.js"));
 const Stories = lazy(() => import("./pages/stories/stories.js"));
 const Story = lazy(() => import("./pages/story/story.js"));
 
+/** Pages whose last path segment only opens a panel, such as the story picker's list. Changing that segment must not remount the page. */
+const PANEL_PAGES = ["/stories"];
+
 /** The dev-only Spine rig lab. Guarded here too, not just at the route, so a production build's tree-shaking drops the import entirely. */
 const SpineLab = import.meta.env.DEV ? lazy(() => import("./pages/spine_lab/spine_lab.js")) : null;
 
@@ -91,6 +94,7 @@ function prefetchOperatorRoutes() {
  */
 export default function App() {
 	const { pathname } = useLocation();
+	const boundaryKey = PANEL_PAGES.find((page) => pathname === page || pathname.startsWith(`${page}/`)) ?? pathname;
 
 	// Enemies join the search once their index arrives. It is 101 KB, three times the operator index, so it is fetched only when the search box
 	// takes focus, which most visits never do. A failed fetch leaves operator search working and is retried on the next focus.
@@ -126,8 +130,9 @@ export default function App() {
 				{/*
 				 * Keyed on the path so a caught throw is forgotten on the next navigation. Without the key the boundary stays in its error
 				 * state for the rest of the session, and every later route renders the fallback instead of the page the reader asked for.
+				 * A panel page keeps one key, so opening or closing its panel keeps the page's own state.
 				 */}
-				<ErrorBoundary key={pathname} fallback={<NotFound404 />}>
+				<ErrorBoundary key={boundaryKey} fallback={<NotFound404 />}>
 					<Routes>
 						<Route path="/" element={<Home />} />
 						<Route

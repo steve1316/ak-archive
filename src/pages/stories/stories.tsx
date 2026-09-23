@@ -179,7 +179,8 @@ export default function Stories() {
 	const [attempt, setAttempt] = useState(0);
 	const [tab, setTab] = useState<TabKey>("main");
 	const [selected, setSelected] = useState<Record<Exclude<TabKey, "records">, number>>({ main: 0, events: 0, side: 0 });
-	const [openGroup, setOpenGroup] = useState<string | null>(groupParam ?? null);
+	// The open story list lives in the address, so a refresh, the back button and the navbar's Stories link all agree with the page.
+	const openGroup = groupParam ?? null;
 
 	useEffect(() => {
 		let active = true;
@@ -193,7 +194,9 @@ export default function Stories() {
 		};
 	}, [attempt]);
 
-	// A `/stories/:group` link opens that group's tab, selects it and shows its stories.
+	const showGroup = useCallback((id: string | null) => navigate(id ? `/stories/${id}` : "/stories", { replace: true }), [navigate]);
+
+	// A `/stories/:group` address opens that group's tab and selects it. The list itself follows the address.
 	useEffect(() => {
 		if (!data || !groupParam) {
 			return;
@@ -207,7 +210,6 @@ export default function Stories() {
 			const position = data.index[groupTab].findIndex((group) => group.id === groupParam);
 			setSelected((current) => ({ ...current, [groupTab]: Math.max(0, position) }));
 		}
-		setOpenGroup(groupParam);
 	}, [data, groupParam]);
 
 	const groups = useMemo(() => (data && tab !== "records" ? data.index[tab] : []), [data, tab]);
@@ -229,22 +231,23 @@ export default function Stories() {
 		(index: number) => {
 			if (tab !== "records") {
 				setSelected((value) => ({ ...value, [tab]: index }));
-				setOpenGroup((open) => (open ? (groups[index]?.id ?? null) : null));
+				if (openGroup) {
+					showGroup(groups[index]?.id ?? null);
+				}
 			}
 		},
-		[tab, groups]
+		[tab, groups, openGroup, showGroup]
 	);
 
-	const closeList = useCallback(() => setOpenGroup(null), []);
+	const closeList = useCallback(() => showGroup(null), [showGroup]);
 
 	const railGroups = useMemo(() => (tab === "main" ? (data?.index.acts ?? []).map((act) => ({ key: act.id, title: act.name, holds: act.groups })) : yearRail(groups)), [data, tab, groups]);
 
 	const open = useCallback(() => {
 		if (current) {
-			setOpenGroup(current.id);
-			navigate(`/stories/${current.id}`, { replace: true });
+			showGroup(current.id);
 		}
-	}, [current, navigate]);
+	}, [current, showGroup]);
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
@@ -255,7 +258,8 @@ export default function Stories() {
 				select(Math.min(groups.length - 1, position + 1));
 			} else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
 				select(Math.max(0, position - 1));
-			} else if (event.key === "Enter") {
+			} else if (event.key === "Enter" && !(event.target instanceof Element && event.target.closest("button, a"))) {
+				// Enter on a focused tab, link or button keeps its own meaning.
 				open();
 			}
 		};
@@ -349,7 +353,7 @@ export default function Stories() {
 					</Box>
 				</>
 			) : (
-				<RecordsGrid index={data.index} onOpen={setOpenGroup} />
+				<RecordsGrid index={data.index} onOpen={showGroup} />
 			)}
 			{openGroup ? (
 				<StoryList groupId={openGroup} subtitle={tab === "main" ? `Episode ${episodeNumber(position)}` : (TABS.find((entry) => entry.key === tab)?.label ?? "")} onClose={closeList} />
@@ -362,7 +366,7 @@ export default function Stories() {
 						aria-selected={tab === entry.key}
 						onClick={() => {
 							setTab(entry.key);
-							setOpenGroup(null);
+							showGroup(null);
 						}}
 						sx={{
 							flex: 1,
