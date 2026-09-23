@@ -9,6 +9,8 @@
  * This module is pure: it takes the tables and the script listing and returns data, so it is tested without the network.
  */
 
+import { asArray } from "../data/lib/json.mjs";
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Module constants
@@ -56,7 +58,7 @@ function groupMeta(group, row) {
 export function buildStoryIndex({ reviewTable, chapterTable, handbookDict, scripts }) {
 	const recordSets = new Map();
 	for (const [operator, entry] of Object.entries(handbookDict)) {
-		for (const set of entry.handbookAvgList ?? []) {
+		for (const set of asArray(entry.handbookAvgList)) {
 			recordSets.set(set.storySetId, { operator, name: set.storySetName });
 		}
 	}
@@ -71,7 +73,7 @@ export function buildStoryIndex({ reviewTable, chapterTable, handbookDict, scrip
 			continue;
 		}
 		const entries = [];
-		for (const item of [...row.infoUnlockDatas].sort((a, b) => a.storySort - b.storySort)) {
+		for (const item of [...asArray(row.infoUnlockDatas)].sort((a, b) => a.storySort - b.storySort)) {
 			const script = scripts.get(item.storyTxt.toLowerCase());
 			if (!script) {
 				missing.push(item.storyTxt);

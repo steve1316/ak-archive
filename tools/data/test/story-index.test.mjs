@@ -107,3 +107,8 @@ test("withoutStories drops empty stories, updates the counts, drops groups left 
 	assert.deepEqual(trimmed.index.missing, ["activities/mini1/a", "obt/main/a_end", "obt/main/gone"]);
 	assert.equal(built.groups.main_0.stories.length, 2, "the input is left unchanged");
 });
+
+test("an operator whose record list is written as {} rather than [] has no record sets and does not break the index", () => {
+	const index = buildStoryIndex({ reviewTable: REVIEW, chapterTable: CHAPTERS, handbookDict: { ...HANDBOOK, char_000_empty: { handbookAvgList: {} } }, scripts: SCRIPTS });
+	assert.equal(index.records.has("char_000_empty"), false);
+});
