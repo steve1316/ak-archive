@@ -18,6 +18,7 @@ import { ledgerProblems, missingAssets, publishedAssets, referencedAssets } from
 import { cardOf } from "./lib/operators.mjs";
 import { parseRecord } from "./lib/record.mjs";
 import { SHARDS } from "./lib/shards.mjs";
+import { STEP_TYPES } from "../story/parse_avg.mjs";
 
 /** Where the importer writes. */
 const OUT_DIR = "src/data";
@@ -46,6 +47,17 @@ const OPERATOR_SECTIONS = new Set(["portraits", "illustrations", "skins", "varia
 /** Module floors at the pinned sha: every ADVANCED module of an imported operator. */
 const MIN_MODULES = 473;
 const MIN_MODULE_OPERATORS = 373;
+
+/** Story floors at the pinned sha: 1,909 listed, 25 without a script upstream. Upstream only grows, so less means the join broke. */
+const MIN_STORIES = 1850;
+const MIN_MAIN_EPISODES = 17;
+const MIN_ACTS = 4;
+
+/** A story id is used as a file name and a URL segment, so it may only hold these characters. */
+const SAFE_STORY_ID = /^[A-Za-z0-9_.-]+$/;
+
+/** Raw inline markup, which the parser turns into spans. Any that survives means a tag shape the parser does not know. */
+const RAW_TAG = /<[^<>]+>/;
 
 /**
  * Which operator owns a module, where upstream's own `charId` is wrong. Amiya's Guard and Medic modules name Caster Amiya as their `charId`, and
@@ -1099,6 +1111,69 @@ for (const fixture of ENEMY_DEBUT_FIXTURES) {
 	}
 }
 
+// Stories. Every indexed group must have its file, every story it lists must have a story file that parses into known step types with no raw
+// markup, every decision must offer as many options as values, and every operator record must point at a real record group.
+const storyIndex = read("story/story-index");
+const storyTabs = { main: storyIndex.main, events: storyIndex.events, side: storyIndex.side };
+const recordGroupIds = storyIndex.records.flatMap((entry) => entry.sets.map((set) => set.group));
+const storyGroupIds = [...Object.values(storyTabs).flatMap((tab) => tab.map((group) => group.id)), ...recordGroupIds];
+const unknownCommands = new Map();
+const checkedStories = new Set();
+for (const groupId of storyGroupIds) {
+	const groupPath = path.join(OUT_DIR, "story", "groups", `${groupId}.json`);
+	if (!fs.existsSync(groupPath)) {
+		fail(`story group ${groupId} is indexed but has no groups/${groupId}.json`);
+		continue;
+	}
+	const group = read(`story/groups/${groupId}`);
+	for (const entry of group.stories) {
+		if (checkedStories.has(entry.id)) {
+			continue;
+		}
+		checkedStories.add(entry.id);
+		if (!SAFE_STORY_ID.test(entry.id)) {
+			fail(`story id ${entry.id} is not safe as a file name`);
+			continue;
+		}
+		const storyPath = path.join(OUT_DIR, "story", "stories", `${entry.id}.json`);
+		if (!fs.existsSync(storyPath)) {
+			fail(`story ${entry.id} in ${groupId} has no story file`);
+			continue;
+		}
+		const { steps } = read(`story/stories/${entry.id}`);
+		if (!Array.isArray(steps) || steps.length === 0) {
+			fail(`story ${entry.id} has no steps`);
+			continue;
+		}
+		for (const step of steps) {
+			if (!STEP_TYPES.has(step.t)) {
+				fail(`story ${entry.id} has a step of unknown type ${step.t}`);
+			} else if (step.t === "unknown") {
+				unknownCommands.set(step.c, (unknownCommands.get(step.c) ?? 0) + 1);
+			} else if (step.t === "line" && (RAW_TAG.test(step.text) || (step.spans ?? []).some((span) => RAW_TAG.test(span.text)))) {
+				fail(`story ${entry.id} leaks raw markup: ${step.text.slice(0, 80)}`);
+			} else if (step.t === "decision" && step.options.length !== step.values.length) {
+				fail(`story ${entry.id} has a decision with ${step.options.length} options and ${step.values.length} values`);
+			}
+		}
+	}
+}
+if (checkedStories.size < MIN_STORIES) {
+	fail(`only ${checkedStories.size} stories, expected at least ${MIN_STORIES}`);
+}
+if (storyIndex.main.length < MIN_MAIN_EPISODES || storyIndex.acts.length < MIN_ACTS) {
+	fail(`story index has ${storyIndex.main.length} main episodes in ${storyIndex.acts.length} acts, expected ${MIN_MAIN_EPISODES} in ${MIN_ACTS}`);
+}
+const recordGroups = new Set(recordGroupIds);
+for (const [id, detail] of detailsById) {
+	for (const set of detail.records ?? []) {
+		if (!recordGroups.has(set.group)) {
+			fail(`${id} links record set ${set.group}, which the story index does not have`);
+		}
+	}
+}
+const storyRefs = read("story-asset-refs");
+
 // The asset gap ledger. Every core asset the data points at must be published or listed, and a pending gap may not outlive the grace period.
 // This replaces the old outright failure on any missing skill icon or module art, which a scheduled refresh would hit on every new operator.
 const ledgerPath = "tools/data/asset-gaps.json";
@@ -1140,6 +1215,19 @@ console.log(`dates       ${operatorDates} operators, ${enemyDates} enemy groups`
 console.log(`ranges      ${Object.keys(ranges).length} shapes, every id resolves`);
 console.log("markup      none leaked");
 console.log(`gaps        ${gapCount} open, tracked in tools/data/asset-gaps.json`);
+console.log(
+	`stories     ${checkedStories.size} in ${storyGroupIds.length} groups (${storyIndex.main.length} main, ${storyIndex.events.length} events, ${storyIndex.side.length} side, ${recordGroupIds.length} record sets), ${storyIndex.missing.length} scripts missing upstream`
+);
+console.log(
+	`story cmds  unknown: ${
+		[...unknownCommands.entries()]
+			.sort(([, a], [, b]) => b - a)
+			.map(([name, count]) => `${name} x${count}`)
+			.join(", ") || "none"
+	}; asset refs ${Object.entries(storyRefs)
+		.map(([kind, names]) => `${kind} ${names.length}`)
+		.join(", ")}`
+);
 console.log("placeholders none leaked");
 if (hasManifest) {
 	console.log(`assets      ${portraitCount} portraits, ${illustrationCount} illustrations, ${enemyIconCount} enemy icons`);
