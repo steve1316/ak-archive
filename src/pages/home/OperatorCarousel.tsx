@@ -8,9 +8,12 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import OperatorArtCard from "../../components/OperatorArtCard.js";
 import RarityStars from "../../components/RarityStars.js";
+import { hasIllustration, illustrationUrl } from "../../lib/assets.js";
 import { searchIndex } from "../../lib/data.js";
+import { illustrationVariants, isBaseVariant } from "../../lib/forms.js";
 import { operatorPath } from "../../lib/routes.js";
 import type { SearchEntry } from "../../types/operator.js";
+import SkinBackdrop from "./SkinBackdrop.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -26,7 +29,10 @@ const SWIPE_THRESHOLD = 40;
 const ENTRY_BY_ID = new Map(searchIndex.map((entry) => [entry.id, entry]));
 
 const styles = {
+	// Relative and clipped, so the skin backdrop fills the hero and its slow zoom never spills past it.
 	root: {
+		position: "relative",
+		overflow: "hidden",
 		display: "flex",
 		alignItems: "stretch",
 		width: "100%"
@@ -54,7 +60,9 @@ const styles = {
 		pl: { xs: 0.5, sm: 2 },
 		"&:hover": { backgroundImage: `linear-gradient(to left, ${theme.palette.action.hover}, transparent)` }
 	}),
+	// Positioned, so it paints above the absolutely placed backdrop.
 	centre: {
+		position: "relative",
 		display: "flex",
 		flexDirection: "column",
 		alignItems: "center",
@@ -116,6 +124,24 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * URL of a random illustration for an operator, for the backdrop. An outfit wins over elite art, and elite art over the base art, so an
+ * operator only shows its base art when it has nothing else.
+ *
+ * @param id The operator id.
+ * @returns The absolute URL, or null when the operator has no illustration at all.
+ */
+function randomSkinUrl(id: string): string | null {
+	const keys = illustrationVariants(id);
+	const outfits = keys.filter((key) => !isBaseVariant(key));
+	const pool = outfits.length > 0 ? outfits : keys;
+	const key = pool[Math.floor(Math.random() * pool.length)];
+	if (key !== undefined) {
+		return illustrationUrl(id, key);
+	}
+	return hasIllustration(id) ? illustrationUrl(id) : null;
+}
+
+/**
  * A set of operators at a time, replaced on a timer, with the whole of each side of the hero as a button.
  *
  * The countdown bar and the swap are one CSS animation. The bar used to be a progress value fed by an interval,
@@ -123,7 +149,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * start already filled. Advancing on `animationend` also means pausing the bar pauses the timer, with nothing
  * to keep in sync. Only a finger held on the carousel pauses it, since hovering or focusing it should not stop the
  * cycle. The pool arrives shuffled, so a set is simply the next slice of it. Unlike the reference site, the
- * entries here are already in memory via `searchIndex`, so there is no shard fetch and no loading state.
+ * entries here are already in memory via `searchIndex`, so there is no shard fetch and no loading state. Behind the cards, `SkinBackdrop`
+ * shows one random skin per operator on screen, re-rolled every time a set is shown.
  *
  * @param props Component props.
  * @returns The carousel.
@@ -151,6 +178,7 @@ export default memo(function OperatorCarousel({ ids, onShuffle }: OperatorCarous
 	const perSet = isNarrow ? 1 : 3;
 	const width = isNarrow ? 200 : isMedium ? 150 : 200;
 	const shown = useMemo(() => entries.slice(start, start + perSet), [entries, start, perSet]);
+	const skins = useMemo(() => shown.map((entry) => randomSkinUrl(entry.id)), [shown]);
 
 	/** Show the next set, or ask for a fresh pool once this one has run out. */
 	const advance = useCallback(() => {
@@ -226,6 +254,9 @@ export default memo(function OperatorCarousel({ ids, onShuffle }: OperatorCarous
 
 	return (
 		<Box sx={styles.root} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchCancel}>
+			{/* The phone layout softens the art, since its one card covers most of the only slice. */}
+			<SkinBackdrop urls={skins} dwellMs={ADVANCE_MS} blur={isNarrow} paused={paused} reduceMotion={reduceMotion} />
+
 			<ButtonBase onClick={back} disabled={start === 0} aria-label="previous" sx={SIDE_LEFT_SX}>
 				<ChevronLeftIcon />
 			</ButtonBase>
