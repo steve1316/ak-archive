@@ -7,8 +7,8 @@
  *
  * Paths are derived from the operator id and the kind of art rather than looked up, so nothing here needs a table. What does need a table is
  * which assets actually exist: `assets-manifest.json` is written by the A3 pipeline and records presence only, and `virtual:asset-presence`
- * (built by `vite.config.ts`) carries the slice of it the browser reads. A `has*` call returns false when the manifest does not record that asset, and the image then renders the kit's `ArtPlaceholder`. That is the normal path for 21 of the 412
- * operators, who have no portrait upstream and never will.
+ * (built by `vite.config.ts`) carries the slice of it the browser reads. A `has*` call returns false when the manifest does not record that
+ * asset, and the image then renders the kit's `ArtPlaceholder`. That is the normal path for an operator whose art no mirror has yet.
  */
 
 import { createAssetUrls } from "archive-kit";

@@ -98,8 +98,21 @@ function spineStagingPlugin(): Plugin {
 const PRESENCE_MODULE = "virtual:asset-presence";
 const PRESENCE_RESOLVED = `\0${PRESENCE_MODULE}`;
 
-/** The committed asset manifest the presence module is built from. */
+/** The committed asset manifest the presence module is built from, and the two data files whose ids its missing lists are taken against. */
 const MANIFEST_PATH = path.join(REPO_ROOT, "src/data/assets-manifest.json");
+const SEARCH_INDEX_PATH = path.join(REPO_ROOT, "src/data/search-index.json");
+const ENEMIES_PATH = path.join(REPO_ROOT, "src/data/enemies.json");
+
+/**
+ * Every operator id and enemy variant id the generated data names, which the presence lists are taken against.
+ *
+ * @returns The ids, read from the search index and the enemy index.
+ */
+async function dataIds(): Promise<{ operators: string[]; enemies: string[] }> {
+	const operators = JSON.parse(await fs.readFile(SEARCH_INDEX_PATH, "utf8")) as { id: string }[];
+	const enemies = JSON.parse(await fs.readFile(ENEMIES_PATH, "utf8")) as { variants: { id: string }[] }[];
+	return { operators: operators.map((entry) => entry.id), enemies: enemies.flatMap((group) => group.variants.map((variant) => variant.id)) };
+}
 
 /**
  * Serves `virtual:asset-presence`: the asset manifest reduced at build time to what the browser reads. Bundling the whole manifest cost every
@@ -117,10 +130,13 @@ function assetPresencePlugin(): Plugin {
 			if (id !== PRESENCE_RESOLVED) {
 				return null;
 			}
-			this.addWatchFile(MANIFEST_PATH);
+			for (const file of [MANIFEST_PATH, SEARCH_INDEX_PATH, ENEMIES_PATH]) {
+				this.addWatchFile(file);
+			}
 			let presence = EMPTY_PRESENCE;
 			try {
-				presence = slimManifest(JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8")));
+				const manifest = JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8"));
+				presence = slimManifest(manifest, await dataIds());
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
 					throw error;
