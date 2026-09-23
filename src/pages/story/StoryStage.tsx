@@ -15,6 +15,12 @@ const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: {
 /** The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. */
 const TEXT_BOX = { nameRight: 26.1, nameTop: 86.9, nameFont: 3.6, lineLeft: 29.9, lineTop: 86.8, lineWidth: 55, lineFont: 2.65, lineHeight: 1.4 };
 
+/** Below this stage width the in-stage text would be a few pixels tall, so the player shows the line under the stage instead. */
+export const NARROW_STAGE = "@container (max-width: 600px)";
+
+/** The in-stage text and its vignette, hidden on a narrow stage. */
+const TEXT_LAYER_SX: SxProps<Theme> = { [NARROW_STAGE]: { display: "none" } };
+
 /** How a sprite that is not speaking is drawn. */
 const DIMMED = "brightness(0.45)";
 
@@ -116,7 +122,7 @@ function Layer({ layer, kind, presence }: { layer: LayerState; kind: "background
  * @param typed How many characters to show.
  * @returns The visible runs.
  */
-function typedRuns(line: { text: string; spans?: Span[] }, typed: number): ReactNode[] {
+export function typedRuns(line: { text: string; spans?: Span[] }, typed: number): ReactNode[] {
 	const runs = line.spans ?? [{ text: line.text }];
 	const out: ReactNode[] = [];
 	let left = typed;
@@ -179,7 +185,7 @@ function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, ch
 			) : null}
 			{stage.sticker ? <Box sx={{ position: "absolute", left: "10%", right: "10%", top: "15%", fontSize: "2.4cqh", whiteSpace: "pre-line" }}>{stage.sticker}</Box> : null}
 			{!hideText && line ? (
-				<>
+				<Box sx={TEXT_LAYER_SX}>
 					<Box sx={VIGNETTE_SX} />
 					{name ? (
 						<Box
@@ -201,7 +207,7 @@ function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, ch
 					>
 						{typedRuns(line, typed)}
 					</Box>
-				</>
+				</Box>
 			) : null}
 			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
 			{children}

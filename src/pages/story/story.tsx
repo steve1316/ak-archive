@@ -16,7 +16,7 @@ import { START, advance, choose, emptyStage, skipToStop } from "./engine.js";
 import type { Advance } from "./engine.js";
 import StoryLog from "./StoryLog.js";
 import type { LogEntry } from "./StoryLog.js";
-import StoryStage from "./StoryStage.js";
+import StoryStage, { NARROW_STAGE, typedRuns } from "./StoryStage.js";
 import { useStoryAudio } from "./useStoryAudio.js";
 
 /** How long one character takes to type, in milliseconds. */
@@ -40,13 +40,23 @@ const PAGE_SX: SxProps<Theme> = { background: "#000", minHeight: "calc(100vh - 6
 const STAGE_BOX_SX: SxProps<Theme> = { width: "min(100%, calc((100vh - 120px) * 16 / 9))" };
 
 /** The top-right and top-left chrome. */
-const CHROME_SX: SxProps<Theme> = { position: "absolute", top: "4%", display: "flex", gap: "2cqh", zIndex: 4, fontSize: "2.2cqh" };
+const CHROME_SX: SxProps<Theme> = { position: "absolute", top: "4%", display: "flex", gap: "2cqh", zIndex: 4, fontSize: "max(11px, 2.2cqh)" };
 
 /** One chrome button: plain text on the stage. */
 const CHROME_BUTTON_SX: SxProps<Theme> = { color: "#fff", minWidth: 0, p: "0.4cqh 0.8cqh", fontSize: "inherit", fontFamily: "inherit", letterSpacing: "0.04em" };
 
 /** The choice list, centred on the stage. */
-const CHOICES_SX: SxProps<Theme> = { position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", width: "58%", display: "grid", gap: "1.8cqh", zIndex: 6 };
+const CHOICES_SX: SxProps<Theme> = {
+	position: "absolute",
+	left: "50%",
+	top: "50%",
+	transform: "translate(-50%, -50%)",
+	width: "58%",
+	display: "grid",
+	gap: "1.8cqh",
+	zIndex: 6,
+	[NARROW_STAGE]: { width: "90%" }
+};
 
 /** One choice bar. */
 const CHOICE_SX: SxProps<Theme> = {
@@ -54,11 +64,26 @@ const CHOICE_SX: SxProps<Theme> = {
 	border: "1px solid #ddd",
 	color: "#fff",
 	p: "1.8cqh",
-	fontSize: "2.5cqh",
+	fontSize: "max(13px, 2.5cqh)",
 	fontFamily: "inherit",
 	textTransform: "none",
 	borderRadius: 0,
 	"&:hover": { background: "rgba(60,60,64,0.95)" }
+};
+
+/** The player column, a container so the line under the stage follows the same width rule as the stage itself. */
+const PLAYER_SX: SxProps<Theme> = { ...STAGE_BOX_SX, containerType: "inline-size" };
+
+/** The line under the stage when the stage is too narrow for its own text to be readable. */
+const NARROW_TEXT_SX: SxProps<Theme> = {
+	display: "none",
+	[NARROW_STAGE]: { display: "block" },
+	mt: 1.5,
+	px: 1,
+	minHeight: "5.5em",
+	fontFamily: '"Noto Sans", sans-serif',
+	color: "#eef0f4",
+	lineHeight: 1.5
 };
 
 /** The keyframes the stage uses for fades and shakes. */
@@ -254,7 +279,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	};
 
 	return (
-		<Box sx={STAGE_BOX_SX}>
+		<Box sx={PLAYER_SX}>
 			<GlobalStyles styles={KEYFRAMES} />
 			<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
 				{!hideUi ? (
@@ -310,6 +335,16 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 				) : null}
 				{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={onNickname} onClose={() => setLogOpen(false)} /> : null}
 			</StoryStage>
+			{!hideUi && shown ? (
+				<Box sx={NARROW_TEXT_SX} onClick={onStage}>
+					{shown.name ? (
+						<Typography variant="subtitle2" sx={{ color: "primary.main", fontFamily: "inherit" }}>
+							{shown.name}
+						</Typography>
+					) : null}
+					<Typography sx={{ fontFamily: "inherit" }}>{typedRuns(shown, typed)}</Typography>
+				</Box>
+			) : null}
 		</Box>
 	);
 }
