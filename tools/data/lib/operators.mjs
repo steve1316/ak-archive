@@ -97,6 +97,27 @@ export function phaseOf(phase) {
 }
 
 /**
+ * A talent's candidates the page can show: not hidden and not upstream's locked placeholder.
+ *
+ * @param {object} talent One raw talent.
+ * @returns {Array<object>} The usable raw candidates.
+ */
+function usableCandidates(talent) {
+	return asArray(talent.candidates).filter((candidate) => candidate && !candidate.isHideTalent && !isPlaceholder(candidate.name));
+}
+
+/**
+ * The raw talent indexes the importer keeps, in order. A module names talents by raw index, and `buildTalents` drops talents with no usable
+ * candidate, so position `n` in this list is `operator.talents[n]`.
+ *
+ * @param {object} row The operator's `character_table` row.
+ * @returns {number[]} The kept raw indexes.
+ */
+export function keptTalentSlots(row) {
+	return asArray(row.talents).flatMap((talent, raw) => (usableCandidates(talent).length > 0 ? [raw] : []));
+}
+
+/**
  * One operator's talents, each keeping every candidate the game can actually show.
  *
  * A talent is not one record. 508 of them carry several candidates, which are the same talent upgraded by elite phase or by potential, and
@@ -113,15 +134,13 @@ function buildTalents(row) {
 	return asArray(row.talents)
 		.map((talent) => ({
 			// Amiya carries the only locked talent candidate at the pinned sha.
-			candidates: asArray(talent.candidates)
-				.filter((candidate) => candidate && !candidate.isHideTalent && !isPlaceholder(candidate.name))
-				.map((candidate) => ({
-					name: stripMarkup(candidate.name),
-					description: stripMarkup(resolveTemplate(candidate.description, asArray(candidate.blackboard))),
-					unlockPhase: phaseOf(candidate.unlockCondition?.phase),
-					unlockLevel: candidate.unlockCondition?.level ?? 1,
-					requiredPotential: (candidate.requiredPotentialRank ?? 0) + 1
-				}))
+			candidates: usableCandidates(talent).map((candidate) => ({
+				name: stripMarkup(candidate.name),
+				description: stripMarkup(resolveTemplate(candidate.description, asArray(candidate.blackboard))),
+				unlockPhase: phaseOf(candidate.unlockCondition?.phase),
+				unlockLevel: candidate.unlockCondition?.level ?? 1,
+				requiredPotential: (candidate.requiredPotentialRank ?? 0) + 1
+			}))
 		}))
 		.filter((talent) => talent.candidates.length > 0);
 }

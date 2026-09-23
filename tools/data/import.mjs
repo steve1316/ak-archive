@@ -15,6 +15,7 @@ import path from "node:path";
 
 import { buildEnemyGroup, buildVariant, selectEnemies } from "./lib/enemies.mjs";
 import { sortedObject } from "./lib/json.mjs";
+import { buildModuleLore, buildModules, indexModules } from "./lib/modules.mjs";
 import { buildOperator, selectOperators } from "./lib/operators.mjs";
 import { buildHandbook } from "./lib/profiles.mjs";
 import { SHARDS, shardFor } from "./lib/shards.mjs";
@@ -25,8 +26,11 @@ import { loadTable, readLock } from "./lib/upstream.mjs";
 /** Where generated data is written. */
 const OUT_DIR = "src/data";
 
-/** The tables the import reads. `uniequip_table` rather than `uniequip_data`, which is not localised - see PROJECT.md. */
-const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbook_team_table", "handbook_info_table", "skin_table", "skill_table", "range_table"];
+/**
+ * The tables the import reads. `uniequip_table` rather than `uniequip_data`, which is not localised - see PROJECT.md. `battle_equip_table` holds
+ * each module stage's effects.
+ */
+const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbook_team_table", "handbook_info_table", "skin_table", "skill_table", "range_table", "battle_equip_table"];
 
 /** The enemy tables. The stats live outside `excel/`, so this one is a path under `gamedata/`. */
 const ENEMY_TABLES = ["enemy_handbook_table", "levels/enemydata/enemy_database"];
@@ -120,21 +124,25 @@ async function main() {
 	const lock = readLock();
 	const dates = readDates();
 	console.log(`upstream ${lock.repo}@${lock.sha.slice(0, 10)} (${lock.server})`);
-	const [characterTable, patchTable, uniequip, teams, handbook, skins, skillTable, rangeTable] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
+	const [characterTable, patchTable, uniequip, teams, handbook, skins, skillTable, rangeTable, battleEquip] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
 	const [enemyHandbook, enemyDatabase] = await Promise.all(ENEMY_TABLES.map((name) => loadTable(name, lock)));
 
 	const context = { subProfDict: uniequip.subProfDict, teams };
 	const profileContext = { handbookDict: handbook.handbookDict };
 	const forms = buildForms(skins.charSkins);
+	const modulesByChar = indexModules(uniequip);
 
 	const operators = selectOperators(characterTable, patchTable).map(([id, row]) => {
 		const handbook = buildHandbook(id, profileContext);
+		const record = { ...buildOperator(id, row, context), forms: forms.get(id) ?? [], releaseDate: dates.operators[id] ?? null };
+		const equips = modulesByChar.get(id) ?? [];
+		const moduleLore = buildModuleLore(equips);
 		return {
 			id,
 			row,
-			side: handbook.side,
-			record: { ...buildOperator(id, row, context), forms: forms.get(id) ?? [], releaseDate: dates.operators[id] ?? null },
-			details: { skills: buildSkills(row, skillTable), ...handbook.shard }
+			side: Object.keys(moduleLore).length > 0 ? { ...handbook.side, moduleLore } : handbook.side,
+			record,
+			details: { skills: buildSkills(row, skillTable), modules: buildModules(row, record.talents, equips, battleEquip, characterTable), ...handbook.shard }
 		};
 	});
 	console.log(`operators: ${operators.length}`);

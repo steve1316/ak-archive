@@ -38,6 +38,30 @@ const MIN_FORMS = 410;
 /** Operators carrying at least one skill: the measured count at the pinned sha, exact for the same reason the asset floors are. */
 const MIN_SKILLED = 398;
 
+/** Module floors at the pinned sha: every ADVANCED module of an imported operator. */
+const MIN_MODULES = 473;
+const MIN_MODULE_OPERATORS = 371;
+
+/**
+ * Module stages checked by hand against the upstream tables. Ch'en's SWO-X adds ATK and ASPD, appends to her trait and upgrades Scolding.
+ * SWO-Y upgrades Blade Art with a P1 and a P5 version. Whislash's module replaces her trait and adds a talent she has no other way to get.
+ */
+const MODULE_FIXTURES = [
+	{ id: "char_010_chen", module: "uniequip_002_chen", stage: 3, stats: { atk: 80, aspd: 7 }, trait: "append", talents: [[0, 1]] },
+	{
+		id: "char_010_chen",
+		module: "uniequip_003_chen",
+		stage: 2,
+		stats: { atk: 68, def: 36 },
+		trait: "append",
+		talents: [
+			[1, 1],
+			[1, 5]
+		]
+	},
+	{ id: "char_265_sophia", module: "uniequip_002_sophia", stage: 3, trait: "replace", talents: [[null, 1]] }
+];
+
 /**
  * Floors for the asset manifest, set to what the A3 publish actually produced. These are exact rather than slack like the counts above, because
  * the failure they catch is the pipeline claiming fewer assets than it published. Nothing else in the pipeline notices that: `hasPortrait` reads a
@@ -474,6 +498,65 @@ if (withSkills < MIN_SKILLED) {
 	fail(`${withSkills} operators have skills, below the floor of ${MIN_SKILLED}`);
 }
 
+// Modules. Each has three stages, a code and lowercase asset keys. A stage's talent index is a kept talent slot or null for a new talent.
+let moduleCount = 0;
+let withModules = 0;
+for (const operator of operators) {
+	const modules = detailsById.get(operator.id)?.modules;
+	if (!Array.isArray(modules)) {
+		fail(`${operator.id} has no modules array in its details file`);
+		continue;
+	}
+	if (modules.length > 0) {
+		withModules += 1;
+	}
+	moduleCount += modules.length;
+	for (const module of modules) {
+		if (module.stages.length !== 3) {
+			fail(`${operator.id} module ${module.id} has ${module.stages.length} stages, not 3`);
+		}
+		if (!/^[A-Z]+-[A-Z]$/.test(module.code)) {
+			fail(`${operator.id} module ${module.id} has code ${JSON.stringify(module.code)}`);
+		}
+		for (const key of [module.art, module.typeIcon]) {
+			if (key !== key.toLowerCase()) {
+				fail(`${operator.id} module ${module.id} has a non-lowercase asset key ${key}`);
+			}
+		}
+		for (const [stageIndex, stage] of module.stages.entries()) {
+			for (const talent of stage.talents) {
+				const valid = talent.index === null ? Boolean(talent.name) : talent.index >= 0 && talent.index < operator.talents.length;
+				if (!valid || !(talent.requiredPotential >= 1 && talent.requiredPotential <= 6) || !talent.description) {
+					fail(`${operator.id} module ${module.id} stage ${stageIndex + 1} has a bad talent ${JSON.stringify(talent)}`);
+				}
+			}
+		}
+	}
+}
+if (moduleCount < MIN_MODULES || withModules < MIN_MODULE_OPERATORS) {
+	fail(`${moduleCount} modules across ${withModules} operators, below the floor of ${MIN_MODULES} across ${MIN_MODULE_OPERATORS}`);
+}
+for (const fixture of MODULE_FIXTURES) {
+	const module = detailsById.get(fixture.id)?.modules?.find((entry) => entry.id === fixture.module);
+	const stage = module?.stages[fixture.stage - 1];
+	if (!stage) {
+		fail(`module fixture ${fixture.module} stage ${fixture.stage} is missing`);
+		continue;
+	}
+	for (const [field, value] of Object.entries(fixture.stats ?? {})) {
+		if (stage.stats[field] !== value) {
+			fail(`${fixture.module} stage ${fixture.stage} ${field} is ${stage.stats[field]}, expected ${value}`);
+		}
+	}
+	if (stage.trait?.mode !== fixture.trait) {
+		fail(`${fixture.module} stage ${fixture.stage} trait mode is ${stage.trait?.mode}, expected ${fixture.trait}`);
+	}
+	const talents = stage.talents.map((talent) => [talent.index, talent.requiredPotential]);
+	if (JSON.stringify(talents) !== JSON.stringify(fixture.talents)) {
+		fail(`${fixture.module} stage ${fixture.stage} talents are ${JSON.stringify(talents)}, expected ${JSON.stringify(fixture.talents)}`);
+	}
+}
+
 // Markup leakage, across everything the site ships.
 for (const shard of SHARDS) {
 	for (const [data, name] of [
@@ -719,7 +802,7 @@ if (hasManifest) {
 	const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 	for (const [section, entries] of Object.entries(manifest)) {
 		// skillIcons is a flat list of icon keys, not a map of operator ids, so it carries no ids to check here. Enemy ids are checked below.
-		if (section === "skillIcons" || section === "enemies") {
+		if (section === "skillIcons" || section === "enemies" || section === "moduleArt" || section === "moduleTypes") {
 			continue;
 		}
 		// The variants section has a nested structure with portraits and illustrations keys
@@ -768,6 +851,21 @@ if (hasManifest) {
 		for (const skill of detail?.skills ?? []) {
 			if (!skillIcons.has(skill.icon)) {
 				fail(`${operator.id} skill ${skill.id} has no published icon ${skill.icon}`);
+			}
+		}
+	}
+	// Module art and badges, once the pipeline has published them. Before that the page shows placeholders.
+	if (Array.isArray(manifest.moduleArt) && Array.isArray(manifest.moduleTypes)) {
+		const moduleArt = new Set(manifest.moduleArt);
+		const moduleTypes = new Set(manifest.moduleTypes);
+		for (const operator of operators) {
+			for (const module of detailsById.get(operator.id)?.modules ?? []) {
+				if (!moduleArt.has(module.art)) {
+					fail(`${operator.id} module ${module.id} has no published art ${module.art}`);
+				}
+				if (!moduleTypes.has(module.typeIcon)) {
+					fail(`${operator.id} module ${module.id} has no published badge ${module.typeIcon}`);
+				}
 			}
 		}
 	}
@@ -993,6 +1091,7 @@ console.log(`talents    ${withTalents} operators carry at least one`);
 console.log(`potentials  ${withPotentials} operators carry at least one`);
 console.log(`forms       ${withForms} operators carry at least one`);
 console.log(`skills      ${withSkills} operators`);
+console.log(`modules     ${moduleCount} across ${withModules} operators, ${MODULE_FIXTURES.length} fixtures verified`);
 console.log(`profiles    ${withProfiles} operators carry a side-file entry`);
 console.log(`details     ${withDetails} operators carry a details-file entry`);
 console.log(`record      ${withBasic} basic, ${withExam} exam`);
