@@ -7,7 +7,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
 import { ScrollToTop } from "archive-kit";
 
-import { classIconUrl, enemyIconUrl, hasPortrait } from "../../lib/assets.js";
+import { classIconUrl, enemyIconUrl, hasPortrait, storyImageUrl } from "../../lib/assets.js";
 import { searchIndex } from "../../lib/data.js";
 import OperatorCarousel from "./OperatorCarousel.js";
 
@@ -65,6 +65,12 @@ const MOSAIC_TILE_SX: SxProps<Theme> = { width: "100%", height: "100%", objectFi
 /** Eight of the story's Leaders, shown as the Enemy Index card's art. Fixed ids, so the home page never has to load the enemy list. */
 const FEATURED_ENEMIES = ["enemy_1500_skulsr", "enemy_1502_crowns", "enemy_1503_talula", "enemy_1504_cqbw", "enemy_1505_frstar", "enemy_1506_patrt", "enemy_1507_mephi", "enemy_1508_faust"] as const;
 
+/** One picture filling a home card's 16:9 media box. */
+const SINGLE_ART_SX: SxProps<Theme> = { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" };
+
+/** The Stories card's art: an art scene from the first main story episode, which is already 16:9. */
+const STORY_ART_URL = storyImageUrl("avg_1_3");
+
 /** The Operator Index card's art: every class icon. */
 const CLASS_ICON_URLS = CLASSES.map(classIconUrl);
 
@@ -80,18 +86,21 @@ interface SectionCardProps {
 	/** One sentence on what the section holds. */
 	blurb: string;
 	/** The icons laid out as the card's art, over its 16:9 media box. */
-	icons: readonly string[];
+	icons?: readonly string[];
+	/** One picture filling the 16:9 media box instead of icons. */
+	image?: string;
 	/** Whether the icons tile the box edge to edge, for square art such as enemy icons, rather than sit as glyphs over a glow. */
 	mosaic?: boolean;
 }
 
 /**
- * One card linking into a section of the site: art, name, a line of text and an arrow button.
+ * One card linking into a section of the site: art, name, a line of text and an arrow button. The art is either icons over the media box or one
+ * picture filling it.
  *
  * @param props Component props.
  * @returns The card.
  */
-function SectionCard({ to, title, blurb, icons, mosaic = false }: SectionCardProps) {
+function SectionCard({ to, title, blurb, icons = [], image, mosaic = false }: SectionCardProps) {
 	return (
 		<Grid size={{ xs: 12, sm: 6, md: 4 }}>
 			<Grow in style={GROW_STYLE} timeout={600}>
@@ -99,17 +108,21 @@ function SectionCard({ to, title, blurb, icons, mosaic = false }: SectionCardPro
 					{/* The artwork links to the section too, with a name for screen readers. */}
 					<CardActionArea component={Link} to={to} aria-label={title}>
 						<Box sx={styles.cardMedia}>
-							<Box sx={mosaic ? MOSAIC_SX : ICON_GRID_SX}>
-								{icons.map((url) =>
-									mosaic ? (
-										<Box key={url} sx={MOSAIC_CELL_SX}>
-											<Box component="img" src={url} alt="" sx={MOSAIC_TILE_SX} />
-										</Box>
-									) : (
-										<Box key={url} component="img" src={url} alt="" sx={GRID_ICON_SX} />
-									)
-								)}
-							</Box>
+							{image ? (
+								<Box component="img" src={image} alt="" sx={SINGLE_ART_SX} />
+							) : (
+								<Box sx={mosaic ? MOSAIC_SX : ICON_GRID_SX}>
+									{icons.map((url) =>
+										mosaic ? (
+											<Box key={url} sx={MOSAIC_CELL_SX}>
+												<Box component="img" src={url} alt="" sx={MOSAIC_TILE_SX} />
+											</Box>
+										) : (
+											<Box key={url} component="img" src={url} alt="" sx={GRID_ICON_SX} />
+										)
+									)}
+								</Box>
+							)}
 						</Box>
 					</CardActionArea>
 					<CardContent sx={styles.cardContent}>
@@ -185,6 +198,12 @@ export default function Home() {
 						icons={CLASS_ICON_URLS}
 					/>
 					<SectionCard to="/enemies" title="Enemy Index" blurb="View Index of Enemies along with their handbook grades, stats per level and abilities." icons={ENEMY_ICON_URLS} mosaic />
+					<SectionCard
+						to="/stories"
+						title="Stories"
+						blurb="Read the main story, every event and side story, and each operator's records, with the game's own art, music and sound effects."
+						image={STORY_ART_URL}
+					/>
 				</Grid>
 			</Container>
 			{/* End of Cards Section */}

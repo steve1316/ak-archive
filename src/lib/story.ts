@@ -8,10 +8,11 @@
  * Only the story pages import this module, so none of it reaches the startup bundle.
  */
 
-import { createAssetUrls, createDataStore } from "archive-kit";
+import { createDataStore } from "archive-kit";
 import storyData from "virtual:story-data";
 
 import { spriteKey } from "../../tools/story/keys.mjs";
+import { storyAssets } from "./assets.js";
 import type { StoryAssets, StoryFile, StoryGroup, StoryIndex } from "../types/story.js";
 
 /** The kinds of story image: art the manifest records by sprite key, plus covers and map art recorded by group id. */
@@ -38,9 +39,6 @@ const store = createDataStore({ urls: INDEX_URLS });
 
 /** Where the static story files are served. */
 const STORY_FILE_BASE = `${import.meta.env.BASE_URL}data/story/`;
-
-/** The story asset host. */
-const storyAssets = createAssetUrls(import.meta.env.VITE_STORY_ASSET_BASE_URL ?? "");
 
 /**
  * The key an image is published under, the same rule as `manifest_key` in `tools/assets/story_names.py`.

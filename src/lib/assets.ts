@@ -22,6 +22,9 @@ import presence from "virtual:asset-presence";
  */
 export const assets = createAssetUrls(import.meta.env.VITE_ASSET_BASE_URL ?? "");
 
+/** The story asset host, from `.env`: story art and audio live in their own repo. `src/lib/story.ts` builds its URLs on it too. */
+export const storyAssets = createAssetUrls(import.meta.env.VITE_STORY_ASSET_BASE_URL ?? "");
+
 /** Operators with no published portrait. Every other operator the data names has one. */
 const MISSING_PORTRAITS = new Set(presence.missing.portraits);
 
@@ -36,6 +39,16 @@ const MODULE_ART = new Set(presence.moduleArt);
 
 /** Published branch badge keys. */
 const MODULE_TYPES = new Set(presence.moduleTypes);
+
+/**
+ * URL of a published story art scene, for pages that show one without loading the story data, such as the home page's Stories card.
+ *
+ * @param key The art scene's published key, such as `avg_1_3`.
+ * @returns The absolute URL.
+ */
+export function storyImageUrl(key: string): string {
+	return storyAssets.url(`images/${key}.webp`);
+}
 
 /**
  * URL of an operator's portrait, the 180x360 image the index card and the page hero use.
