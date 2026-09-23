@@ -25,14 +25,21 @@ test("the refresh job restores the story script cache and passes a token to the 
 	assert.match(importBlock, /GITHUB_TOKEN: \$\{\{ github\.token \}\}/);
 });
 
-test("the refresh plans and builds story assets before the check, and publishes them with their own deploy key before the commit", () => {
-	const plan = WORKFLOW.indexOf("story_assets.py plan");
+test("the story steps wait for a first publish, never block the core refresh, publish before the check and claim only what they published", () => {
+	const build = WORKFLOW.indexOf("- name: Plan, fetch and build new story assets");
+	const publish = WORKFLOW.indexOf("- name: Publish new story assets");
 	const manifest = WORKFLOW.indexOf("story_assets.py manifest");
 	const check = WORKFLOW.indexOf("- name: Check the data");
-	const publish = WORKFLOW.indexOf("story_publish.py add --confirm");
 	const commit = WORKFLOW.indexOf("- name: Commit the refreshed data");
-	assert.ok(plan !== -1 && plan < manifest && manifest < check, "story plan and manifest must run before the check");
-	assert.ok(publish !== -1 && check < publish && publish < commit, "story publish must run after the check and before the commit");
+	assert.ok(build !== -1 && build < publish && publish < manifest && manifest < check && check < commit, "story build, then publish, then manifest, all before the check and the commit");
+	const buildStep = WORKFLOW.slice(build, publish);
+	const publishStep = WORKFLOW.slice(publish, WORKFLOW.indexOf("- name:", publish + 10));
+	assert.match(buildStep, /hashFiles\('src\/data\/story-assets\.json'\) != ''/, "no story work until the first publish's manifest is committed");
+	assert.match(buildStep, /continue-on-error: true/);
+	assert.match(buildStep, /story_assets\.py plan --staging "\$S2" --max-files "\$MAX_FILES"/);
+	assert.match(publishStep, /continue-on-error: true/);
+	assert.match(publishStep, /steps\.story_build\.outcome == 'success'/);
+	assert.match(WORKFLOW.slice(check, commit), /CHECK_STORY_GAPS: warn/);
 	assert.match(WORKFLOW, /STORY_ASSETS_DEPLOY_KEY/);
 	assert.match(WORKFLOW, /--remote git@github\.com:steve1316\/ak-archive-story\.git/);
 });

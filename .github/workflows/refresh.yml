@@ -152,16 +152,41 @@ jobs:
           fi
           python3 tools/assets/merge_indexes.py --manifest-partial "$S/manifest.partial.json" --spine-partial "$S/spine.partial.json" --enemy-spine-partial "$S/enemy-spine.partial.json"
 
-      # Story art and audio go to their own repo. The planner resolves every reference the stories make against the mirror and plans only what the
-      # story repo lacks; the same fetch and build commands as the operator art do the rest.
+      # Story art and audio go to their own repo. Nothing runs until the first publish has committed a manifest, and every story step may fail
+      # without holding back the game data or the operator art: story assets are not core, so a failure is reported in the summary instead.
       - name: Plan, fetch and build new story assets
+        id: story_build
+        if: hashFiles('src/data/story-assets.json') != ''
+        continue-on-error: true
         env:
           S2: ${{ runner.temp }}/story-staging
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 -u tools/assets/story_assets.py plan --staging "$S2"
+          python3 -u tools/assets/story_assets.py plan --staging "$S2" --max-files "$MAX_FILES"
           python3 -u tools/assets/refresh_assets.py fetch --staging "$S2"
           python3 -u tools/assets/refresh_assets.py build --staging "$S2"
+
+      # Published before the check so the manifest the check reads is current. The manifest is written only after a successful publish, so it
+      # never claims a file the story repo does not serve.
+      - name: Publish new story assets
+        id: story_publish
+        if: steps.story_build.outcome == 'success' && env.DRY_RUN != 'true'
+        continue-on-error: true
+        env:
+          S2: ${{ runner.temp }}/story-staging
+          STORY_KEY: ${{ secrets.STORY_ASSETS_DEPLOY_KEY }}
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/story_key -o IdentitiesOnly=yes
+        run: |
+          if [ -d "$S2/assets" ] && [ -n "$(ls -A "$S2/assets")" ]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$STORY_KEY" > ~/.ssh/story_key
+            chmod 600 ~/.ssh/story_key
+            ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+            python3 -u tools/assets/story_publish.py add --confirm --staging "$S2" --remote git@github.com:steve1316/ak-archive-story.git
+            python3 -u tools/assets/story_publish.py wait-live --staging "$S2"
+          else
+            echo "no new story assets"
+          fi
           python3 -u tools/assets/story_assets.py manifest --staging "$S2"
 
       - name: Update the gap ledger
@@ -171,6 +196,8 @@ jobs:
       - name: Check the data
         env:
           CHECK_GAP_GRACE: "off"
+          # A story step that failed leaves new references unlisted, which is reported rather than holding back the rest of the data.
+          CHECK_STORY_GAPS: warn
         run: pnpm check
 
       - name: Publish new assets
@@ -190,24 +217,6 @@ jobs:
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
           python3 -u tools/assets/publish.py add --incremental --confirm --staging "$S"
           python3 -u tools/assets/publish.py wait-live --staging "$S"
-
-      - name: Publish new story assets
-        if: env.DRY_RUN != 'true'
-        env:
-          S2: ${{ runner.temp }}/story-staging
-          STORY_KEY: ${{ secrets.STORY_ASSETS_DEPLOY_KEY }}
-          GIT_SSH_COMMAND: ssh -i ~/.ssh/story_key -o IdentitiesOnly=yes
-        run: |
-          if [ ! -d "$S2/assets" ] || [ -z "$(ls -A "$S2/assets")" ]; then
-            echo "no new story assets"
-            exit 0
-          fi
-          mkdir -p ~/.ssh
-          printf '%s\n' "$STORY_KEY" > ~/.ssh/story_key
-          chmod 600 ~/.ssh/story_key
-          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
-          python3 -u tools/assets/story_publish.py add --confirm --staging "$S2" --remote git@github.com:steve1316/ak-archive-story.git
-          python3 -u tools/assets/story_publish.py wait-live --staging "$S2"
 
       # The checkout keeps no token, so this is the only step that authenticates to this repo. upstream.json is committed but never read by the
       # site, so it alone does not deploy.
@@ -251,11 +260,16 @@ jobs:
         env:
           MOVED: ${{ needs.plan.outputs.moved }}
           S: ${{ runner.temp }}/staging
+          S2: ${{ runner.temp }}/story-staging
+          STORY_BUILD: ${{ steps.story_build.outcome }}
+          STORY_PUBLISH: ${{ steps.story_publish.outcome }}
         run: |
           {
             echo "### Refresh"
             echo "- Pins moved: ${MOVED:-none}"
             if [ -f "$S/plan.json" ]; then echo "- Assets planned: $(node -e 'console.log(require(process.argv[1]).length)' "$S/plan.json")"; fi
+            if [ -f "$S2/plan.json" ]; then echo "- Story assets planned: $(node -e 'console.log(require(process.argv[1]).length)' "$S2/plan.json"), unavailable: $(node -e 'const u=require(process.argv[1]);console.log(Object.values(u).reduce((n,v)=>n+v.length,0))' "$S2/unavailable.json")"; fi
+            echo "- Story build: ${STORY_BUILD:-skipped}, story publish: ${STORY_PUBLISH:-skipped}"
             echo "- Gaps:"
             node -e 'const l=require("./tools/data/asset-gaps.json");for(const [k,v] of Object.entries(l.pending))console.log(`  - ${k} pending since ${v}`);console.log(`  - ${Object.keys(l.accepted).length} accepted`)'
             if [ "$DRY_RUN" = true ]; then echo "- Dry run: nothing was published, pushed or deployed"; fi
