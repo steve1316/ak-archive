@@ -13,25 +13,13 @@
  * manifest's record of that kind rather than from the form's own key.
  */
 
+import presence from "virtual:asset-presence";
+
 import { assets, hasIllustration, hasPortrait, illustrationUrl, portraitUrl } from "./assets.js";
 import type { Operator, OperatorFormEntry } from "../types/operator.js";
 
-/** The slice of `assets-manifest.json` this module reads. */
-type VariantManifest = {
-	/** Variant keys per art kind, written by `tools/assets/build_manifest.py`, each list in that kind's own upstream spelling. */
-	variants?: {
-		/** Portrait variant keys, keyed by operator id. */
-		portraits?: Record<string, string[]>;
-		/** Illustration variant keys, keyed by operator id. */
-		illustrations?: Record<string, string[]>;
-	};
-};
-
-/**
- * Variant keys per kind. Read here rather than exported from `assets.ts`, since that file is off-limits while the Spine pipeline extends it in
- * parallel - this folds back into `assets.ts` once that work lands. Both globs resolve to the same module, so the manifest is still bundled once.
- */
-const VARIANTS = (Object.values(import.meta.glob<VariantManifest>("../data/assets-manifest.json", { import: "default", eager: true }))[0] ?? {}).variants ?? {};
+/** Variant keys per art kind and operator, written by `tools/assets/build_manifest.py`, each list in that kind's own upstream spelling. */
+const VARIANTS = presence.variants;
 
 /** The key a synthesised base form falls back to when an operator has no plain numeric form at all. Matches the pipeline's own default. */
 const FALLBACK_BASE_KEY = "1";

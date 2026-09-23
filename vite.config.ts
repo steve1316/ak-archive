@@ -9,6 +9,8 @@ import type { Plugin } from "vite";
 
 import { baseTrailingSlash, spaFallback } from "archive-kit/config";
 
+import { EMPTY_PRESENCE, slimManifest } from "./tools/data/lib/presence.mjs";
+
 // Pages serves the site from /ak-archive/, while Docker and local previews serve it from the root. VITE_BASE lets the same source produce both.
 const BASE = process.env.VITE_BASE ?? "/ak-archive/";
 
@@ -92,11 +94,48 @@ function spineStagingPlugin(): Plugin {
 	};
 }
 
+/** The virtual module the site imports for asset presence, and the id Vite resolves it to. */
+const PRESENCE_MODULE = "virtual:asset-presence";
+const PRESENCE_RESOLVED = `\0${PRESENCE_MODULE}`;
+
+/** The committed asset manifest the presence module is built from. */
+const MANIFEST_PATH = path.join(REPO_ROOT, "src/data/assets-manifest.json");
+
+/**
+ * Serves `virtual:asset-presence`: the asset manifest reduced at build time to what the browser reads. Bundling the whole manifest cost every
+ * page about 126 KB of startup script for a handful of presence checks. A missing manifest yields `EMPTY_PRESENCE`, so nothing counts as published.
+ *
+ * @returns The plugin.
+ */
+function assetPresencePlugin(): Plugin {
+	return {
+		name: "asset-presence",
+		resolveId(source) {
+			return source === PRESENCE_MODULE ? PRESENCE_RESOLVED : null;
+		},
+		async load(id) {
+			if (id !== PRESENCE_RESOLVED) {
+				return null;
+			}
+			this.addWatchFile(MANIFEST_PATH);
+			let presence = EMPTY_PRESENCE;
+			try {
+				presence = slimManifest(JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8")));
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+					throw error;
+				}
+			}
+			return `export default ${JSON.stringify(presence)};`;
+		}
+	};
+}
+
 export default defineConfig({
 	base: BASE,
 	// spineStagingPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
 	// unmatched dev request with index.html before the staging route ever saw it.
-	plugins: [spineStagingPlugin(), react(), spaFallback(), baseTrailingSlash()],
+	plugins: [spineStagingPlugin(), assetPresencePlugin(), react(), spaFallback(), baseTrailingSlash()],
 	build: {
 		outDir: "build",
 		sourcemap: true

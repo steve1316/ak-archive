@@ -6,12 +6,13 @@
  * Every URL the app builds for the asset host.
  *
  * Paths are derived from the operator id and the kind of art rather than looked up, so nothing here needs a table. What does need a table is
- * which assets actually exist: `assets-manifest.json` is written by the A3 pipeline and records presence only. A `has*` call returns false when
- * the manifest does not record that asset, and the image then renders the kit's `ArtPlaceholder`. That is the normal path for 21 of the 412
+ * which assets actually exist: `assets-manifest.json` is written by the A3 pipeline and records presence only, and `virtual:asset-presence`
+ * (built by `vite.config.ts`) carries the slice of it the browser reads. A `has*` call returns false when the manifest does not record that asset, and the image then renders the kit's `ArtPlaceholder`. That is the normal path for 21 of the 412
  * operators, who have no portrait upstream and never will.
  */
 
 import { createAssetUrls } from "archive-kit";
+import presence from "virtual:asset-presence";
 
 /**
  * The asset host, from `.env`. Never hardcode a URL anywhere else, so the host stays switchable.
@@ -21,34 +22,20 @@ import { createAssetUrls } from "archive-kit";
  */
 export const assets = createAssetUrls(import.meta.env.VITE_ASSET_BASE_URL ?? "");
 
-/** What the A3 pipeline records: which operators have canonical art, and which extra variants exist for a later phase. */
-type AssetManifest = {
-	/** Operator ids with a canonical portrait. Absent or false means the site renders a placeholder. */
-	portraits?: Record<string, boolean>;
-	/** Operator ids with a canonical illustration. */
-	illustrations?: Record<string, boolean>;
-	/** Variant keys per operator, for the phase that imports `skin_table.json`. Unused by the site today. */
-	skins?: Record<string, string[]>;
-	/** Enemy variant ids with a handbook icon. */
-	enemies?: Record<string, boolean>;
-	/** Encoded module picture keys, such as `uniequip_002_chen`. */
-	moduleArt?: string[];
-	/** Encoded branch badge keys, such as `swo-x`. */
-	moduleTypes?: string[];
-};
+/** Operators with no published portrait. Every other operator the data names has one. */
+const MISSING_PORTRAITS = new Set(presence.missing.portraits);
 
-/**
- * Presence of each asset kind, keyed by operator id.
- *
- * Read from `src/data/assets-manifest.json`. The glob tolerates no match, so the site still builds when the pipeline has not written one.
- */
-const MANIFEST: AssetManifest = Object.values(import.meta.glob<AssetManifest>("../data/assets-manifest.json", { import: "default", eager: true }))[0] ?? {};
+/** Operators with no published illustration. */
+const MISSING_ILLUSTRATIONS = new Set(presence.missing.illustrations);
+
+/** Enemy variants with no published handbook icon. */
+const MISSING_ENEMY_ICONS = new Set(presence.missing.enemies);
 
 /** Published module picture keys, as a set so a lookup does not scan the list. */
-const MODULE_ART = new Set(MANIFEST.moduleArt ?? []);
+const MODULE_ART = new Set(presence.moduleArt);
 
 /** Published branch badge keys. */
-const MODULE_TYPES = new Set(MANIFEST.moduleTypes ?? []);
+const MODULE_TYPES = new Set(presence.moduleTypes);
 
 /**
  * URL of an operator's portrait, the 180x360 image the index card and the page hero use.
@@ -104,7 +91,7 @@ export function classIconUrl(profession: string): string {
  * @returns True only when the manifest records one.
  */
 export function hasPortrait(id: string): boolean {
-	return MANIFEST.portraits?.[id] === true;
+	return presence.available && !MISSING_PORTRAITS.has(id);
 }
 
 /**
@@ -114,7 +101,7 @@ export function hasPortrait(id: string): boolean {
  * @returns True only when the manifest records one.
  */
 export function hasIllustration(id: string): boolean {
-	return MANIFEST.illustrations?.[id] === true;
+	return presence.available && !MISSING_ILLUSTRATIONS.has(id);
 }
 
 /**
@@ -136,7 +123,7 @@ export function enemyIconUrl(id: string): string {
  * @returns True only when the manifest records one.
  */
 export function hasEnemyIcon(id: string): boolean {
-	return MANIFEST.enemies?.[id] === true;
+	return presence.available && !MISSING_ENEMY_ICONS.has(id);
 }
 
 /**

@@ -22,3 +22,9 @@ interface ImportMeta {
 	/** The environment variables above, inlined into the bundle at build time. */
 	readonly env: ImportMetaEnv;
 }
+
+/** The asset manifest reduced to what the browser reads, built by `assetPresencePlugin` in `vite.config.ts`. */
+declare module "virtual:asset-presence" {
+	const presence: import("../tools/data/lib/presence.mjs").AssetPresence;
+	export default presence;
+}
