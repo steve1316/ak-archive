@@ -18,6 +18,12 @@ import { routePagePaths } from "./tools/data/lib/routePages.mjs";
 const BASE = process.env.VITE_BASE ?? "/ak-archive/";
 
 /**
+ * Folders the dev server does not watch: the asset pipeline's staging trees, which hold about 100,000 files of scratch art, rigs and audio that
+ * no page imports. Watching them exhausts the system's file-watch limit and the dev server dies with `ENOSPC`.
+ */
+const WATCH_IGNORED = ["**/tools/assets/.staging/**", "**/tools/assets/.staging-*/**"];
+
+/**
  * This config file's own folder, which is the repo root. Resolved from the file's URL rather than `process.cwd()`, so it holds regardless of
  * where `vite` was launched from.
  */
@@ -266,6 +272,7 @@ function rigIndexPlugin(): Plugin {
 
 export default defineConfig({
 	base: BASE,
+	server: { watch: { ignored: WATCH_IGNORED } },
 	// spineStagingPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
 	// unmatched dev request with index.html before the staging route ever saw it.
 	plugins: [spineStagingPlugin(), assetPresencePlugin(), rigIndexPlugin(), react(), spaFallback(), baseTrailingSlash(), routePages(routePageList)],
