@@ -8,7 +8,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import type { Plugin } from "vite";
 
-import { baseTrailingSlash, spaFallback } from "archive-kit/config";
+import { baseTrailingSlash, routePages, spaFallback } from "archive-kit/config";
 
 import { EMPTY_PRESENCE, slimManifest } from "./tools/data/lib/presence.mjs";
 import { RIG_BUCKET_COUNT, splitRigIndex } from "./tools/data/lib/rigBuckets.mjs";
@@ -138,6 +138,16 @@ async function dataIds(): Promise<{ operators: string[]; enemies: string[]; enem
 }
 
 /**
+ * Every route a reader can land on directly, for the kit's `routePages`, which writes a real page for each so a shared link answers 200.
+ *
+ * @returns The route paths, relative to the base.
+ */
+async function routePageList(): Promise<string[]> {
+	const ids = await dataIds();
+	return routePagePaths({ operatorIds: ids.operators, enemyHeadIds: ids.enemyHeads });
+}
+
+/**
  * Serves `virtual:asset-presence`: the asset manifest reduced at build time to what the browser reads. Bundling the whole manifest cost every
  * page about 126 KB of startup script for a handful of presence checks. A missing manifest yields `EMPTY_PRESENCE`, so nothing counts as published.
  *
@@ -166,33 +176,6 @@ function assetPresencePlugin(): Plugin {
 				}
 			}
 			return `export default ${JSON.stringify(presence)};`;
-		}
-	};
-}
-
-/**
- * Writes a copy of `index.html` for every route a reader can land on directly, such as `operator/10.html`. GitHub Pages serves that file for
- * `/operator/10`, so a shared link answers 200 rather than going through `404.html`, which search engines and link previews treat as missing.
- *
- * @returns The plugin.
- */
-function routePagesPlugin(): Plugin {
-	return {
-		name: "route-pages",
-		apply: "build",
-		// `writeBundle` rather than `closeBundle`, as in the kit's `spaFallback`: `closeBundle` also runs after a failed build, and its missing
-		// `index.html` would then hide the real error.
-		async writeBundle(options, bundle) {
-			const outDir = options.dir;
-			if (outDir === undefined || !Object.hasOwn(bundle, "index.html")) {
-				return;
-			}
-			const [html, ids] = await Promise.all([fs.readFile(path.join(outDir, "index.html"), "utf8"), dataIds()]);
-			const paths = routePagePaths({ operatorIds: ids.operators, enemyHeadIds: ids.enemyHeads });
-			const folders = new Set(paths.map((page) => path.dirname(path.join(outDir, page))));
-			await Promise.all([...folders].map((folder) => fs.mkdir(folder, { recursive: true })));
-			await Promise.all(paths.map((page) => fs.writeFile(path.join(outDir, `${page}.html`), html)));
-			this.info(`wrote ${paths.length} route pages`);
 		}
 	};
 }
@@ -285,7 +268,7 @@ export default defineConfig({
 	base: BASE,
 	// spineStagingPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
 	// unmatched dev request with index.html before the staging route ever saw it.
-	plugins: [spineStagingPlugin(), assetPresencePlugin(), rigIndexPlugin(), react(), spaFallback(), baseTrailingSlash(), routePagesPlugin()],
+	plugins: [spineStagingPlugin(), assetPresencePlugin(), rigIndexPlugin(), react(), spaFallback(), baseTrailingSlash(), routePages(routePageList)],
 	build: {
 		outDir: "build",
 		sourcemap: true,
