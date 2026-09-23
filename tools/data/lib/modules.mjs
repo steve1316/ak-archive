@@ -5,7 +5,7 @@
 
 import { asArray } from "./json.mjs";
 import { keptTalentSlots, phaseOf } from "./operators.mjs";
-import { resolveTemplate, stripMarkup } from "./text.mjs";
+import { resolveText, stripMarkup } from "./text.mjs";
 
 /** Module stat keys to the site's stat fields. `attack_speed` becomes `aspd`, which no base stat carries. */
 const STAT_FIELDS = {
@@ -19,33 +19,23 @@ const STAT_FIELDS = {
 	attack_speed: "aspd"
 };
 
-/** Labels for a summon's stat changes. Summons carry two keys operators never do. */
-const SUMMON_LABELS = {
-	max_hp: "HP",
+/** Labels by site stat field, matching the operator page's Stats card. */
+const STAT_LABELS = {
+	maxHp: "HP",
 	atk: "ATK",
 	def: "DEF",
-	magic_resistance: "RES",
+	magicResistance: "Arts resist",
 	cost: "Cost",
-	block_cnt: "Block",
-	respawn_time: "Redeploy",
-	attack_speed: "ASPD",
-	max_deck_stack_cnt: "Max held",
-	max_deploy_count: "Max deployed"
+	blockCnt: "Block",
+	respawnTime: "Redeploy",
+	aspd: "ASPD"
 };
+
+/** Summon-only stat keys, which no operator carries, with their labels. */
+const SUMMON_ONLY_LABELS = { max_deck_stack_cnt: "Max held", max_deploy_count: "Max deployed" };
 
 /** The part targets whose trait candidates carry display text. At the pinned sha every stage takes its text from exactly one of them. */
 const TRAIT_TARGETS = new Set(["TRAIT", "DISPLAY", "TRAIT_DATA_ONLY"]);
-
-/**
- * Fill a template from its blackboard and strip its markup.
- *
- * @param {string} text The templated text.
- * @param {unknown} blackboard The candidate's blackboard.
- * @returns {string} Plain text.
- */
-function resolveText(text, blackboard) {
-	return stripMarkup(resolveTemplate(text, asArray(blackboard)));
-}
 
 /**
  * A signed number as the game prints a bonus.
@@ -55,6 +45,25 @@ function resolveText(text, blackboard) {
  */
 function signed(value) {
 	return value > 0 ? `+${value}` : String(value);
+}
+
+/**
+ * The talent candidates a stage shows, for either the operator or its summons: not hidden and carrying upgrade text.
+ *
+ * @param {Array<object>} parts The stage's parts.
+ * @param {boolean} token True for the summons' parts, false for the operator's own.
+ * @returns {Array<{candidate: object, text: string, requiredPotential: number}>} Each candidate with its resolved text and 1-based potential.
+ */
+function visibleTalentCandidates(parts, token) {
+	return parts
+		.filter((part) => Boolean(part.isToken) === token)
+		.flatMap((part) => asArray(part.addOrOverrideTalentDataBundle?.candidates))
+		.filter((candidate) => !candidate.isHideTalent && candidate.upgradeDescription)
+		.map((candidate) => ({
+			candidate,
+			text: resolveText(candidate.upgradeDescription, asArray(candidate.blackboard)),
+			requiredPotential: (candidate.requiredPotentialRank ?? 0) + 1
+		}));
 }
 
 /**
@@ -93,10 +102,10 @@ function buildTrait(parts) {
 		}
 		for (const candidate of asArray(part.overrideTraitDataBundle?.candidates)) {
 			if (candidate.overrideDescripton) {
-				const text = resolveText(candidate.overrideDescripton, candidate.blackboard);
+				const text = resolveText(candidate.overrideDescripton, asArray(candidate.blackboard));
 				found.set(`replace|${text}`, { mode: "replace", text });
 			} else if (candidate.additionalDescription) {
-				const text = resolveText(candidate.additionalDescription, candidate.blackboard);
+				const text = resolveText(candidate.additionalDescription, asArray(candidate.blackboard));
 				found.set(`append|${text}`, { mode: "append", text });
 			}
 		}
@@ -119,24 +128,14 @@ function buildTrait(parts) {
 function buildTalents(parts, kept, names) {
 	const seen = new Set();
 	const talents = [];
-	for (const part of parts) {
-		if (part.isToken) {
-			continue;
-		}
-		for (const candidate of asArray(part.addOrOverrideTalentDataBundle?.candidates)) {
-			if (candidate.isHideTalent || !candidate.upgradeDescription) {
-				continue;
-			}
-			const slot = kept.indexOf(candidate.talentIndex);
-			const index = slot === -1 ? null : slot;
-			const name = stripMarkup(candidate.name ?? "") || (index === null ? "" : (names[index] ?? ""));
-			const description = resolveText(candidate.upgradeDescription, candidate.blackboard);
-			const requiredPotential = (candidate.requiredPotentialRank ?? 0) + 1;
-			const key = `${index}|${requiredPotential}|${description}`;
-			if (!seen.has(key)) {
-				seen.add(key);
-				talents.push({ index, name, description, requiredPotential });
-			}
+	for (const { candidate, text: description, requiredPotential } of visibleTalentCandidates(parts, false)) {
+		const slot = kept.indexOf(candidate.talentIndex);
+		const index = slot === -1 ? null : slot;
+		const name = stripMarkup(candidate.name ?? "") || (index === null ? "" : (names[index] ?? ""));
+		const key = `${index}|${requiredPotential}|${description}`;
+		if (!seen.has(key)) {
+			seen.add(key);
+			talents.push({ index, name, description, requiredPotential });
 		}
 	}
 	return talents;
@@ -151,23 +150,15 @@ function buildTalents(parts, kept, names) {
  * @throws When a summon stat key has no label.
  */
 function buildSummon(phase, characterTable) {
-	const lines = [];
-	for (const part of asArray(phase.parts)) {
-		if (!part.isToken) {
-			continue;
-		}
-		for (const candidate of asArray(part.addOrOverrideTalentDataBundle?.candidates)) {
-			if (candidate.isHideTalent || !candidate.upgradeDescription) {
-				continue;
-			}
-			const text = resolveText(candidate.upgradeDescription, candidate.blackboard);
-			const potential = candidate.requiredPotentialRank > 0 ? ` (P${candidate.requiredPotentialRank + 1})` : "";
-			lines.push(`${candidate.name ? `${stripMarkup(candidate.name)}: ` : ""}${text}${potential}`);
-		}
+	const parts = asArray(phase.parts);
+	const lines = visibleTalentCandidates(parts, true).map(
+		({ candidate, text, requiredPotential }) => `${candidate.name ? `${stripMarkup(candidate.name)}: ` : ""}${text}${requiredPotential > 1 ? ` (P${requiredPotential})` : ""}`
+	);
+	for (const part of parts.filter((entry) => entry.isToken)) {
 		for (const candidate of asArray(part.overrideTraitDataBundle?.candidates)) {
 			const raw = candidate.overrideDescripton || candidate.additionalDescription;
 			if (raw) {
-				lines.push(resolveText(raw, candidate.blackboard));
+				lines.push(resolveText(raw, asArray(candidate.blackboard)));
 			}
 		}
 	}
@@ -176,7 +167,7 @@ function buildSummon(phase, characterTable) {
 		const effect = asArray(blackboard)
 			.filter((entry) => entry.value !== 0)
 			.map(({ key, value }) => {
-				const label = SUMMON_LABELS[key];
+				const label = STAT_LABELS[STAT_FIELDS[key]] ?? SUMMON_ONLY_LABELS[key];
 				if (!label) {
 					throw new Error(`unknown summon stat ${key}`);
 				}
