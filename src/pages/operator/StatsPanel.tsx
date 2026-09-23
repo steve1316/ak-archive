@@ -7,8 +7,10 @@ import type { SxProps, Theme } from "@mui/material";
 import { LevelSlider } from "archive-kit";
 
 import RangeGrid from "../../components/RangeGrid.js";
+import { hasModuleType, moduleTypeUrl } from "../../lib/assets.js";
+import { withModuleStats } from "../../lib/modules.js";
 import { statsAt } from "../../lib/stats.js";
-import type { Controls, Operator, StatValues, TrustBonus } from "../../types/operator.js";
+import type { Controls, ModuleStage, Operator, OperatorModule, StatValues, TrustBonus } from "../../types/operator.js";
 import { SECTION_HEADING_SX, SECTION_SX, STAT_ROW_SX } from "../../lib/layout.js";
 
 /** One single-stat row: its label, the `StatValues` field it reads, and the `TrustBonus` field that marks what full trust adds to it. */
@@ -21,6 +23,15 @@ const STAT_ROWS: ReadonlyArray<{ label: string; key: keyof StatValues; trustKey:
 
 /** The potential ranks offered, 1 through 6. Rank 1 is the operator as recruited and never carries a `potentials` entry. */
 const POTENTIAL_RANKS: ReadonlyArray<number> = [1, 2, 3, 4, 5, 6];
+
+/** The module stages offered. */
+const MODULE_STAGES: ReadonlyArray<number> = [1, 2, 3];
+
+/** The module row's value for "No module", since a toggle group cannot hold null. */
+const NO_MODULE = "none";
+
+/** A branch badge inside a module chip. */
+const MODULE_BADGE_SX: SxProps<Theme> = { width: 20, height: "auto", mr: 0.75 };
 
 /** One row of the stat list: label on the left, value (and any trust badge) on the right. */
 const ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "baseline", justifyContent: "space-between", ...STAT_ROW_SX };
@@ -44,7 +55,11 @@ const TRUST_POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "c
 interface StatsPanelProps {
 	/** The operator whose stats the panel shows. */
 	operator: Operator;
-	/** The page's shared phase, level, trust and potential controls. */
+	/** The operator's modules, in the game's order. */
+	modules: OperatorModule[];
+	/** The applied module stage, or null for none. */
+	stage: ModuleStage | null;
+	/** The page's shared controls: phase, level, trust, potential, module and module stage. */
 	controls: Controls;
 	/** Called with the changed fields whenever a control is used. The page owns `controls` and applies the change. */
 	onChange: (patch: Partial<Controls>) => void;
@@ -52,7 +67,8 @@ interface StatsPanelProps {
 
 /**
  * The operator page's stats card: the eight stats those controls resolve to, then the elite phase, level, trust and potential controls that pick
- * them, matching the locked design's order of value first, controls below.
+ * them, matching the locked design's order of value first, controls below. An operator with modules also gets a module row and a Stage row, and
+ * the applied stage's bonus shows beside each stat it raises.
  *
  * The card owns no state. Every control reads its value from `controls` and reports a change through `onChange`, so the page stays the single
  * source of truth for the controls that the Abilities card also reads.
@@ -60,12 +76,12 @@ interface StatsPanelProps {
  * @param props Component props.
  * @returns The card.
  */
-export default function StatsPanel({ operator, controls, onChange }: StatsPanelProps) {
+export default function StatsPanel({ operator, modules, stage, controls, onChange }: StatsPanelProps) {
 	const { phase, level, trust, potential } = controls;
 
 	const maxLevel = operator.stats.phases[phase]?.maxLevel ?? 1;
 	const rangeId = operator.stats.phases[phase]?.rangeId;
-	const stats = useMemo(() => statsAt(operator, phase, level, { trust, potential }), [operator, phase, level, trust, potential]);
+	const stats = useMemo(() => withModuleStats(statsAt(operator, phase, level, { trust, potential }), stage), [operator, phase, level, trust, potential, stage]);
 
 	const handlePhaseChange = (_event: MouseEvent<HTMLElement>, value: number | null) => {
 		if (value !== null) {
@@ -80,6 +96,18 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 	const handlePotentialChange = (_event: MouseEvent<HTMLElement>, value: number | null) => {
 		if (value !== null) {
 			onChange({ potential: value });
+		}
+	};
+
+	const handleModuleChange = (_event: MouseEvent<HTMLElement>, value: string | null) => {
+		if (value !== null) {
+			onChange({ module: value === NO_MODULE ? null : value });
+		}
+	};
+
+	const handleStageChange = (_event: MouseEvent<HTMLElement>, value: number | null) => {
+		if (value !== null) {
+			onChange({ moduleStage: value });
 		}
 	};
 
@@ -99,8 +127,13 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 							<Typography variant="body2">
 								{stats[row.key]}
 								{trust && bonus > 0 ? (
-									<Box component="span" sx={TRUST_BADGE_SX}>
+									<Box component="span" sx={TRUST_BADGE_SX} title="Full trust">
 										<Typography component="span" variant="caption">{`+${bonus}`}</Typography>
+									</Box>
+								) : null}
+								{stage?.stats[row.key] ? (
+									<Box component="span" sx={TRUST_BADGE_SX} title="Module">
+										<Typography component="span" variant="caption">{`+${stage.stats[row.key]}`}</Typography>
 									</Box>
 								) : null}
 							</Typography>
@@ -117,7 +150,15 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 					<Typography variant="body2" color="text.secondary">
 						Interval / Redeploy
 					</Typography>
-					<Typography variant="body2">{`${stats.baseAttackTime}s / ${stats.respawnTime}s`}</Typography>
+					<Typography variant="body2">
+						{`${stats.baseAttackTime}s`}
+						{stage?.stats.aspd ? (
+							<Box component="span" sx={TRUST_BADGE_SX}>
+								<Typography component="span" variant="caption">{`ASPD +${stage.stats.aspd}`}</Typography>
+							</Box>
+						) : null}
+						{` / ${stats.respawnTime}s`}
+					</Typography>
 				</Box>
 			</Box>
 
@@ -150,6 +191,27 @@ export default function StatsPanel({ operator, controls, onChange }: StatsPanelP
 						))}
 					</ToggleButtonGroup>
 				</Box>
+
+				{modules.length > 0 ? (
+					<>
+						<ToggleButtonGroup value={controls.module ?? NO_MODULE} exclusive size="small" onChange={handleModuleChange} aria-label="Module">
+							<ToggleButton value={NO_MODULE}>No module</ToggleButton>
+							{modules.map((module) => (
+								<ToggleButton key={module.id} value={module.id} title={module.name}>
+									{hasModuleType(module.typeIcon) ? <Box component="img" src={moduleTypeUrl(module.typeIcon)} alt="" sx={MODULE_BADGE_SX} /> : null}
+									{module.code}
+								</ToggleButton>
+							))}
+						</ToggleButtonGroup>
+						<ToggleButtonGroup value={controls.moduleStage} exclusive size="small" onChange={handleStageChange} aria-label="Module stage" disabled={controls.module === null}>
+							{MODULE_STAGES.map((value) => (
+								<ToggleButton key={value} value={value}>
+									{`Stage ${value}`}
+								</ToggleButton>
+							))}
+						</ToggleButtonGroup>
+					</>
+				) : null}
 			</Box>
 		</Paper>
 	);

@@ -8,6 +8,7 @@ import { LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
 
 import { loadOperator, loadOperatorDetails } from "../../lib/data.js";
 import { formsOf, readFormKey, writeFormKey } from "../../lib/forms.js";
+import { applyControlsPatch, applyModule } from "../../lib/modules.js";
 import { operatorPath, resolveOperatorParam } from "../../lib/routes.js";
 import NotFound404 from "../../not_found_404.js";
 import type { Controls, OperatorFull } from "../../types/operator.js";
@@ -23,7 +24,7 @@ import SpineStage from "./SpineStage.js";
 import StatsPanel from "./StatsPanel.js";
 
 /** Controls held before any operator has loaded. Never rendered, since the grid does not appear until the operator is set. */
-const INITIAL_CONTROLS: Controls = { phase: 0, level: 1, trust: true, potential: 1 };
+const INITIAL_CONTROLS: Controls = { phase: 0, level: 1, trust: true, potential: 1, module: null, moduleStage: 3 };
 
 /**
  * Everything above the fold. From `md` up it is at least one screen tall, and the first row takes whatever the second leaves, so slack goes to
@@ -50,7 +51,7 @@ const HANDBOOK_SX: SxProps<Theme> = { mt: 2 };
 function defaultControls(operator: OperatorFull): Controls {
 	const phase = Math.max(0, operator.stats.phases.length - 1);
 	const maxLevel = operator.stats.phases[phase]?.maxLevel ?? 1;
-	return { phase, level: maxLevel, trust: true, potential: 1 };
+	return { phase, level: maxLevel, trust: true, potential: 1, module: null, moduleStage: 3 };
 }
 
 /**
@@ -86,6 +87,7 @@ export default function Operator() {
 	const forms = useMemo(() => (operator ? formsOf(operator) : []), [operator]);
 	const formKey = readFormKey(searchParams, forms);
 	const form = forms.find((entry) => entry.key === formKey) ?? null;
+	const effect = useMemo(() => (operator ? applyModule(operator, controls) : null), [operator, controls]);
 
 	// Keyed on `id` so navigating between operators re-runs the load and, on success below, resets every control rather than carrying the
 	// previous operator's phase and level onto one that may not reach them.
@@ -130,20 +132,11 @@ export default function Operator() {
 
 	const handleRetry = useCallback(() => setAttempt((current) => current + 1), []);
 
-	// Applies a control change from the stats panel. A phase change moves `level` to the new phase's max in this same update, the way the page opens
-	// at max level, rather than in a separate effect that runs after paint, so a render never shows a level the new phase does not match.
+	// Applies a control change from the Stats or Abilities card. `applyControlsPatch` settles the level and the module in this same update rather
+	// than in a separate effect that runs after paint, so a render never shows a level or module the new controls do not allow.
 	const handleControlsChange = useCallback(
 		(patch: Partial<Controls>) => {
-			setControls((current) => {
-				const next = { ...current, ...patch };
-				if (patch.phase !== undefined && patch.phase !== current.phase) {
-					const maxLevel = operator?.stats.phases[next.phase]?.maxLevel;
-					if (maxLevel !== undefined) {
-						next.level = maxLevel;
-					}
-				}
-				return next;
-			});
+			setControls((current) => (operator ? applyControlsPatch(operator, current, patch) : { ...current, ...patch }));
 		},
 		[operator]
 	);
@@ -200,12 +193,12 @@ export default function Operator() {
 								<ArtCard name={operator.name} portrait={form?.portrait ?? null} illustration={form?.illustration ?? null} artLink={artLink} />
 								<Box sx={{ minWidth: 0 }}>
 									<IdentityBlock operator={operator} forms={forms} formKey={formKey} onFormChange={handleFormChange} />
-									<RecordBlock record={operator.record} affiliation={affiliationOf(operator)} trait={operator.description} />
+									<RecordBlock record={operator.record} affiliation={affiliationOf(operator)} trait={effect?.trait.base ?? null} traitExtra={effect?.trait.extra ?? null} />
 								</Box>
 								<AnimationsCard key={operator.id} interactive renderStage={renderStage} />
 							</Box>
 							<Box sx={STATS_ROW_STRETCH_SX}>
-								<StatsPanel operator={operator} controls={controls} onChange={handleControlsChange} />
+								<StatsPanel operator={operator} modules={operator.modules} stage={effect?.stage ?? null} controls={controls} onChange={handleControlsChange} />
 								<AbilitiesCard operator={operator} controls={controls} />
 							</Box>
 						</Box>

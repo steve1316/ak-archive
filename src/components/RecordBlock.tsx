@@ -48,7 +48,9 @@ const styles = {
 	/** A value. */
 	value: { m: 0, minWidth: 0 },
 	/** The trait, set apart by a rule in the accent colour. */
-	trait: { mt: 2, fontSize: 14, lineHeight: 1.55, borderLeft: 2, borderColor: "primary.main", pl: 1.25 }
+	trait: { mt: 2, fontSize: 14, lineHeight: 1.55, borderLeft: 2, borderColor: "primary.main", pl: 1.25 },
+	/** Module text in the trait, on its own line in the accent colour. */
+	traitExtra: { display: "block", color: "primary.main" }
 } satisfies Record<string, SxProps<Theme>>;
 
 /** The block's root: the container the record's column count is measured against. */
@@ -68,6 +70,8 @@ interface RecordBlockProps {
 	affiliation: string | null;
 	/** The operator's trait, or null. */
 	trait: string | null;
+	/** Module text shown after the trait, or instead of it when `trait` is null. */
+	traitExtra?: string | null;
 }
 
 /**
@@ -106,12 +110,13 @@ function renderFields(fields: RecordField[], graded: boolean) {
 
 /**
  * The handbook's record, filling the space gfl fills with its firearm spec sheet: the Basic Info fields, the Physical Exam as rank bars, then
- * the trait. Labels are upstream's own, so a robot's `Model` and `Manufacturer` read as written rather than being forced into a human schema.
+ * the trait, with any module text on its own line below it. Labels are upstream's own, so a robot's `Model` and `Manufacturer` read as written
+ * rather than being forced into a human schema.
  *
  * @param props Component props.
  * @returns The block.
  */
-export default function RecordBlock({ record, affiliation, trait }: RecordBlockProps) {
+export default function RecordBlock({ record, affiliation, trait, traitExtra }: RecordBlockProps) {
 	const basic = affiliation === null ? record.basic : [...record.basic, { label: "Affiliation", value: affiliation, grade: null }];
 	return (
 		<Box sx={ROOT_SX}>
@@ -125,7 +130,16 @@ export default function RecordBlock({ record, affiliation, trait }: RecordBlockP
 					{renderFields(record.exam, true)}
 				</Box>
 			) : null}
-			{trait ? <Box sx={styles.trait}>{trait}</Box> : null}
+			{trait || traitExtra ? (
+				<Box sx={styles.trait}>
+					{trait}
+					{traitExtra ? (
+						<Box component="span" sx={styles.traitExtra}>
+							{traitExtra}
+						</Box>
+					) : null}
+				</Box>
+			) : null}
 		</Box>
 	);
 }
