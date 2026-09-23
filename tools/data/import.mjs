@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { buildEnemyGroup, buildVariant, selectEnemies } from "./lib/enemies.mjs";
-import { sortedObject } from "./lib/json.mjs";
+import { sortedObject, writeJson } from "./lib/json.mjs";
 import { buildModuleLore, buildModules, indexModules } from "./lib/modules.mjs";
 import { buildOperator, cardOf, selectOperators } from "./lib/operators.mjs";
 import { buildHandbook } from "./lib/profiles.mjs";
@@ -22,6 +22,7 @@ import { SHARDS, shardFor } from "./lib/shards.mjs";
 import { buildSkills } from "./lib/skills.mjs";
 import { buildForms } from "./lib/skins.mjs";
 import { loadTable, readLock } from "./lib/upstream.mjs";
+import { writeStoryData } from "../story/build_story.mjs";
 
 /** Where generated data is written. */
 const OUT_DIR = "src/data";
@@ -30,27 +31,25 @@ const OUT_DIR = "src/data";
  * The tables the import reads. `uniequip_table` rather than `uniequip_data`, which is not localised - see PROJECT.md. `battle_equip_table` holds
  * each module stage's effects.
  */
-const TABLES = ["character_table", "char_patch_table", "uniequip_table", "handbook_team_table", "handbook_info_table", "skin_table", "skill_table", "range_table", "battle_equip_table"];
+const TABLES = [
+	"character_table",
+	"char_patch_table",
+	"uniequip_table",
+	"handbook_team_table",
+	"handbook_info_table",
+	"skin_table",
+	"skill_table",
+	"range_table",
+	"battle_equip_table",
+	"story_review_table",
+	"chapter_table"
+];
 
 /** The enemy tables. The stats live outside `excel/`, so this one is a path under `gamedata/`. */
 const ENEMY_TABLES = ["enemy_handbook_table", "levels/enemydata/enemy_database"];
 
 /** The committed release-date snapshot `pnpm data:dates` writes. */
 const DATES_PATH = "tools/data/release-dates.json";
-
-/**
- * Write a JSON file with a trailing newline, creating its directory.
- *
- * @param {string} file The path to write.
- * @param {unknown} value The value to serialise.
- * @returns {number} The bytes written.
- */
-function writeJson(file, value) {
-	fs.mkdirSync(path.dirname(file), { recursive: true });
-	const body = `${JSON.stringify(value)}\n`;
-	fs.writeFileSync(file, body);
-	return Buffer.byteLength(body);
-}
 
 /**
  * Read the release-date snapshot. A missing snapshot is not fatal: every date comes out null and the import says so.
@@ -124,7 +123,11 @@ async function main() {
 	const lock = readLock();
 	const dates = readDates();
 	console.log(`upstream ${lock.repo}@${lock.sha.slice(0, 10)} (${lock.server})`);
-	const [characterTable, patchTable, uniequip, teams, handbook, skins, skillTable, rangeTable, battleEquip] = await Promise.all(TABLES.map((name) => loadTable(name, lock)));
+	const [characterTable, patchTable, uniequip, teams, handbook, skins, skillTable, rangeTable, battleEquip, reviewTable, chapterTable] = await Promise.all(
+		TABLES.map((name) => loadTable(name, lock))
+	);
+	// Stories first, so each operator's details can carry the record sets that link to them.
+	const story = await writeStoryData({ lock, outDir: OUT_DIR, reviewTable, chapterTable, handbookDict: handbook.handbookDict });
 	const [enemyHandbook, enemyDatabase] = await Promise.all(ENEMY_TABLES.map((name) => loadTable(name, lock)));
 
 	const context = { subProfDict: uniequip.subProfDict, teams };
@@ -142,7 +145,7 @@ async function main() {
 			side: handbook.side,
 			moduleLore: buildModuleLore(equips),
 			record,
-			details: { skills: buildSkills(row, skillTable), modules: buildModules(row, record.talents, equips, battleEquip, characterTable), ...handbook.shard }
+			details: { skills: buildSkills(row, skillTable), modules: buildModules(row, record.talents, equips, battleEquip, characterTable), ...handbook.shard, records: story.records.get(id) ?? [] }
 		};
 	});
 	console.log(`operators: ${operators.length}`);
@@ -193,7 +196,12 @@ async function main() {
 		operators: operators.length,
 		enemies: enemyBytes.variants
 	});
-	console.log(`total written: ${((total + indexBytes + rangeBytes + enemyBytes.total + upstreamBytes) / 1048576).toFixed(2)} MB`);
+	const unknownList = [...story.unknown.entries()].sort(([, a], [, b]) => b - a).map(([name, count]) => `${name} x${count}`);
+	console.log(
+		`  ${"story".padEnd(24)} ${String(story.stories).padStart(4)} stories in ${story.groups} groups  ${(story.bytes / 1048576).toFixed(1)} MB, ${story.missing.length} scripts missing upstream`
+	);
+	console.log(`  ${"story commands".padEnd(24)} unknown: ${unknownList.join(", ") || "none"}`);
+	console.log(`total written: ${((total + indexBytes + rangeBytes + enemyBytes.total + upstreamBytes + story.bytes) / 1048576).toFixed(2)} MB`);
 }
 
 await main();
