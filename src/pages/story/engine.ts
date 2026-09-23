@@ -33,6 +33,8 @@ export interface Placement {
 export interface LayerState {
 	/** The asset reference. */
 	name: string;
+	/** Which asset folder its art is published under, matching `ASSET_ARGS` in `tools/story/keys.mjs`. */
+	kind: "backgrounds" | "images";
 	/** Where it starts. */
 	from: Placement;
 	/** Where a tween moves it, or null when it stays put. */
@@ -182,11 +184,12 @@ function colourOf(a: Record<string, unknown>): string {
  * A layer from `background` or `image` arguments.
  *
  * @param a The command's arguments.
+ * @param kind Which asset folder its art is published under.
  * @returns The layer, or null when no image is named.
  */
-function layerOf(a: Record<string, unknown>): LayerState | null {
+function layerOf(a: Record<string, unknown>, kind: LayerState["kind"]): LayerState | null {
 	const name = text(a.image);
-	return name ? { name, from: { x: num(a.x, 0), y: num(a.y, 0), xScale: num(a.xscale, 1), yScale: num(a.yscale, 1) }, to: null, duration: 0, fade: num(a.fadetime, 0) } : null;
+	return name ? { name, kind, from: { x: num(a.x, 0), y: num(a.y, 0), xScale: num(a.xscale, 1), yScale: num(a.yscale, 1) }, to: null, duration: 0, fade: num(a.fadetime, 0) } : null;
 }
 
 /**
@@ -220,18 +223,18 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 	const a = step.a;
 	switch (step.c) {
 		case "background":
-			return { ...stage, background: layerOf(a) };
+			return { ...stage, background: layerOf(a, "backgrounds") };
 		case "largebg":
 		case "gridbg":
 		case "verticalbg": {
 			const first = text(a.imagegroup)?.split("/")[0] ?? null;
-			return { ...stage, background: first ? { name: first, from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0) } : null };
+			return { ...stage, background: first ? { name: first, kind: "images", from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0) } : null };
 		}
 		case "backgroundtween":
 			return { ...stage, background: tweenOf(stage.background, a) };
 		case "image":
 		case "cgitem":
-			return { ...stage, image: layerOf(a) };
+			return { ...stage, image: layerOf(a, "images") };
 		case "hidecgitem":
 			return { ...stage, image: null };
 		case "imagetween":

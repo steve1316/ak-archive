@@ -91,7 +91,7 @@ test("blockers, art scenes with their tween, grayscale and unknown commands fold
 	assert.deepEqual(stage.blocker, { color: "rgb(0, 0, 0)", alpha: 1, fade: 0.6 });
 	stage = applyCommand(stage, cmd("image", { image: "avg_1_3", x: 0, y: -20, xscale: 1.1, yscale: 1.1, fadetime: 1 }), effects);
 	stage = applyCommand(stage, cmd("imagetween", { xfrom: 0, yfrom: -20, xto: 0, yto: 0, xscalefrom: 1.1, yscalefrom: 1.1, xscaleto: 1, yscaleto: 1, duration: 4 }), effects);
-	assert.deepEqual(stage.image, { name: "avg_1_3", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1 });
+	assert.deepEqual(stage.image, { name: "avg_1_3", kind: "images", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1 });
 	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0.8 }), effects);
 	assert.equal(stage.grayscale, true);
 	assert.equal(applyCommand(stage, { t: "unknown", c: "video", a: {} }, effects), stage);
@@ -113,4 +113,11 @@ test("skipToStop runs to the next choice or the end and returns every line passe
 		toEnd.lines.map((entry) => entry.text),
 		["c"]
 	);
+});
+
+test("each layer records the asset kind its art is published under, so a large background finds its art in images", () => {
+	const effects = emptyEffects();
+	assert.equal(applyCommand(emptyStage(), cmd("background", { image: "bg_a" }), effects).background.kind, "backgrounds");
+	assert.equal(applyCommand(emptyStage(), cmd("largebg", { imagegroup: "bg_b/bg_c" }), effects).background.kind, "images");
+	assert.equal(applyCommand(emptyStage(), cmd("image", { image: "avg_1" }), effects).image.kind, "images");
 });

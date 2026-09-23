@@ -100,15 +100,14 @@ function layerStyle(layer: LayerState, moved: boolean): CSSProperties {
  * @param props Component props.
  * @returns The layer, or nothing when its art is not published.
  */
-function Layer({ layer, kind, presence }: { layer: LayerState; kind: "backgrounds" | "images"; presence: StoryPresence }) {
+function Layer({ layer, presence }: { layer: LayerState; presence: StoryPresence }) {
 	const [moved, setMoved] = useState(false);
 	useEffect(() => {
 		setMoved(false);
 		const frame = requestAnimationFrame(() => setMoved(true));
 		return () => cancelAnimationFrame(frame);
 	}, [layer]);
-	// A background named in the images folder, or an art scene in the backgrounds folder, publishes under the reference's own kind.
-	const url = storyAssetUrl(kind, layer.name, presence);
+	const url = storyAssetUrl(layer.kind, layer.name, presence);
 	if (!url) {
 		return null;
 	}
@@ -157,8 +156,8 @@ function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, ch
 			onClick={onClick}
 			data-region="story-stage"
 		>
-			{stage.background ? <Layer layer={stage.background} kind="backgrounds" presence={presence} /> : null}
-			{stage.image ? <Layer layer={stage.image} kind="images" presence={presence} /> : null}
+			{stage.background ? <Layer layer={stage.background} presence={presence} /> : null}
+			{stage.image ? <Layer layer={stage.image} presence={presence} /> : null}
 			{slots.map((slot) => {
 				const spriteName = stage.sprites[slot] ?? "";
 				const url = storyAssetUrl("sprites", spriteName, presence);
