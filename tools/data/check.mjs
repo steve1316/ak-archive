@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { ledgerProblems, missingAssets, publishedAssets, referencedAssets } from "./lib/gaps.mjs";
 import { parseRecord } from "./lib/record.mjs";
 import { SHARDS } from "./lib/shards.mjs";
 
@@ -831,6 +832,7 @@ const hasManifest = fs.existsSync(manifestPath);
 let portraitCount = 0;
 let illustrationCount = 0;
 let enemyIconCount = 0;
+let gapCount = 0;
 if (hasManifest) {
 	const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 	for (const [section, entries] of Object.entries(manifest)) {
@@ -876,31 +878,6 @@ if (hasManifest) {
 	enemyIconCount = Object.values(manifest.enemies ?? {}).filter(Boolean).length;
 	if (enemyIconIds.length > 0 && enemyIconCount < MIN_ENEMY_ICONS) {
 		fail(`asset manifest records ${enemyIconCount} enemy icons, below the floor of ${MIN_ENEMY_ICONS}`);
-	}
-	// Every skill a page can show must have its icon published. A missing one would render a broken image in the Skills tab.
-	const skillIcons = new Set(manifest.skillIcons ?? []);
-	for (const operator of operators) {
-		const detail = detailsById.get(operator.id);
-		for (const skill of detail?.skills ?? []) {
-			if (!skillIcons.has(skill.icon)) {
-				fail(`${operator.id} skill ${skill.id} has no published icon ${skill.icon}`);
-			}
-		}
-	}
-	// Module art and badges, once the pipeline has published them. Before that the page shows placeholders.
-	if (Array.isArray(manifest.moduleArt) && Array.isArray(manifest.moduleTypes)) {
-		const moduleArt = new Set(manifest.moduleArt);
-		const moduleTypes = new Set(manifest.moduleTypes);
-		for (const operator of operators) {
-			for (const module of detailsById.get(operator.id)?.modules ?? []) {
-				if (!moduleArt.has(module.art)) {
-					fail(`${operator.id} module ${module.id} has no published art ${module.art}`);
-				}
-				if (!moduleTypes.has(module.typeIcon)) {
-					fail(`${operator.id} module ${module.id} has no published badge ${module.typeIcon}`);
-				}
-			}
-		}
 	}
 }
 
@@ -1108,6 +1085,22 @@ for (const fixture of ENEMY_DEBUT_FIXTURES) {
 	}
 }
 
+// The asset gap ledger. Every core asset the data points at must be published or listed, and a pending gap may not outlive the grace period.
+// This replaces the old outright failure on any missing skill icon or module art, which a scheduled refresh would hit on every new operator.
+const ledgerPath = "tools/data/asset-gaps.json";
+if (!fs.existsSync(ledgerPath)) {
+	fail(`${ledgerPath} is missing - run node tools/data/gaps.mjs`);
+} else if (hasManifest && hasSpineIndex) {
+	const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8"));
+	const referenced = referencedAssets({ operators, details: detailsById, enemies });
+	const published = publishedAssets({ manifest: read("assets-manifest"), spineIndex: read("spine-index"), enemySpineIndex: read("enemy-spine-index") });
+	const missing = missingAssets(referenced, published);
+	for (const problem of ledgerProblems(ledger, missing, new Date().toISOString().slice(0, 10))) {
+		fail(problem);
+	}
+	gapCount = missing.length;
+}
+
 for (const message of failures) {
 	console.error(`FAIL  ${message}`);
 }
@@ -1131,6 +1124,7 @@ console.log(`record      ${withBasic} basic, ${withExam} exam`);
 console.log(`dates       ${operatorDates} operators, ${enemyDates} enemy groups`);
 console.log(`ranges      ${Object.keys(ranges).length} shapes, every id resolves`);
 console.log("markup      none leaked");
+console.log(`gaps        ${gapCount} open, tracked in tools/data/asset-gaps.json`);
 console.log("placeholders none leaked");
 if (hasManifest) {
 	console.log(`assets      ${portraitCount} portraits, ${illustrationCount} illustrations, ${enemyIconCount} enemy icons`);
