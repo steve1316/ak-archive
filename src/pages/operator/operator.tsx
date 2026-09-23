@@ -180,7 +180,8 @@ export default function Operator() {
 
 	return (
 		<Box component="main">
-			<PageBackdrop artUrl={form?.illustration} />
+			{/* The portrait, not the illustration: under this much blur they look alike, and the portrait is already loaded for the art card. */}
+			<PageBackdrop artUrl={form?.portrait ?? form?.illustration} />
 			<ScrollToTop />
 			<Box sx={PAGE_SX}>
 				{error ? (
