@@ -10,7 +10,7 @@ const FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, display: "gri
 const ART_SX: SxProps<Theme> = {
 	display: "block",
 	filter: "blur(2px) brightness(0.5)",
-	maskImage: "radial-gradient(ellipse closest-side, #000 55%, transparent 100%)",
+	maskImage: "radial-gradient(ellipse closest-side, #000 77.5%, transparent 100%)",
 	animation: "storyBackdropIn 0.4s ease-out",
 	"@keyframes storyBackdropIn": { from: { opacity: 0 }, to: { opacity: 1 } }
 };
