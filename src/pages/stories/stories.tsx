@@ -4,10 +4,11 @@ import { Box, ButtonBase, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { LoadError, ScrollToTop } from "archive-kit";
+import { ArtPlaceholder, LoadError, ScrollToTop } from "archive-kit";
 
 import { hasPortrait, portraitUrl } from "../../lib/assets.js";
 import { searchIndex } from "../../lib/data.js";
+import { NAVBAR_HEIGHT } from "../../lib/layout.js";
 import { loadStoryIndex, loadStoryPresence, storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { StoryGroupMeta, StoryIndex } from "../../types/story.js";
@@ -29,8 +30,11 @@ type TabKey = (typeof TABS)[number]["key"];
 /** Operator names by id, for the Records tab. Read once from the search index already in the bundle. */
 const NAME_BY_ID = new Map(searchIndex.map((entry) => [entry.id, entry.name]));
 
+/** The height of the tab bar along the bottom, which the rail, disc and records grid stop above. */
+const TAB_BAR_HEIGHT = 64;
+
 /** The picker's frame: the dark area under the bar. */
-const FRAME_SX: SxProps<Theme> = { position: "relative", height: "calc(100vh - 64px)", minHeight: 520, overflow: "hidden", background: "#0d0f14", color: "#e6e8ec" };
+const FRAME_SX: SxProps<Theme> = { position: "relative", height: `calc(100vh - ${NAVBAR_HEIGHT}px)`, minHeight: 520, overflow: "hidden", background: "#0d0f14", color: "#e6e8ec" };
 
 /** The blurred art behind the picker. */
 const BACKDROP_SX: SxProps<Theme> = {
@@ -43,7 +47,16 @@ const BACKDROP_SX: SxProps<Theme> = {
 };
 
 /** The tab bar along the bottom. */
-const TAB_BAR_SX: SxProps<Theme> = { position: "absolute", left: 0, right: 0, bottom: 0, height: 64, display: "flex", background: "linear-gradient(transparent, rgba(0,0,0,0.9) 40%)", zIndex: 6 };
+const TAB_BAR_SX: SxProps<Theme> = {
+	position: "absolute",
+	left: 0,
+	right: 0,
+	bottom: 0,
+	height: TAB_BAR_HEIGHT,
+	display: "flex",
+	background: "linear-gradient(transparent, rgba(0,0,0,0.9) 40%)",
+	zIndex: 6
+};
 
 /**
  * Which tab a group belongs to.
@@ -53,16 +66,22 @@ const TAB_BAR_SX: SxProps<Theme> = { position: "absolute", left: 0, right: 0, bo
  * @returns The tab, or null when the group is not in the index.
  */
 function tabOf(index: StoryIndex, id: string): TabKey | null {
-	if (index.main.some((group) => group.id === id)) {
-		return "main";
-	}
-	if (index.events.some((group) => group.id === id)) {
-		return "events";
-	}
-	if (index.side.some((group) => group.id === id)) {
-		return "side";
+	for (const tab of ["main", "events", "side"] as const) {
+		if (index[tab].some((group) => group.id === id)) {
+			return tab;
+		}
 	}
 	return index.records.some((entry) => entry.sets.some((set) => set.group === id)) ? "records" : null;
+}
+
+/**
+ * A main story episode's number, such as `03`.
+ *
+ * @param position The episode's place in the main story.
+ * @returns The number, two digits wide.
+ */
+function episodeNumber(position: number): string {
+	return String(position).padStart(2, "0");
 }
 
 /**
@@ -85,7 +104,12 @@ function yearRail(groups: StoryGroupMeta[]): { key: string; title: string; holds
 	const years = new Map<string, string[]>();
 	for (const group of groups) {
 		const year = yearOf(group)?.toString() ?? "Undated";
-		years.set(year, [...(years.get(year) ?? []), group.id]);
+		const ids = years.get(year);
+		if (ids) {
+			ids.push(group.id);
+		} else {
+			years.set(year, [group.id]);
+		}
 	}
 	return [...years.entries()].map(([year, ids]) => ({ key: year, title: `${ids.length} ${ids.length === 1 ? "story" : "stories"}`, holds: ids }));
 }
@@ -110,7 +134,7 @@ function RecordsGrid({ index, onOpen }: RecordsGridProps) {
 		<Box
 			sx={{
 				position: "absolute",
-				inset: "0 0 64px 0",
+				inset: `0 0 ${TAB_BAR_HEIGHT}px 0`,
 				overflowY: "auto",
 				p: 2.5,
 				zIndex: 3,
@@ -124,7 +148,9 @@ function RecordsGrid({ index, onOpen }: RecordsGridProps) {
 				<Box key={entry.operator} sx={{ background: "rgba(22,26,34,0.9)", border: "1px solid #2a303c", borderRadius: 1, overflow: "hidden" }}>
 					{hasPortrait(entry.operator) ? (
 						<Box component="img" src={portraitUrl(entry.operator)} alt="" loading="lazy" sx={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", objectPosition: "top" }} />
-					) : null}
+					) : (
+						<ArtPlaceholder name={entry.name} aspect="1 / 1" />
+					)}
 					<Box sx={{ p: 1 }}>
 						<Typography variant="subtitle2">{entry.name}</Typography>
 						{entry.sets.map((set) => (
@@ -193,7 +219,7 @@ export default function Stories() {
 			groups.map((group, index) => ({
 				id: group.id,
 				title: group.name,
-				label: tab === "main" ? `EPISODE ${String(index).padStart(2, "0")}` : (yearOf(group)?.toString() ?? ""),
+				label: tab === "main" ? `EPISODE ${episodeNumber(index)}` : (yearOf(group)?.toString() ?? ""),
 				cover: data ? storyAssetUrl("covers", group.id, data.presence) : null
 			})),
 		[groups, tab, data]
@@ -208,6 +234,10 @@ export default function Stories() {
 		},
 		[tab, groups]
 	);
+
+	const closeList = useCallback(() => setOpenGroup(null), []);
+
+	const railGroups = useMemo(() => (tab === "main" ? (data?.index.acts ?? []).map((act) => ({ key: act.id, title: act.name, holds: act.groups })) : yearRail(groups)), [data, tab, groups]);
 
 	const open = useCallback(() => {
 		if (current) {
@@ -249,7 +279,6 @@ export default function Stories() {
 	}
 
 	const backdrop = current ? (storyAssetUrl("maps", current.id, data.presence) ?? storyAssetUrl("covers", current.id, data.presence)) : null;
-	const railGroups = tab === "main" ? data.index.acts.map((act) => ({ key: act.id, title: act.name, holds: act.groups })) : yearRail(groups);
 
 	return (
 		<Box component="main" sx={FRAME_SX}>
@@ -261,7 +290,7 @@ export default function Stories() {
 			<Box sx={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at 70% 50%, transparent 30%, rgba(0,0,0,0.75) 100%)", pointerEvents: "none" }} />
 			{tab !== "records" ? (
 				<>
-					<Box sx={{ position: "absolute", left: 0, top: 0, bottom: 64, width: { xs: "100%", md: "40%" }, p: "28px 0 0 28px", overflowY: "auto", zIndex: 3 }}>
+					<Box sx={{ position: "absolute", left: 0, top: 0, bottom: TAB_BAR_HEIGHT, width: { xs: "100%", md: "40%" }, p: "28px 0 0 28px", overflowY: "auto", zIndex: 3 }}>
 						{railGroups.map((entry, railIndex) => {
 							const holdsCurrent = current ? entry.holds.includes(current.id) : false;
 							return (
@@ -307,7 +336,7 @@ export default function Stories() {
 												{current.name}
 											</Typography>
 											<Typography component="span" variant="caption" sx={{ letterSpacing: "0.12em", color: "text.secondary", ml: 1 }}>
-												{tab === "main" ? `EPISODE ${String(position).padStart(2, "0")}` : `${current.stories} STORIES`}
+												{tab === "main" ? `EPISODE ${episodeNumber(position)}` : `${current.stories} STORIES`}
 											</Typography>
 										</Box>
 									) : null}
@@ -315,19 +344,15 @@ export default function Stories() {
 							);
 						})}
 					</Box>
-					<Box sx={{ position: "absolute", inset: "0 0 64px 0", zIndex: 2 }}>
+					<Box sx={{ position: "absolute", inset: `0 0 ${TAB_BAR_HEIGHT}px 0`, zIndex: 2 }}>
 						<DiscWheel items={discItems} index={position} onSelect={select} onOpen={open} />
 					</Box>
 				</>
 			) : (
-				<RecordsGrid index={data.index} onOpen={(group) => setOpenGroup(group)} />
+				<RecordsGrid index={data.index} onOpen={setOpenGroup} />
 			)}
 			{openGroup ? (
-				<StoryList
-					groupId={openGroup}
-					subtitle={tab === "main" ? `Episode ${String(position).padStart(2, "0")}` : (TABS.find((entry) => entry.key === tab)?.label ?? "")}
-					onClose={() => setOpenGroup(null)}
-				/>
+				<StoryList groupId={openGroup} subtitle={tab === "main" ? `Episode ${episodeNumber(position)}` : (TABS.find((entry) => entry.key === tab)?.label ?? "")} onClose={closeList} />
 			) : null}
 			<Box sx={TAB_BAR_SX} role="tablist">
 				{TABS.map((entry) => (

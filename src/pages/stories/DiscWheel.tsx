@@ -26,6 +26,17 @@ const COVER_ASPECT = 1.25;
 /** How far a drag must travel, in pixels, to turn the disc one step. */
 const DRAG_STEP_PX = 70;
 
+/**
+ * Keep a disc position on the disc.
+ *
+ * @param position The wanted position.
+ * @param count How many covers the disc holds.
+ * @returns The nearest position that exists.
+ */
+function clampIndex(position: number, count: number): number {
+	return Math.max(0, Math.min(count - 1, position));
+}
+
 /** Props for DiscWheel. */
 interface DiscWheelProps {
 	/** The covers, in order. */
@@ -78,7 +89,7 @@ function DiscWheel({ items, index, onSelect, onOpen }: DiscWheelProps) {
 			}
 			wheelLock.current = true;
 			window.setTimeout(() => (wheelLock.current = false), 220);
-			onSelect(Math.max(0, Math.min(items.length - 1, index + (event.deltaY > 0 ? 1 : -1))));
+			onSelect(clampIndex(index + (event.deltaY > 0 ? 1 : -1), items.length));
 		};
 		element.addEventListener("wheel", onWheel, { passive: false });
 		return () => element.removeEventListener("wheel", onWheel);
@@ -100,7 +111,7 @@ function DiscWheel({ items, index, onSelect, onOpen }: DiscWheelProps) {
 					return;
 				}
 				const steps = Math.round((drag.current.y - event.clientY) / DRAG_STEP_PX);
-				const target = Math.max(0, Math.min(items.length - 1, drag.current.at + steps));
+				const target = clampIndex(drag.current.at + steps, items.length);
 				if (target !== index) {
 					onSelect(target);
 				}
