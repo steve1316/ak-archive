@@ -81,3 +81,17 @@ def test_manifest_claims_only_built_outputs():
     assert manifest["sprites"] == []
     assert manifest["unavailable"] == {"backgrounds": ["bg_missing"], "audio": ["$x"]}
     assert set(manifest) == {"backgrounds", "images", "items", "sprites", "audio", "covers", "maps", "unavailable"}
+
+
+def test_plan_does_not_list_a_published_asset_as_unavailable():
+    _wants, unavailable = plan_story(INDEXES, REFS, STORY_INDEX, {"covers/act1.webp", "backgrounds/bg_missing.webp"})
+    assert "act1" not in unavailable["covers"]
+    assert "bg_missing" not in unavailable["backgrounds"]
+
+
+def test_manifest_claims_hand_added_overrides_and_drops_them_from_unavailable():
+    existing = {"covers": ["main_0"], "unavailable": {}}
+    unavailable = {"covers": ["act36side", "act99"]}
+    manifest = build_manifest(existing, [], unavailable, set(), {"covers": ["act36side"]})
+    assert manifest["covers"] == ["act36side", "main_0"]
+    assert manifest["unavailable"] == {"covers": ["act99"]}

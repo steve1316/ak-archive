@@ -5,6 +5,9 @@ The story asset pipeline: plan which files the stories reference that the story 
               art, subtract what src/data/story-assets.json records, check the limits, and write <staging>/plan.json and <staging>/unavailable.json
     manifest  merge what this run built into src/data/story-assets.json, with this run's list of references the mirror does not have
 
+Assets no mirror has can be added by hand to the story asset repo and recorded in tools/assets/story-overrides.json, with where each came from.
+The manifest claims them, and the plan never lists a published asset as unavailable.
+
 `plan.json` has the shape `refresh_assets.py` already reads, so its `fetch` and `build` commands do the downloading and encoding:
 
     python3 -u tools/assets/story_assets.py plan --staging DIR [--max-files N] [--max-bytes N]
@@ -32,6 +35,9 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(TOOLS_DIR)), "src", "dat
 REFS_PATH = os.path.join(DATA_DIR, "story-asset-refs.json")
 STORY_INDEX_PATH = os.path.join(DATA_DIR, "story", "story-index.json")
 MANIFEST_PATH = os.path.join(DATA_DIR, "story-assets.json")
+
+# Assets added to the story asset repo by hand because no mirror has them, by manifest kind, each with its source.
+OVERRIDES_PATH = os.path.join(TOOLS_DIR, "story-overrides.json")
 
 # Story art shares the icons pin: the same repo and branch. Audio has its own pin on the `voice` branch.
 SOURCE_LOCKS = {"art": os.path.join(TOOLS_DIR, "icons.lock.json"), "audio": os.path.join(TOOLS_DIR, "story-audio.lock.json")}
@@ -98,8 +104,8 @@ def plan_story(indexes, refs, story_index, published):
         published: Published paths the story asset repo already has.
 
     Returns:
-        A `(wants, unavailable)` pair. Wants are unique by published path. Unavailable lists each reference or group id the mirror lacks, by
-        manifest kind.
+        A `(wants, unavailable)` pair. Wants are unique by published path. Unavailable lists each reference or group id the mirror lacks and the
+        story asset repo does not already have, by manifest kind.
     """
     wants = []
     seen = set(published)
@@ -125,17 +131,17 @@ def plan_story(indexes, refs, story_index, published):
     for kind in REFERENCE_KINDS:
         for key in refs.get(kind, []):
             item = resolve(kind, key, indexes)
-            if item is None:
-                unavailable[manifest_kind(kind)].add(key)
-            else:
+            if item is not None:
                 add(kind, key, item)
+            elif published_path(kind, key) not in published:
+                unavailable[manifest_kind(kind)].add(key)
     for tab in ("main", "events", "side"):
         for group in story_index.get(tab, []):
             cover = cover_entry(tab, group, indexes)
-            if cover is None:
-                unavailable["covers"].add(group["id"])
-            else:
+            if cover is not None:
                 add("covers", group["id"], cover)
+            elif published_path("covers", group["id"]) not in published:
+                unavailable["covers"].add(group["id"])
             art = map_entry(group["id"], indexes) if tab == "main" else None
             if art is not None:
                 add("maps", group["id"], art)
@@ -209,26 +215,29 @@ def run_plan(args):
 # Manifest
 
 
-def build_manifest(existing, wants, unavailable, built):
+def build_manifest(existing, wants, unavailable, built, overrides=None):
     """
     Merge this run's published assets into the manifest. Only wants whose output was actually built are claimed, so a failed encode is planned
-    again next run rather than claimed as published.
+    again next run rather than claimed as published. Hand-added overrides are claimed as they are, and never listed as unavailable.
 
     Args:
         existing: The committed manifest, or an empty dict before the first run.
         wants: This run's plan.
         unavailable: This run's references the mirror lacks, by manifest kind.
         built: Published paths present under the run's `assets` folder.
+        overrides: Keys added to the story asset repo by hand, by manifest kind.
 
     Returns:
         The manifest: one sorted key list per manifest kind, plus `unavailable`.
     """
-    keys = {kind: set(existing.get(kind, [])) for kind in MANIFEST_KINDS}
+    overrides = overrides or {}
+    keys = {kind: set(existing.get(kind, [])) | set(overrides.get(kind, [])) for kind in MANIFEST_KINDS}
     for want in wants:
         if want["published"] in built:
             keys[want["kind"]].add(want["key"])
     manifest = {kind: sorted(values) for kind, values in keys.items()}
-    manifest["unavailable"] = {kind: sorted(names) for kind, names in unavailable.items() if names}
+    missing = {kind: sorted(set(names) - set(overrides.get(kind, []))) for kind, names in unavailable.items()}
+    manifest["unavailable"] = {kind: names for kind, names in missing.items() if names}
     return manifest
 
 
@@ -247,7 +256,8 @@ def run_manifest(args):
     assets_dir = os.path.join(args.staging, "assets")
     built = {want["published"] for want in wants if os.path.exists(os.path.join(assets_dir, *want["published"].split("/")))}
     existing = read_json(MANIFEST_PATH) if os.path.exists(MANIFEST_PATH) else {}
-    manifest = build_manifest(existing, wants, unavailable, built)
+    overrides = read_json(OVERRIDES_PATH) if os.path.exists(OVERRIDES_PATH) else {}
+    manifest = build_manifest(existing, wants, unavailable, built, {kind: list(entries) for kind, entries in overrides.items()})
     with open(MANIFEST_PATH, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, separators=(",", ":"))
         handle.write("\n")
