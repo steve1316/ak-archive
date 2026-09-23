@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { ledgerProblems, missingAssets, publishedAssets, referencedAssets } from "./lib/gaps.mjs";
+import { CARD_FIELDS } from "./lib/operators.mjs";
 import { parseRecord } from "./lib/record.mjs";
 import { SHARDS } from "./lib/shards.mjs";
 
@@ -587,6 +588,20 @@ for (const shard of SHARDS) {
 				fail(`${operator.id} module ${module.id} has no lore in ${shard.moduleLore}`);
 			}
 		}
+	}
+}
+
+// The Operator Index's card file: one entry per operator, in shard order, holding exactly the card fields and the same values as the shards.
+const cards = read("operator-cards");
+if (cards.length !== operators.length) {
+	fail(`operator-cards.json has ${cards.length} entries, the shards ${operators.length}`);
+}
+for (const [index, card] of cards.entries()) {
+	const operator = operators[index];
+	if (JSON.stringify(Object.keys(card)) !== JSON.stringify(CARD_FIELDS)) {
+		fail(`operator-cards.json entry ${index} has fields ${Object.keys(card).join(", ")}`);
+	} else if (!operator || CARD_FIELDS.some((field) => JSON.stringify(card[field]) !== JSON.stringify(operator[field]))) {
+		fail(`operator-cards.json entry ${index} (${card.id}) does not match its shard record`);
 	}
 }
 

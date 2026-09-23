@@ -16,7 +16,7 @@ import path from "node:path";
 import { buildEnemyGroup, buildVariant, selectEnemies } from "./lib/enemies.mjs";
 import { sortedObject } from "./lib/json.mjs";
 import { buildModuleLore, buildModules, indexModules } from "./lib/modules.mjs";
-import { buildOperator, selectOperators } from "./lib/operators.mjs";
+import { buildOperator, cardOf, selectOperators } from "./lib/operators.mjs";
 import { buildHandbook } from "./lib/profiles.mjs";
 import { SHARDS, shardFor } from "./lib/shards.mjs";
 import { buildSkills } from "./lib/skills.mjs";
@@ -169,6 +169,11 @@ async function main() {
 			`  ${shard.file.padEnd(24)} ${String(records.length).padStart(3)} operators  ${(a / 1024).toFixed(0).padStart(5)} KB  + profiles ${(b / 1024).toFixed(0).padStart(5)} KB  + details ${(c / 1024).toFixed(0).padStart(5)} KB  + module lore ${(d / 1024).toFixed(0).padStart(4)} KB`
 		);
 	}
+
+	// The Operator Index's cards, in shard order. One small file instead of all eight shards, so the index's art can start loading sooner.
+	const cards = SHARDS.flatMap((shard) => byShard.get(shard.key).map((entry) => cardOf(entry.record)));
+	const cardBytes = writeJson(path.join(OUT_DIR, "operator-cards.json"), cards);
+	console.log(`  ${"operator-cards".padEnd(24)} ${String(cards.length).padStart(3)} entries    ${(cardBytes / 1024).toFixed(0).padStart(5)} KB`);
 
 	// The navbar renders on every route, so its index carries only what a search result needs to show and open.
 	const searchIndex = operators.map(({ record }) => ({ id: record.id, name: record.name, rarity: record.rarity, profession: record.profession }));

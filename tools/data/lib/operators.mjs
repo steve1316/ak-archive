@@ -32,6 +32,22 @@ const PROFESSION_NAMES = {
 const POSITION_NAMES = { MELEE: "Melee", RANGED: "Ranged", ALL: "Melee or Ranged", NONE: "None" };
 
 /**
+ * The fields the Operator Index reads, in the order `operator-cards.json` writes them. The index loads that one small file instead of all eight class
+ * shards, which also carry stats, talents and potentials it never shows.
+ */
+export const CARD_FIELDS = ["id", "name", "rarity", "profession", "subProfession", "position", "tags", "nation", "group", "team", "releaseDate"];
+
+/**
+ * An operator record cut down to the index's card fields.
+ *
+ * @param {Record<string, unknown>} record The full shard record.
+ * @returns {Record<string, unknown>} The card entry.
+ */
+export function cardOf(record) {
+	return Object.fromEntries(CARD_FIELDS.map((field) => [field, record[field]]));
+}
+
+/**
  * The star count behind a `TIER_n` rarity.
  *
  * The enum is 1-based despite older dumps using 0-based integers, so `TIER_6` is a 6-star. Most guidance online is stale on this.
