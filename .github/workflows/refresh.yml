@@ -54,7 +54,6 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run == true }}
       MAX_FILES: ${{ inputs.max_files || 300 }}
       HEADS: ${{ needs.plan.outputs.heads }}
-      GITHUB_TOKEN: ${{ github.token }}
     # The wiki's Cloudflare can challenge GitHub's runners, so the dates step loads its API pages in this browser.
     services:
       flaresolverr:
@@ -115,9 +114,11 @@ jobs:
             git checkout -- tools/data/release-dates.json
           fi
 
+      # The token only lifts the GitHub API rate limit for the listings. It is read-only here in effect, and scoped to this step alone.
       - name: Plan, fetch and build new assets
         env:
           S: ${{ runner.temp }}/staging
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 -u tools/assets/refresh_assets.py plan --staging "$S" --max-files "$MAX_FILES"
           python3 -u tools/assets/refresh_assets.py fetch --staging "$S"
@@ -144,7 +145,10 @@ jobs:
       - name: Update the gap ledger
         run: node tools/data/gaps.mjs
 
+      # The age rule is skipped here so one expired gap cannot hold back the rest of the data. It runs on its own after the deploy.
       - name: Check the data
+        env:
+          CHECK_GAP_GRACE: "off"
         run: pnpm check
 
       - name: Publish new assets
@@ -169,6 +173,8 @@ jobs:
       # site, so it alone does not deploy.
       - name: Commit the refreshed data
         id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git add tools/data/upstream.lock.json tools/assets/*.lock.json tools/data/release-dates.json tools/data/asset-gaps.json src/data
           if git diff --cached --quiet; then
@@ -185,8 +191,8 @@ jobs:
           git commit -q -m "Refresh game data to ${DATA_SHA}"
           git show --stat HEAD | head -40
           if [ "$DRY_RUN" != true ]; then
-            git pull --rebase -q "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" master
-            git push -q "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:master
+            git pull --rebase -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" master
+            git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:master
           fi
 
       # A push made with the workflow token does not start deploy.yml on its own, but dispatching it does.
@@ -195,6 +201,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy.yml --ref master
+
+      # The run goes red when a gap has stayed open past the grace period, but only after the data has shipped.
+      - name: Check the gap grace period
+        run: node tools/data/check.mjs --skip-build
 
       - name: Summary
         if: always()
