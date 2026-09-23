@@ -138,6 +138,15 @@ export default defineConfig({
 	plugins: [spineStagingPlugin(), assetPresencePlugin(), react(), spaFallback(), baseTrailingSlash()],
 	build: {
 		outDir: "build",
-		sourcemap: true
+		sourcemap: true,
+		rolldownOptions: {
+			output: {
+				// React changes far less often than the app, and the refresh deploys often, so it gets its own long-cached chunk. MUI is left to
+				// automatic splitting: one MUI chunk would pull the operator page's Slider and Tabs back into the startup script.
+				codeSplitting: {
+					groups: [{ name: "react", test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 10 }]
+				}
+			}
+		}
 	}
 });
