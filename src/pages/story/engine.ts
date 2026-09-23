@@ -406,6 +406,43 @@ export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advan
 }
 
 /**
+ * The art the next few stops will show, for preloading. It walks ahead with the same rules as the player and stops looking at a choice, since the
+ * reader's pick decides what follows.
+ *
+ * @param steps The story's steps.
+ * @param cursor Where the player stands.
+ * @param stage The stage there.
+ * @param stops How many stops to look ahead.
+ * @returns Each image once, in the order it first appears.
+ */
+export function upcomingArt(steps: Step[], cursor: Cursor, stage: StageState, stops: number): { kind: "backgrounds" | "images" | "sprites"; name: string }[] {
+	const found = new Map<string, { kind: "backgrounds" | "images" | "sprites"; name: string }>();
+	const add = (kind: "backgrounds" | "images" | "sprites", name: string) => {
+		if (!found.has(`${kind}/${name}`)) {
+			found.set(`${kind}/${name}`, { kind, name });
+		}
+	};
+	let result: Advance = { cursor, stage, stop: { kind: "end" }, effects: emptyEffects() };
+	for (let count = 0; count < stops; count++) {
+		result = advance(steps, result.cursor, result.stage);
+		for (const layer of [result.stage.background, result.stage.image]) {
+			if (layer && !(layer === stage.background || layer === stage.image)) {
+				add(layer.kind, layer.name);
+			}
+		}
+		for (const name of Object.values(result.stage.sprites)) {
+			if (name && !Object.values(stage.sprites).includes(name)) {
+				add("sprites", name);
+			}
+		}
+		if (result.stop.kind !== "line" && result.stop.kind !== "caption") {
+			break;
+		}
+	}
+	return [...found.values()];
+}
+
+/**
  * Record the reader's choice.
  *
  * @param cursor The cursor at the choice.

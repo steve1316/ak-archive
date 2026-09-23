@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, skipToStop } from "../../../src/pages/story/engine.ts";
+import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
 
 /**
  * A line step.
@@ -195,4 +195,27 @@ test("stopmusic records its fade-out time", () => {
 	assert.equal(first.stage.music.crossfade, 2);
 	const second = advance(steps, first.cursor, first.stage);
 	assert.deepEqual([second.stage.music, second.effects.musicFade], [null, 3]);
+});
+
+test("upcomingArt lists the art the next few stops show, once each, and stops looking at a choice", () => {
+	const steps = [
+		line(null, "now"),
+		cmd("background", { image: "bg_a" }),
+		cmd("character", { name: "char_1", name2: "char_2" }),
+		line(null, "one"),
+		cmd("largebg", { imagegroup: "bg_b/bg_c" }),
+		cmd("character", { name: "char_1" }),
+		line(null, "two"),
+		{ t: "decision", options: ["X"], values: ["1"] },
+		cmd("image", { image: "avg_hidden" }),
+		line(null, "three")
+	];
+	const first = advance(steps, START, emptyStage());
+	assert.deepEqual(upcomingArt(steps, first.cursor, first.stage, 5), [
+		{ kind: "backgrounds", name: "bg_a" },
+		{ kind: "sprites", name: "char_1" },
+		{ kind: "sprites", name: "char_2" },
+		{ kind: "images", name: "bg_b" }
+	]);
+	assert.deepEqual(upcomingArt(steps, first.cursor, first.stage, 1).length, 3);
 });

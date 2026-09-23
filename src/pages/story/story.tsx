@@ -9,11 +9,11 @@ import { Link, useParams } from "react-router-dom";
 
 import { LoadError, ScrollToTop } from "archive-kit";
 
-import { loadStory, loadStoryGroup, loadStoryPresence, storyAudioUrl } from "../../lib/story.js";
+import { loadStory, loadStoryGroup, loadStoryPresence, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { NAVBAR_HEIGHT } from "../../lib/layout.js";
 import type { LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
-import { START, advance, choose, emptyStage, fillNickname, skipToStop } from "./engine.js";
+import { START, advance, choose, emptyStage, fillNickname, skipToStop, upcomingArt } from "./engine.js";
 import type { Advance } from "./engine.js";
 import StoryLog from "./StoryLog.js";
 import type { LogEntry } from "./StoryLog.js";
@@ -26,6 +26,9 @@ const TYPE_MS = 28;
 /** AUTO's pause after a line, in milliseconds: a base plus a share per character. */
 const AUTO_BASE_MS = 900;
 const AUTO_PER_CHAR_MS = 35;
+
+/** How many stops ahead the player preloads art for. */
+const PRELOAD_STOPS = 3;
 
 /** Where the reader's name and the mute state are kept. The name is the only thing the story player stores. */
 const NICKNAME_KEY = "storyNickname";
@@ -263,6 +266,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
 	const { resume: resumeAudio, blocked } = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, urlOf });
+	const preloaded = useRef(new Set<string>());
 
 	const line: LineStep | null = run.stop.kind === "line" ? run.stop.line : null;
 	const caption = run.stop.kind === "caption" ? fillNickname(run.stop.text, nickname) : null;
@@ -326,6 +330,17 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		const timer = window.setTimeout(step, AUTO_BASE_MS + AUTO_PER_CHAR_MS * (caption?.length ?? length) + run.effects.delay * 1000);
 		return () => window.clearTimeout(timer);
 	}, [auto, logOpen, reading, caption, run, typed, length, step]);
+
+	// Preload the art of the next few stops, so a new scene does not appear half-loaded.
+	useEffect(() => {
+		for (const { kind, name } of upcomingArt(steps, run.cursor, run.stage, PRELOAD_STOPS)) {
+			const url = storyAssetUrl(kind, name, presence);
+			if (url && !preloaded.current.has(url)) {
+				preloaded.current.add(url);
+				new Image().src = url;
+			}
+		}
+	}, [steps, run, presence]);
 
 	// The key listener reads `step` through a ref, so the typewriter's ticks do not re-attach it.
 	const stepRef = useRef(step);
