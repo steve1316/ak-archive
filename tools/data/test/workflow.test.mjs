@@ -24,3 +24,15 @@ test("the refresh job restores the story script cache and passes a token to the 
 	const importBlock = WORKFLOW.slice(importStep, importRun);
 	assert.match(importBlock, /GITHUB_TOKEN: \$\{\{ github\.token \}\}/);
 });
+
+test("the refresh plans and builds story assets before the check, and publishes them with their own deploy key before the commit", () => {
+	const plan = WORKFLOW.indexOf("story_assets.py plan");
+	const manifest = WORKFLOW.indexOf("story_assets.py manifest");
+	const check = WORKFLOW.indexOf("- name: Check the data");
+	const publish = WORKFLOW.indexOf("story_publish.py add --confirm");
+	const commit = WORKFLOW.indexOf("- name: Commit the refreshed data");
+	assert.ok(plan !== -1 && plan < manifest && manifest < check, "story plan and manifest must run before the check");
+	assert.ok(publish !== -1 && check < publish && publish < commit, "story publish must run after the check and before the commit");
+	assert.match(WORKFLOW, /STORY_ASSETS_DEPLOY_KEY/);
+	assert.match(WORKFLOW, /--remote git@github\.com:steve1316\/ak-archive-story\.git/);
+});

@@ -152,6 +152,18 @@ jobs:
           fi
           python3 tools/assets/merge_indexes.py --manifest-partial "$S/manifest.partial.json" --spine-partial "$S/spine.partial.json" --enemy-spine-partial "$S/enemy-spine.partial.json"
 
+      # Story art and audio go to their own repo. The planner resolves every reference the stories make against the mirror and plans only what the
+      # story repo lacks; the same fetch and build commands as the operator art do the rest.
+      - name: Plan, fetch and build new story assets
+        env:
+          S2: ${{ runner.temp }}/story-staging
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -u tools/assets/story_assets.py plan --staging "$S2"
+          python3 -u tools/assets/refresh_assets.py fetch --staging "$S2"
+          python3 -u tools/assets/refresh_assets.py build --staging "$S2"
+          python3 -u tools/assets/story_assets.py manifest --staging "$S2"
+
       - name: Update the gap ledger
         run: node tools/data/gaps.mjs
 
@@ -178,6 +190,24 @@ jobs:
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
           python3 -u tools/assets/publish.py add --incremental --confirm --staging "$S"
           python3 -u tools/assets/publish.py wait-live --staging "$S"
+
+      - name: Publish new story assets
+        if: env.DRY_RUN != 'true'
+        env:
+          S2: ${{ runner.temp }}/story-staging
+          STORY_KEY: ${{ secrets.STORY_ASSETS_DEPLOY_KEY }}
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/story_key -o IdentitiesOnly=yes
+        run: |
+          if [ ! -d "$S2/assets" ] || [ -z "$(ls -A "$S2/assets")" ]; then
+            echo "no new story assets"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$STORY_KEY" > ~/.ssh/story_key
+          chmod 600 ~/.ssh/story_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+          python3 -u tools/assets/story_publish.py add --confirm --staging "$S2" --remote git@github.com:steve1316/ak-archive-story.git
+          python3 -u tools/assets/story_publish.py wait-live --staging "$S2"
 
       # The checkout keeps no token, so this is the only step that authenticates to this repo. upstream.json is committed but never read by the
       # site, so it alone does not deploy.
