@@ -21,7 +21,7 @@ test("publishedAssets reads presence from the manifest and the rig indexes", () 
 test("updateLedger adds new gaps with today, keeps first-seen dates and prunes what is published or no longer referenced", () => {
 	const ledger = { pending: { "skill:old": "2026-09-01", "module:done": "2026-09-10" }, accepted: { "portrait:gone": "no art", "enemy-rig:enemy_1": "no rig" } };
 	const next = updateLedger(ledger, ["skill:old", "portrait:new", "enemy-rig:enemy_1"], "2026-09-22");
-	assert.deepEqual(next, { pending: { "portrait:new": "2026-09-22", "skill:old": "2026-09-01" }, accepted: { "enemy-rig:enemy_1": "no rig" } });
+	assert.deepEqual(next, { pending: { "portrait:new": "2026-09-22", "skill:old": "2026-09-01" }, accepted: { "enemy-rig:enemy_1": "no rig" }, skip: {} });
 });
 
 test("ledgerProblems fails an unlisted gap, an 8-day-old pending gap and a stale entry, and passes a 7-day-old one", () => {
@@ -35,4 +35,15 @@ test("ledgerProblems fails an unlisted gap, an 8-day-old pending gap and a stale
 
 test("missingAssets is the sorted difference", () => {
 	assert.deepEqual(missingAssets(new Set(["b", "a", "c"]), new Set(["c"])), ["a", "b"]);
+});
+
+test("ledgerProblems can skip the grace rule, so an expired gap never blocks a data commit", () => {
+	const ledger = { pending: { "skill:late": "2026-09-01" }, accepted: {} };
+	assert.deepEqual(ledgerProblems(ledger, ["skill:late"], "2026-09-22", { grace: false }), []);
+	assert.equal(ledgerProblems(ledger, ["skill:late"], "2026-09-22").length, 1);
+});
+
+test("updateLedger keeps the hand-kept skip list of rig folders", () => {
+	const next = updateLedger({ pending: {}, accepted: {}, skip: { "spine/char_x/summer_9/battle": "unsupported rig" } }, [], "2026-09-22");
+	assert.deepEqual(next.skip, { "spine/char_x/summer_9/battle": "unsupported rig" });
 });

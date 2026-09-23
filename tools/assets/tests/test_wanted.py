@@ -91,3 +91,13 @@ def test_a_rig_folder_the_index_could_never_read_is_not_wanted():
     ids = {**IDS, "enemies": {"enemy_1571_mirbst"}}
 
     assert plan_wanted(listings, ids, published_state({}, {}, {})) == []
+
+
+def test_a_rig_folder_on_the_skip_list_is_never_wanted():
+    listings = empty_listings()
+    folder = "char_a/char_a_summer_9/Front"
+    listings[("art", "spine")] = [entry(f"{folder}/char_a_summer_9.skel"), entry(f"{folder}/char_a_summer_9.atlas")]
+
+    wants = plan_wanted(listings, IDS, published_state({}, {}, {}), skipped_rig_dirs={"spine/char_a/summer_9/battle"})
+
+    assert wants == []

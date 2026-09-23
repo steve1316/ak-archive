@@ -33,6 +33,7 @@ from wanted import SOURCES, check_limits, plan_wanted, published_state
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(TOOLS_DIR)), "src", "data")
+LEDGER_PATH = os.path.join(os.path.dirname(os.path.dirname(TOOLS_DIR)), "tools", "data", "asset-gaps.json")
 MAX_BYTES = 200_000_000
 DEFAULT_MAX_FILES = 300
 USER_AGENT = "ak-archive-refresh/1.0 (https://github.com/steve1316/ak-archive)"
@@ -125,7 +126,8 @@ def run_plan(args):
         read_json(os.path.join(DATA_DIR, "spine-index.json")),
         read_json(os.path.join(DATA_DIR, "enemy-spine-index.json")),
     )
-    wants = plan_wanted(listings, ids, published)
+    ledger = read_json(LEDGER_PATH)
+    wants = plan_wanted(listings, ids, published, set(ledger.get("skip", {})))
     for entry in wants:
         entry["repo"] = read_json(SOURCES[entry["source"]]["lock"])["repo"]
         entry["commit"] = read_json(SOURCES[entry["source"]]["lock"])["sha"]

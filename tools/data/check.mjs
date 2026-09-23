@@ -1095,7 +1095,8 @@ if (!fs.existsSync(ledgerPath)) {
 	const referenced = referencedAssets({ operators, details: detailsById, enemies });
 	const published = publishedAssets({ manifest: read("assets-manifest"), spineIndex: read("spine-index"), enemySpineIndex: read("enemy-spine-index") });
 	const missing = missingAssets(referenced, published);
-	for (const problem of ledgerProblems(ledger, missing, new Date().toISOString().slice(0, 10))) {
+	// The refresh sets CHECK_GAP_GRACE=off before it commits, so an expired gap fails the run after the data has shipped rather than blocking it.
+	for (const problem of ledgerProblems(ledger, missing, new Date().toISOString().slice(0, 10), { grace: process.env.CHECK_GAP_GRACE !== "off" })) {
 		fail(problem);
 	}
 	gapCount = missing.length;

@@ -102,16 +102,19 @@ function sorted(record) {
  * The ledger after one refresh: every missing key that is not accepted is pending, keeping the date it was first seen, and every entry that is no
  * longer missing is dropped from both lists.
  *
- * @param {{pending: Record<string, string>, accepted: Record<string, string>}} ledger The committed ledger.
+ * The `skip` list is kept as it is: it names rig folders a person has told the refresh never to fetch, such as a rig the Spine tools cannot
+ * read yet, and only a person changes it.
+ *
+ * @param {{pending: Record<string, string>, accepted: Record<string, string>, skip?: Record<string, string>}} ledger The committed ledger.
  * @param {string[]} missing From `missingAssets`.
  * @param {string} today The UTC date, `YYYY-MM-DD`.
- * @returns {{pending: Record<string, string>, accepted: Record<string, string>}} The new ledger, keys sorted.
+ * @returns {{pending: Record<string, string>, accepted: Record<string, string>, skip: Record<string, string>}} The new ledger, keys sorted.
  */
 export function updateLedger(ledger, missing, today) {
 	const open = new Set(missing);
 	const accepted = Object.fromEntries(Object.entries(ledger.accepted ?? {}).filter(([key]) => open.has(key)));
 	const pending = Object.fromEntries(missing.filter((key) => !(key in accepted)).map((key) => [key, ledger.pending?.[key] ?? today]));
-	return { pending: sorted(pending), accepted: sorted(accepted) };
+	return { pending: sorted(pending), accepted: sorted(accepted), skip: sorted(ledger.skip ?? {}) };
 }
 
 /**
@@ -120,9 +123,11 @@ export function updateLedger(ledger, missing, today) {
  * @param {{pending: Record<string, string>, accepted: Record<string, string>}} ledger The committed ledger.
  * @param {string[]} missing From `missingAssets`.
  * @param {string} today The UTC date, `YYYY-MM-DD`.
+ * @param {{grace?: boolean}} [options] `grace: false` skips the age rule. The scheduled refresh checks that way before it commits, so an expired
+ *   gap cannot hold back the rest of the data, and checks the age rule on its own after the deploy.
  * @returns {string[]} One message per problem.
  */
-export function ledgerProblems(ledger, missing, today) {
+export function ledgerProblems(ledger, missing, today, { grace = true } = {}) {
 	const problems = [];
 	const open = new Set(missing);
 	for (const key of missing) {
@@ -146,7 +151,7 @@ export function ledgerProblems(ledger, missing, today) {
 			continue;
 		}
 		const age = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${since}T00:00:00Z`)) / DAY_MS);
-		if (open.has(key) && age > GRACE_DAYS) {
+		if (grace && open.has(key) && age > GRACE_DAYS) {
 			problems.push(`${key} has been pending since ${since}, ${age} days, past the ${GRACE_DAYS}-day grace - wait for the mirror or move it to accepted`);
 		}
 	}

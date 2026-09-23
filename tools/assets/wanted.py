@@ -130,7 +130,7 @@ def unique_rig_wants(source, role, entries_by_path, pairs, rig_dirs):
     return wants
 
 
-def plan_wanted(listings, ids, published):
+def plan_wanted(listings, ids, published, skipped_rig_dirs=frozenset()):
     """
     Work out every upstream file to fetch.
 
@@ -138,6 +138,8 @@ def plan_wanted(listings, ids, published):
         listings: Listing entries keyed by `(source, role)`, as `list_folder` returns them.
         ids: A dict with `operators`, `skills`, `module_art`, `module_types` and `enemies` sets, from the importer's output.
         published: The dict `published_state` returns.
+        skipped_rig_dirs: Published rig folders the gap ledger's `skip` list names, such as a rig the Spine tools cannot read yet. They are
+            never wanted, so one bad rig cannot fail every run.
 
     Returns:
         A list of wants, sorted by published path.
@@ -186,10 +188,11 @@ def plan_wanted(listings, ids, published):
 
     spine = {entry["path"]: entry for entry in listings[("art", "spine")]}
     pairs, _skipped = plan_rig_paths(list(spine), ids["operators"])
-    wants.extend(unique_rig_wants("art", "spine", spine, pairs, published["rig_dirs"]))
+    known = published["rig_dirs"] | set(skipped_rig_dirs)
+    wants.extend(unique_rig_wants("art", "spine", spine, pairs, known))
     rigs = {entry["path"]: entry for entry in listings[("enemy-spine", "rigs")]}
     pairs, _found, _skipped = plan_enemy_rig_paths(list(rigs), ids["enemies"])
-    wants.extend(unique_rig_wants("enemy-spine", "rigs", rigs, pairs, published["rig_dirs"]))
+    wants.extend(unique_rig_wants("enemy-spine", "rigs", rigs, pairs, known))
     return sorted(wants, key=lambda entry: entry["published"])
 
 

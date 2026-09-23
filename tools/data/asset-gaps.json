@@ -24,5 +24,6 @@
 		"enemy-rig:enemy_7004_xbdeer_2": "open when the ledger was created, 2026-09-23",
 		"enemy-rig:enemy_7005_xbbull": "open when the ledger was created, 2026-09-23",
 		"enemy-rig:enemy_8008_eltswd": "open when the ledger was created, 2026-09-23"
-	}
+	},
+	"skip": {}
 }

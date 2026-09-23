@@ -37,7 +37,7 @@ const missing = missingAssets(referenced, published);
 const today = new Date().toISOString().slice(0, 10);
 const current = fs.existsSync(LEDGER_PATH) ? JSON.parse(fs.readFileSync(LEDGER_PATH, "utf8")) : { pending: {}, accepted: {} };
 const ledger = process.argv.includes("--seed-accepted")
-	? { pending: {}, accepted: Object.fromEntries(missing.map((key) => [key, `open when the ledger was created, ${today}`])) }
+	? { pending: {}, accepted: Object.fromEntries(missing.map((key) => [key, `open when the ledger was created, ${today}`])), skip: current.skip ?? {} }
 	: updateLedger(current, missing, today);
 fs.writeFileSync(LEDGER_PATH, `${JSON.stringify(ledger, null, "\t")}\n`);
 console.log(`gaps: ${missing.length} missing, ${Object.keys(ledger.pending).length} pending, ${Object.keys(ledger.accepted).length} accepted`);
