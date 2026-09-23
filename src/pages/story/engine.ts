@@ -1,0 +1,376 @@
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Story engine
+
+/**
+ * The story player's state machine. It walks a story's flat steps from one stop to the next and folds every command in between into the stage.
+ *
+ * A stop is a line, a choice, or the end. Everything else - backgrounds, art scenes, sprites, fades, music, sounds, shakes, pauses - is applied
+ * on the way and never waits for the reader. Choices follow the game's rule: `Predicate` shows what follows only when the last picked value is in
+ * its refs, up to the next `Predicate`, and a bare `Predicate` (null refs) rejoins every branch.
+ *
+ * This module is pure and imports only types, so `tools/data/test/story-engine.test.mjs` runs it under Node's type stripping.
+ */
+
+import type { CommandStep, DecisionStep, LineStep, Span, Step } from "../../types/story.js";
+
+/** A sprite position on stage: left, middle or right. */
+export type Slot = "l" | "m" | "r";
+
+/** Where a layer sits: an offset in the game's 1920x1080 units, and a scale. */
+export interface Placement {
+	/** Horizontal offset, positive to the right. */
+	x: number;
+	/** Vertical offset, positive upwards. */
+	y: number;
+	/** Horizontal scale. */
+	xScale: number;
+	/** Vertical scale. */
+	yScale: number;
+}
+
+/** A background or art scene on stage. */
+export interface LayerState {
+	/** The asset reference. */
+	name: string;
+	/** Where it starts. */
+	from: Placement;
+	/** Where a tween moves it, or null when it stays put. */
+	to: Placement | null;
+	/** How long the tween takes, in seconds. */
+	duration: number;
+	/** How long it fades in, in seconds. */
+	fade: number;
+}
+
+/** Everything the stage shows between stops. */
+export interface StageState {
+	/** The background, or null for black. */
+	background: LayerState | null;
+	/** The art scene over it, or null. */
+	image: LayerState | null;
+	/** The sprite in each occupied slot, by upstream sprite name. */
+	sprites: Partial<Record<Slot, string>>;
+	/** The lit slot, or `all` when nobody is dimmed. */
+	focus: Slot | "all";
+	/** The full-screen fade. */
+	blocker: { color: string; alpha: number; fade: number };
+	/** The playing track, or null for silence. */
+	music: { intro: string | null; loop: string; volume: number; crossfade: number } | null;
+	/** Centred narration, or null. */
+	subtitle: { text: string; spans?: Span[] } | null;
+	/** Letter-style text shown over the scene, or null. */
+	sticker: string | null;
+	/** Whether the scene is drawn in grey. */
+	grayscale: boolean;
+}
+
+/** One-off effects met on the way to a stop. */
+export interface Effects {
+	/** Sounds to play, in order. */
+	sounds: { key: string; volume: number }[];
+	/** Whether playing sounds stop. */
+	stopSounds: boolean;
+	/** How long the stage shakes, in seconds, or 0. */
+	shake: number;
+	/** Pauses met, in seconds, which AUTO waits out. */
+	delay: number;
+	/** Whether the text box was cleared. */
+	clearText: boolean;
+}
+
+/** Where the walk stands in a story. */
+export interface Cursor {
+	/** The next step to read. */
+	index: number;
+	/** The last picked choice value, or null before any choice. */
+	pick: string | null;
+	/** Whether a predicate is hiding the steps being read. */
+	hidden: boolean;
+}
+
+/** Where a walk stopped. */
+export type Stop = { kind: "line"; line: LineStep } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
+
+/** The result of one walk. */
+export interface Advance {
+	/** Where to continue from. */
+	cursor: Cursor;
+	/** The stage at the stop. */
+	stage: StageState;
+	/** Why the walk stopped. */
+	stop: Stop;
+	/** Effects met on the way. */
+	effects: Effects;
+}
+
+/** A layer that has not moved. */
+const PLACEMENT: Placement = { x: 0, y: 0, xScale: 1, yScale: 1 };
+
+/** Which slots `character` fills for one, two and three names. */
+const CHARACTER_SLOTS: Record<number, Slot[]> = { 1: ["m"], 2: ["l", "r"], 3: ["l", "m", "r"] };
+
+/** The start of a story. */
+export const START: Cursor = { index: 0, pick: null, hidden: false };
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Helpers
+
+/**
+ * An empty stage: black, silent, nobody on it.
+ *
+ * @returns The stage.
+ */
+export function emptyStage(): StageState {
+	return { background: null, image: null, sprites: {}, focus: "all", blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 }, music: null, subtitle: null, sticker: null, grayscale: false };
+}
+
+/**
+ * No effects yet.
+ *
+ * @returns The effects.
+ */
+export function emptyEffects(): Effects {
+	return { sounds: [], stopSounds: false, shake: 0, delay: 0, clearText: false };
+}
+
+/**
+ * A numeric argument.
+ *
+ * @param value The raw argument.
+ * @param fallback The value when it is missing or not a number.
+ * @returns The number.
+ */
+function num(value: unknown, fallback: number): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * A non-empty string argument.
+ *
+ * @param value The raw argument.
+ * @returns The string, or null.
+ */
+function text(value: unknown): string | null {
+	return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * A slot argument.
+ *
+ * @param value The raw argument.
+ * @returns The slot, or null when it is not one.
+ */
+function slotOf(value: unknown): Slot | null {
+	return value === "l" || value === "m" || value === "r" ? value : null;
+}
+
+/**
+ * A blocker's colour. The data writes channels as 0-1, and a few scripts write 0-255.
+ *
+ * @param a The blocker's arguments.
+ * @returns A CSS colour.
+ */
+function colourOf(a: Record<string, unknown>): string {
+	const channels = [num(a.r, 0), num(a.g, 0), num(a.b, 0)];
+	const scale = channels.some((channel) => channel > 1) ? 1 : 255;
+	return `rgb(${channels.map((channel) => Math.round(channel * scale)).join(", ")})`;
+}
+
+/**
+ * A layer from `background` or `image` arguments.
+ *
+ * @param a The command's arguments.
+ * @returns The layer, or null when no image is named.
+ */
+function layerOf(a: Record<string, unknown>): LayerState | null {
+	const name = text(a.image);
+	return name ? { name, from: { x: num(a.x, 0), y: num(a.y, 0), xScale: num(a.xscale, 1), yScale: num(a.yscale, 1) }, to: null, duration: 0, fade: num(a.fadetime, 0) } : null;
+}
+
+/**
+ * A layer with a tween applied.
+ *
+ * @param layer The layer on stage.
+ * @param a The tween's arguments.
+ * @returns The tweened layer, or null when nothing is on stage.
+ */
+function tweenOf(layer: LayerState | null, a: Record<string, unknown>): LayerState | null {
+	if (!layer) {
+		return null;
+	}
+	const from = { x: num(a.xfrom, layer.from.x), y: num(a.yfrom, layer.from.y), xScale: num(a.xscalefrom, layer.from.xScale), yScale: num(a.yscalefrom, layer.from.yScale) };
+	return { ...layer, from, to: { x: num(a.xto, from.x), y: num(a.yto, from.y), xScale: num(a.xscaleto, from.xScale), yScale: num(a.yscaleto, from.yScale) }, duration: num(a.duration, 0) };
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Walking
+
+/**
+ * Apply one stage direction.
+ *
+ * @param stage The stage before it.
+ * @param step The command.
+ * @param effects One-off effects, collected in place.
+ * @returns The stage after it. Unchanged for a command the player does not draw.
+ */
+export function applyCommand(stage: StageState, step: CommandStep, effects: Effects): StageState {
+	const a = step.a;
+	switch (step.c) {
+		case "background":
+			return { ...stage, background: layerOf(a) };
+		case "largebg":
+		case "gridbg":
+		case "verticalbg": {
+			const first = text(a.imagegroup)?.split("/")[0] ?? null;
+			return { ...stage, background: first ? { name: first, from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0) } : null };
+		}
+		case "backgroundtween":
+			return { ...stage, background: tweenOf(stage.background, a) };
+		case "image":
+		case "cgitem":
+			return { ...stage, image: layerOf(a) };
+		case "hidecgitem":
+			return { ...stage, image: null };
+		case "imagetween":
+			return { ...stage, image: tweenOf(stage.image, a) };
+		case "character": {
+			const names = [a.name, a.name2, a.name3].map(text).filter((name): name is string => name !== null);
+			const slots = CHARACTER_SLOTS[names.length] ?? [];
+			const sprites: Partial<Record<Slot, string>> = {};
+			names.forEach((name, index) => {
+				const slot = slots[index];
+				if (slot) {
+					sprites[slot] = name;
+				}
+			});
+			const focusIndex = num(a.focus, 0);
+			const focus = names.length > 1 && focusIndex >= 1 && focusIndex <= names.length ? (slots[focusIndex - 1] ?? "all") : "all";
+			return { ...stage, sprites, focus };
+		}
+		case "charslot": {
+			const slot = slotOf(a.slot);
+			const name = text(a.name);
+			let sprites = stage.sprites;
+			if (!slot && !name) {
+				sprites = {};
+			} else if (slot && name) {
+				sprites = { ...sprites, [slot]: name };
+			} else if (slot) {
+				sprites = { ...sprites };
+				delete sprites[slot];
+			}
+			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;
+			return { ...stage, sprites, focus };
+		}
+		case "blocker":
+			return { ...stage, blocker: { color: colourOf(a), alpha: num(a.a, 0), fade: num(a.fadetime, 0) } };
+		case "dialog":
+			effects.clearText = true;
+			return stage;
+		case "playmusic": {
+			const loop = text(a.key);
+			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0) } } : stage;
+		}
+		case "stopmusic":
+			return { ...stage, music: null };
+		case "playsound": {
+			const key = text(a.key);
+			if (key) {
+				effects.sounds.push({ key, volume: num(a.volume, 1) });
+			}
+			return stage;
+		}
+		case "stopsound":
+			effects.stopSounds = true;
+			return stage;
+		case "subtitle": {
+			const line = text(a.text);
+			return { ...stage, subtitle: line ? { text: line, ...(Array.isArray(a.spans) ? { spans: a.spans as Span[] } : {}) } : null };
+		}
+		case "sticker": {
+			const line = text(a.text);
+			return { ...stage, sticker: line === null ? null : a.multi === true && stage.sticker ? stage.sticker + line : line };
+		}
+		case "stickerclear":
+			return { ...stage, sticker: null };
+		case "camerashake":
+			effects.shake = Math.max(effects.shake, num(a.duration, 0.5));
+			return stage;
+		case "delay":
+			effects.delay += num(a.time, 0);
+			return stage;
+		case "cameraeffect":
+			return text(a.effect)?.toLowerCase() === "grayscale" ? { ...stage, grayscale: num(a.amount, 0) > 0 } : stage;
+		default:
+			return stage;
+	}
+}
+
+/**
+ * Walk from the cursor to the next line, choice or the end.
+ *
+ * @param steps The story's steps.
+ * @param cursor Where to start.
+ * @param stage The stage at the start.
+ * @returns Where it stopped, the stage there and the effects met.
+ */
+export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advance {
+	let { index, hidden } = cursor;
+	const { pick } = cursor;
+	let next = stage;
+	const effects = emptyEffects();
+	while (index < steps.length) {
+		const step = steps[index];
+		index++;
+		if (!step) {
+			break;
+		}
+		if (step.t === "predicate") {
+			hidden = pick !== null && step.refs !== null && !step.refs.includes(pick);
+			continue;
+		}
+		if (hidden) {
+			continue;
+		}
+		if (step.t === "line") {
+			return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "line", line: step }, effects };
+		}
+		if (step.t === "decision") {
+			return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "decision", decision: step }, effects };
+		}
+		next = applyCommand(next, step, effects);
+	}
+	return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "end" }, effects };
+}
+
+/**
+ * Record the reader's choice.
+ *
+ * @param cursor The cursor at the choice.
+ * @param value The picked option's value.
+ * @returns The cursor to continue from.
+ */
+export function choose(cursor: Cursor, value: string): Cursor {
+	return { ...cursor, pick: value, hidden: false };
+}
+
+/**
+ * Skip to the next choice or the end.
+ *
+ * @param steps The story's steps.
+ * @param cursor Where to start.
+ * @param stage The stage at the start.
+ * @returns Where it stopped, and every line passed on the way, for the Log.
+ */
+export function skipToStop(steps: Step[], cursor: Cursor, stage: StageState): { result: Advance; lines: LineStep[] } {
+	const lines: LineStep[] = [];
+	let result = advance(steps, cursor, stage);
+	while (result.stop.kind === "line") {
+		lines.push(result.stop.line);
+		result = advance(steps, result.cursor, result.stage);
+	}
+	return { result, lines };
+}

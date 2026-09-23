@@ -14,7 +14,7 @@
 		"import": "node tools/data/import.mjs",
 		"check": "node tools/data/check.mjs",
 		"data:dates": "node tools/data/dates.mjs",
-		"test:data": "node --test \"tools/data/test/*.test.mjs\""
+		"test:data": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test \"tools/data/test/*.test.mjs\""
 	},
 	"dependencies": {
 		"@emotion/react": "^11.14.0",
