@@ -32,9 +32,10 @@ const AUTO_PER_CHAR_MS = 35;
 /** How many stops ahead the player preloads art for. */
 const PRELOAD_STOPS = 3;
 
-/** Where the reader's name and the mute state are kept. The name is the only thing the story player stores. */
+/** Where the reader's name, the mute state and AUTO are kept, so they carry over from one story to the next. Progress is never stored. */
 const NICKNAME_KEY = "storyNickname";
 const MUTED_KEY = "storyMuted";
+const AUTO_KEY = "storyAuto";
 
 /** The name used until the reader sets one. */
 const DEFAULT_NICKNAME = "Doctor";
@@ -259,7 +260,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const [run, setRun] = useState<Advance>(() => advance(steps, START, emptyStage()));
 	const [log, setLog] = useState<LogEntry[]>(() => stopEntries(run));
 	const [typed, setTyped] = useState(0);
-	const [auto, setAuto] = useState(false);
+	const [auto, setAuto] = useState(() => readStored(AUTO_KEY) === "1");
 	const [hideUi, setHideUi] = useState(false);
 	const [logOpen, setLogOpen] = useState(false);
 	const [muted, setMuted] = useState(() => readStored(MUTED_KEY) === "1");
@@ -430,7 +431,12 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const openLog = useCallback(() => setLogOpen(true), []);
 	const closeLog = useCallback(() => setLogOpen(false), []);
 	const hide = useCallback(() => setHideUi(true), []);
-	const toggleAuto = useCallback(() => setAuto((value) => !value), []);
+	const toggleAuto = useCallback(() => {
+		setAuto((value) => {
+			writeStored(AUTO_KEY, value ? "0" : "1");
+			return !value;
+		});
+	}, []);
 
 	return (
 		<Box sx={PLAYER_SX} onClickCapture={onPlayerClick} data-region="story-player">
