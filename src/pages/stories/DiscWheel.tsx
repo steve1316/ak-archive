@@ -20,6 +20,9 @@ const STEP = 0.42;
 /** How many covers either side of the selected one stay visible. */
 const VISIBLE = 3;
 
+/** The game's covers are about 5:4 and carry their own title and white frame, so a real cover is drawn at that shape with nothing added. */
+const COVER_ASPECT = 1.25;
+
 /** How far a drag must travel, in pixels, to turn the disc one step. */
 const DRAG_STEP_PX = 70;
 
@@ -116,6 +119,7 @@ function DiscWheel({ items, index, onSelect, onOpen }: DiscWheelProps) {
 				}
 				const angle = Math.PI - offset * STEP;
 				const selected = offset === 0;
+				const width = item.cover ? cover * COVER_ASPECT : cover;
 				return (
 					<Box
 						key={item.id}
@@ -132,19 +136,20 @@ function DiscWheel({ items, index, onSelect, onOpen }: DiscWheelProps) {
 						}}
 						sx={{
 							position: "absolute",
-							border: "2px solid rgba(255,255,255,0.85)",
+							border: item.cover ? "none" : "2px solid rgba(255,255,255,0.85)",
 							boxShadow: selected ? "0 0 0 3px #1e9bd7, 0 12px 32px rgba(0,0,0,0.8)" : "0 8px 24px rgba(0,0,0,0.6)",
-							background: "#161a22",
-							backgroundSize: "cover",
+							backgroundColor: item.cover ? "transparent" : "#161a22",
+							backgroundRepeat: "no-repeat",
+							backgroundSize: item.cover ? "contain" : "cover",
 							backgroundPosition: "center",
 							cursor: "pointer",
 							transition: "left 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s, opacity 0.35s",
 							overflow: "hidden"
 						}}
 						style={{
-							width: cover,
+							width,
 							height: cover,
-							left: centreX + radius * Math.cos(angle) - cover / 2,
+							left: centreX + radius * Math.cos(angle) - width / 2,
 							top: centreY + radius * Math.sin(angle) - cover / 2,
 							transform: `scale(${selected ? 1.25 : 0.85 - Math.min(Math.abs(offset), VISIBLE) * 0.08})`,
 							opacity: selected ? 1 : 0.8,
@@ -152,12 +157,23 @@ function DiscWheel({ items, index, onSelect, onOpen }: DiscWheelProps) {
 							backgroundImage: item.cover ? `url(${item.cover})` : undefined
 						}}
 					>
-						<Box
-							sx={{ position: "absolute", left: 0, right: 0, bottom: 0, p: "18px 8px 6px", background: "linear-gradient(transparent, rgba(0,0,0,0.85))", fontSize: 11, lineHeight: 1.25 }}
-						>
-							<Box sx={{ fontSize: 10, letterSpacing: "0.14em", color: "#bbb" }}>{item.label}</Box>
-							{item.title}
-						</Box>
+						{item.cover ? null : (
+							<Box
+								sx={{
+									position: "absolute",
+									left: 0,
+									right: 0,
+									bottom: 0,
+									p: "18px 8px 6px",
+									background: "linear-gradient(transparent, rgba(0,0,0,0.85))",
+									fontSize: 11,
+									lineHeight: 1.25
+								}}
+							>
+								<Box sx={{ fontSize: 10, letterSpacing: "0.14em", color: "#bbb" }}>{item.label}</Box>
+								{item.title}
+							</Box>
+						)}
 					</Box>
 				);
 			})}
