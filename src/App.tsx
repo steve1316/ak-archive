@@ -63,6 +63,18 @@ const NAV_ITEMS: readonly NavItem[] = [
  */
 const OPERATOR_OPTIONS: SearchOption[] = searchIndex.map((entry) => ({ path: operatorPath(entry.id), name: entry.name, keys: [normaliseName(entry.name)] }));
 
+/** How long to wait before prefetching on a browser with no `requestIdleCallback`, such as Safari. */
+const PREFETCH_FALLBACK_MS = 2000;
+
+/**
+ * Fetch the operator index and page chunks ahead of time. Most readers go there next, and without this the first click waits for the chunk
+ * before the page can even start fetching its data.
+ */
+function prefetchOperatorRoutes() {
+	void import("./pages/operator_index/operator_index.js");
+	void import("./pages/operator/operator.js");
+}
+
 /**
  * The application shell: the theme, the navbar and one route per page.
  *
@@ -82,6 +94,16 @@ export default function App() {
 	}, []);
 
 	const searchOptions = useMemo<SearchOption[]>(() => [...OPERATOR_OPTIONS, ...enemyOptions], [enemyOptions]);
+
+	// The operator routes load on demand to keep the startup script small, and are fetched once the first page is idle so a click stays instant.
+	useEffect(() => {
+		if (typeof window.requestIdleCallback === "function") {
+			const handle = window.requestIdleCallback(prefetchOperatorRoutes);
+			return () => window.cancelIdleCallback(handle);
+		}
+		const timer = window.setTimeout(prefetchOperatorRoutes, PREFETCH_FALLBACK_MS);
+		return () => window.clearTimeout(timer);
+	}, []);
 
 	return (
 		<ThemeProvider theme={theme}>
