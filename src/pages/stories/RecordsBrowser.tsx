@@ -23,6 +23,9 @@ const CLASSES = ["Vanguard", "Guard", "Defender", "Sniper", "Caster", "Medic", "
 /** The star counts, highest first, for the rarity filter. */
 const RARITIES = [6, 5, 4, 3, 2, 1];
 
+/** The height of one operator's row in the list, in pixels. */
+const ROW_HEIGHT = 52;
+
 /** Every operator's published illustration variants, which the background art is picked from. */
 const ILLUSTRATION_VARIANTS = presence.variants.illustrations ?? {};
 
@@ -41,39 +44,59 @@ const LIST_SX: SxProps<Theme> = {
 	background: "rgba(0,0,0,0.35)"
 };
 
-/** A letter's heading in the list, pinned while its names scroll past. */
-const LETTER_HEADING_SX: SxProps<Theme> = {
-	position: "sticky",
-	top: 0,
-	zIndex: 1,
-	background: "rgba(13,15,20,0.96)",
-	py: 0.5,
-	fontFamily: "Georgia, serif",
-	fontStyle: "italic",
-	fontWeight: 700,
-	fontSize: 16,
-	borderBottom: "1px solid #2a303c"
+/**
+ * The scrolling list and everything in it. The rows are plain elements styled once here by class, not MUI components with their own `sx`: 319
+ * rows of five styled components each made the tab take about half a second to appear.
+ */
+const NAMES_SX: SxProps<Theme> = {
+	flex: 1,
+	overflowY: "auto",
+	p: "0 8px 12px 14px",
+	scrollbarWidth: { md: "none" },
+	"&::-webkit-scrollbar": { display: { md: "none" } },
+	// A letter's heading, pinned while its names scroll past.
+	"& .records-letter": {
+		position: "sticky",
+		top: 0,
+		zIndex: 1,
+		background: "rgba(13,15,20,0.96)",
+		py: 0.5,
+		fontFamily: "Georgia, serif",
+		fontStyle: "italic",
+		fontWeight: 700,
+		fontSize: 16,
+		borderBottom: "1px solid #2a303c"
+	},
+	// One operator's row, and the selected one. Every row is the same height, so the browser can skip laying out and painting the ones out of
+	// view without the letter jump landing in the wrong place.
+	"& .records-row": {
+		contentVisibility: "auto",
+		containIntrinsicSize: `auto ${ROW_HEIGHT}px`,
+		height: ROW_HEIGHT,
+		display: "grid",
+		gridTemplateColumns: "40px 1fr auto",
+		gap: 1.25,
+		alignItems: "center",
+		width: "100%",
+		textAlign: "left",
+		px: 0.75,
+		py: 0.6,
+		border: 0,
+		borderRadius: 1,
+		background: "transparent",
+		color: "inherit",
+		font: "inherit",
+		cursor: "pointer",
+		"&:hover": { background: "rgba(255,255,255,0.05)" },
+		"&:focus-visible": { outline: "2px solid #1e9bd7", outlineOffset: -2 }
+	},
+	"& .records-row[aria-current='true']": { background: "rgba(30,155,215,0.18)", boxShadow: "inset 3px 0 #1e9bd7" },
+	// A row's small portrait, cropped to the face.
+	"& .records-thumb": { display: "block", width: 40, height: 40, objectFit: "cover", objectPosition: "top", borderRadius: 1, background: "#1b202a" },
+	"& .records-name": { display: "block", fontSize: "1rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+	"& .records-meta": { display: "block", fontSize: "0.75rem", color: "text.secondary" },
+	"& .records-stars": { color: "#f0c36a" }
 };
-
-/** One operator's row. */
-const ROW_SX = {
-	display: "grid",
-	gridTemplateColumns: "40px 1fr auto",
-	gap: 1.25,
-	alignItems: "center",
-	width: "100%",
-	textAlign: "left",
-	px: 0.75,
-	py: 0.6,
-	borderRadius: 1,
-	"&:hover": { background: "rgba(255,255,255,0.05)" }
-} satisfies SxProps<Theme>;
-
-/** The selected operator's row. */
-const ROW_SELECTED_SX = { ...ROW_SX, background: "rgba(30,155,215,0.18)", boxShadow: "inset 3px 0 #1e9bd7", "&:hover": { background: "rgba(30,155,215,0.18)" } } satisfies SxProps<Theme>;
-
-/** A row's small portrait, cropped to the face. */
-const THUMB_SX: SxProps<Theme> = { width: 40, height: 40, objectFit: "cover", objectPosition: "top", borderRadius: 1, background: "#1b202a" };
 
 /** The background art, slid right so its right quarter is cut off and the operator stands clear of the text. */
 const SKIN_SX: SxProps<Theme> = {
@@ -279,10 +302,13 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 		return () => window.removeEventListener("keydown", onKey);
 	}, [visible, selected, onSelect]);
 
-	// Keep the selected row in view as the arrow keys move it.
+	// Keep the selected row in view as the arrow keys or an address move it. With nothing selected yet the first row already shows, and scrolling
+	// to it would lay out the whole list for nothing.
 	useEffect(() => {
-		list.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
-	}, [selected]);
+		if (selectedGroup) {
+			list.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
+		}
+	}, [selectedGroup]);
 
 	const jumpTo = (letter: string) => {
 		const heading = list.current?.querySelector(`[data-letter="${letter}"]`);
@@ -338,36 +364,32 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 					</Box>
 				</Box>
 				<Box sx={{ flex: 1, display: "flex", minHeight: 0 }}>
-					<Box ref={list} sx={{ flex: 1, overflowY: "auto", p: "0 8px 12px 14px", scrollbarWidth: { md: "none" }, "&::-webkit-scrollbar": { display: { md: "none" } } }}>
+					<Box ref={list} sx={NAMES_SX}>
 						{visible.length === 0 ? <Typography sx={{ color: "text.secondary", p: 2 }}>No operator matches.</Typography> : null}
 						{[...byLetter].map(([letter, group]) => (
-							<Box key={letter}>
-								<Box data-letter={letter} sx={LETTER_HEADING_SX}>
+							<div key={letter}>
+								<div className="records-letter" data-letter={letter}>
 									{letter}
-								</Box>
+								</div>
 								{group.map((operator) => (
-									<ButtonBase
+									<button
 										key={operator.id}
+										type="button"
+										className="records-row"
 										aria-current={operator === selected ? "true" : undefined}
 										onClick={() => operator.sets[0] && onSelect(operator.sets[0].group)}
-										sx={operator === selected ? ROW_SELECTED_SX : ROW_SX}
 									>
-										{hasPortrait(operator.id) ? <Box component="img" src={portraitUrl(operator.id)} alt="" loading="lazy" sx={THUMB_SX} /> : <Box sx={THUMB_SX} />}
-										<Box sx={{ minWidth: 0 }}>
-											<Typography noWrap>{operator.name}</Typography>
-											<Typography variant="caption" sx={{ color: "text.secondary" }}>
-												<Box component="span" sx={{ color: "#f0c36a" }}>
-													{stars(operator.rarity)}
-												</Box>{" "}
-												{operator.profession}
-											</Typography>
-										</Box>
-										<Typography variant="caption" sx={{ color: "text.secondary" }}>
-											{operator.sets.length}
-										</Typography>
-									</ButtonBase>
+										{hasPortrait(operator.id) ? <img className="records-thumb" src={portraitUrl(operator.id)} alt="" loading="lazy" /> : <span className="records-thumb" />}
+										<span style={{ minWidth: 0 }}>
+											<span className="records-name">{operator.name}</span>
+											<span className="records-meta">
+												<span className="records-stars">{stars(operator.rarity)}</span> {operator.profession}
+											</span>
+										</span>
+										<span className="records-meta">{operator.sets.length}</span>
+									</button>
 								))}
-							</Box>
+							</div>
 						))}
 					</Box>
 					{/* The A-Z jump stands in for the list's scrollbar, which is hidden beside it. It needs more height than a phone's short list has,
