@@ -92,12 +92,19 @@ export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput)
 	const introKey = music?.intro ?? null;
 	const volume = music?.volume ?? 1;
 
+	/** Every element this hook owns: the track, the sound effects and anything still fading out. */
+	const allAudio = useCallback(() => [track.current, ...playing.current.map((sound) => sound.audio), ...fadingOut.current].filter((audio) => audio !== null), []);
+
 	const play = useCallback((audio: HTMLAudioElement) => {
 		audio.play().then(
 			() => setBlocked(false),
 			(error: unknown) => {
 				if (error instanceof DOMException && error.name === "NotAllowedError") {
 					setBlocked(true);
+				}
+				// A one-shot that could not start is stale by the time it could, so it is dropped rather than resumed later.
+				if (!audio.loop) {
+					playing.current = playing.current.filter((sound) => sound.audio !== audio);
 				}
 			}
 		);
@@ -111,25 +118,35 @@ export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput)
 		});
 	}, []);
 
+	const stopChannel = useCallback(
+		(channel: string | null, seconds: number) => {
+			const stopping = playing.current.filter((sound) => channel === null || sound.channel === channel);
+			playing.current = playing.current.filter((sound) => !stopping.includes(sound));
+			for (const sound of stopping) {
+				fadeOut(sound.audio, seconds);
+			}
+		},
+		[fadeOut]
+	);
+
 	// The fade times for the music effect below, which runs only when the track itself changes.
+	const crossfade = music?.crossfade ?? 0;
 	useEffect(() => {
-		fades.current = { crossfade: music?.crossfade ?? 0, stop: effects.musicFade };
-	});
+		fades.current = { crossfade, stop: effects.musicFade };
+	}, [crossfade, effects.musicFade]);
 
 	useEffect(() => {
 		mutedRef.current = muted;
-		for (const audio of [track.current, ...playing.current.map((sound) => sound.audio), ...fadingOut.current]) {
-			if (audio) {
-				audio.muted = muted;
-			}
+		for (const audio of allAudio()) {
+			audio.muted = muted;
 		}
-	}, [muted]);
+	}, [muted, allAudio]);
 
 	useEffect(() => {
 		const loopUrl = loopKey ? urlOf(loopKey) : null;
-		const { crossfade, stop } = fades.current;
+		const { crossfade: fadeIn, stop } = fades.current;
 		if (track.current) {
-			fadeOut(track.current, loopUrl ? crossfade : stop);
+			fadeOut(track.current, loopUrl ? fadeIn : stop);
 			track.current = null;
 		}
 		if (!loopUrl) {
@@ -146,7 +163,7 @@ export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput)
 		const loop = makeTrack(loopUrl);
 		loop.loop = true;
 		const first = introUrl ? makeTrack(introUrl) : loop;
-		if (first !== loop) {
+		if (introUrl) {
 			first.addEventListener("ended", () => {
 				if (track.current === first) {
 					track.current = loop;
@@ -155,9 +172,9 @@ export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput)
 			});
 		}
 		track.current = first;
-		if (crossfade > 0) {
+		if (fadeIn > 0) {
 			first.volume = 0;
-			fadeVolume(first, target, crossfade);
+			fadeVolume(first, target, fadeIn);
 		}
 		play(first);
 	}, [loopKey, introKey, volume, urlOf, play, fadeOut]);
@@ -165,11 +182,7 @@ export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput)
 	useEffect(() => {
 		for (const cue of effects.sounds) {
 			if (cue.kind === "stop") {
-				const stopping = playing.current.filter((sound) => cue.channel === null || sound.channel === cue.channel);
-				playing.current = playing.current.filter((sound) => !stopping.includes(sound));
-				for (const sound of stopping) {
-					fadeOut(sound.audio, cue.fade);
-				}
+				stopChannel(cue.channel, cue.fade);
 				continue;
 			}
 			const url = urlOf(cue.key);
@@ -177,10 +190,7 @@ export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput)
 				continue;
 			}
 			if (cue.channel !== null) {
-				for (const sound of playing.current.filter((entry) => entry.channel === cue.channel)) {
-					sound.audio.pause();
-				}
-				playing.current = playing.current.filter((entry) => entry.channel !== cue.channel);
+				stopChannel(cue.channel, 0);
 			}
 			const audio = new Audio(url);
 			audio.volume = Math.min(1, EFFECT_VOLUME * cue.volume);
@@ -193,26 +203,28 @@ export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput)
 			});
 			play(audio);
 		}
-	}, [effects, urlOf, play, fadeOut]);
+	}, [effects, urlOf, play, stopChannel]);
 
-	// Leaving the story silences everything, including sounds still fading out.
+	// Leaving the story silences everything, including sounds still fading out, and stops their fade timers.
 	useEffect(
 		() => () => {
-			for (const audio of [track.current, ...playing.current.map((sound) => sound.audio), ...fadingOut.current]) {
-				audio?.pause();
+			for (const audio of allAudio()) {
+				window.clearInterval(FADES.get(audio));
+				audio.pause();
 			}
 		},
-		[]
+		[allAudio]
 	);
 
 	const resume = useCallback(() => {
-		// One-shot sounds missed while blocked are stale by now, so only the music and looping sounds pick up again.
-		for (const audio of [track.current, ...playing.current.filter((sound) => sound.audio.loop).map((sound) => sound.audio)]) {
-			if (audio?.paused) {
+		// The reader's click lets audio play from here on. Anything that is refused again sets `blocked` back.
+		setBlocked(false);
+		for (const audio of allAudio()) {
+			if (audio.paused && (audio === track.current || audio.loop) && !fadingOut.current.has(audio)) {
 				play(audio);
 			}
 		}
-	}, [play]);
+	}, [allAudio, play]);
 
 	return { resume, blocked };
 }
