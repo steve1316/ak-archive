@@ -29,14 +29,21 @@ const WATCH_IGNORED = ["**/tools/assets/.staging/**", "**/tools/assets/.staging-
  */
 const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
+/** The generated story folder. Its groups and stories are served as static files, so no page carries a map of ~2,000 URLs. */
+const STORY_DATA_DIR = path.join(REPO_ROOT, "src/data/story");
+
+/** Where the story files are served, under the base. */
+const STORY_DATA_PREFIX = "data/story/";
+
 /**
- * The dev routes that serve staged files straight from the offline pipeline's staging folders: operator rigs under `__spine/`, enemy rigs under
- * `__spine-enemies/`, and story art and audio under `__story/`. Never bundled.
+ * The dev routes that serve files straight from disk: operator rigs under `__spine/`, enemy rigs under `__spine-enemies/` and story art and
+ * audio under `__story/`, all from the offline pipeline's staging folders, plus the story files under `data/story/`, which a build copies instead.
  */
-const SPINE_STAGING_ROUTES: ReadonlyArray<{ prefix: string; root: string }> = [
+const STAGED_ROUTES: ReadonlyArray<{ prefix: string; root: string }> = [
 	{ prefix: "__spine/", root: path.join(REPO_ROOT, "tools/assets/.staging/assets/spine") },
 	{ prefix: "__spine-enemies/", root: path.join(REPO_ROOT, "tools/assets/.staging/assets/spine-enemies") },
-	{ prefix: "__story/", root: path.join(REPO_ROOT, "tools/assets/.staging-story/assets") }
+	{ prefix: "__story/", root: path.join(REPO_ROOT, "tools/assets/.staging-story/assets") },
+	{ prefix: STORY_DATA_PREFIX, root: STORY_DATA_DIR }
 ];
 
 /** Content type served for each staged file extension. */
@@ -58,7 +65,7 @@ const STAGED_CONTENT_TYPES: Record<string, string> = {
  * @param res The response to write to.
  * @param headOnly True for a HEAD request, which gets the same status and headers but no body.
  */
-async function serveStagedSpineFile(root: string, rawPath: string, res: ServerResponse, headOnly: boolean): Promise<void> {
+async function serveStagedFile(root: string, rawPath: string, res: ServerResponse, headOnly: boolean): Promise<void> {
 	let relative: string;
 	try {
 		relative = decodeURIComponent(rawPath.split("?")[0] ?? "");
@@ -84,24 +91,24 @@ async function serveStagedSpineFile(root: string, rawPath: string, res: ServerRe
 }
 
 /**
- * Dev-only middleware serving staged files under `<base>__spine/`, `<base>__spine-enemies/` and `<base>__story/`, straight from the offline
- * pipeline's staging folders. The `apply: "serve"` guard keeps this out of `vite build` entirely, so a production build never touches the staging folder.
+ * Dev-only middleware serving the files in `STAGED_ROUTES` straight from disk. The `apply: "serve"` guard keeps this out of `vite build`
+ * entirely, so a production build never touches the staging folders.
  *
  * @returns The Vite plugin.
  */
-function spineStagingPlugin(): Plugin {
+function stagedFilesPlugin(): Plugin {
 	return {
-		name: "spine-staging",
+		name: "staged-files",
 		apply: "serve",
 		configureServer(server) {
 			server.middlewares.use((req, res, next) => {
 				const method = req.method ?? "";
-				const route = req.url && (method === "GET" || method === "HEAD") ? SPINE_STAGING_ROUTES.find((entry) => req.url?.startsWith(`${server.config.base}${entry.prefix}`)) : undefined;
+				const route = req.url && (method === "GET" || method === "HEAD") ? STAGED_ROUTES.find((entry) => req.url?.startsWith(`${server.config.base}${entry.prefix}`)) : undefined;
 				if (!route || !req.url) {
 					next();
 					return;
 				}
-				void serveStagedSpineFile(route.root, req.url.slice(`${server.config.base}${route.prefix}`.length), res, method === "HEAD");
+				void serveStagedFile(route.root, req.url.slice(`${server.config.base}${route.prefix}`.length), res, method === "HEAD");
 			});
 		}
 	};
@@ -116,11 +123,7 @@ const MANIFEST_PATH = path.join(REPO_ROOT, "src/data/assets-manifest.json");
 const SEARCH_INDEX_PATH = path.join(REPO_ROOT, "src/data/search-index.json");
 const ENEMIES_PATH = path.join(REPO_ROOT, "src/data/enemies.json");
 
-/** The generated story folder. Its groups and stories are served as static files, so no page carries a map of ~2,000 URLs. */
-const STORY_DATA_DIR = path.join(REPO_ROOT, "src/data/story");
-
-/** Where the story files are served, under the base, and the virtual module carrying their cache-busting version. */
-const STORY_DATA_PREFIX = "data/story/";
+/** The virtual module carrying the story files' cache-busting version. */
 const STORY_DATA_MODULE = "virtual:story-data";
 const STORY_DATA_RESOLVED = `\0${STORY_DATA_MODULE}`;
 
@@ -310,8 +313,8 @@ async function storyDataVersion(): Promise<string> {
 }
 
 /**
- * Serves the story groups and stories as static files under `data/story/`. The dev server answers from `src/data/story`, and a build copies the
- * folder into the output. `virtual:story-data` carries a content version the site appends to each URL, so a data refresh is never read from a
+ * Serves the story groups and stories as static files under `data/story/`. The dev server answers from `src/data/story` through `STAGED_ROUTES`,
+ * and a build copies the folder into the output. `virtual:story-data` carries a content version the site appends to each URL, so a data refresh is never read from a
  * stale cache.
  *
  * @returns The plugin.
@@ -319,17 +322,6 @@ async function storyDataVersion(): Promise<string> {
 function storyDataPlugin(): Plugin {
 	return {
 		name: "story-data",
-		configureServer(server) {
-			server.middlewares.use((req, res, next) => {
-				const method = req.method ?? "";
-				const prefix = `${server.config.base}${STORY_DATA_PREFIX}`;
-				if (!req.url?.startsWith(prefix) || (method !== "GET" && method !== "HEAD")) {
-					next();
-					return;
-				}
-				void serveStagedSpineFile(STORY_DATA_DIR, req.url.slice(prefix.length), res, method === "HEAD");
-			});
-		},
 		resolveId(source) {
 			return source === STORY_DATA_MODULE ? STORY_DATA_RESOLVED : null;
 		},
@@ -355,9 +347,9 @@ function storyDataPlugin(): Plugin {
 export default defineConfig({
 	base: BASE,
 	server: { watch: { ignored: WATCH_IGNORED } },
-	// spineStagingPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
+	// stagedFilesPlugin runs first so its middleware attaches before spaFallback's catch-all, which would otherwise answer every
 	// unmatched dev request with index.html before the staging route ever saw it.
-	plugins: [spineStagingPlugin(), assetPresencePlugin(), rigIndexPlugin(), storyDataPlugin(), react(), spaFallback(), baseTrailingSlash(), routePages(routePageList)],
+	plugins: [stagedFilesPlugin(), assetPresencePlugin(), rigIndexPlugin(), storyDataPlugin(), react(), spaFallback(), baseTrailingSlash(), routePages(routePageList)],
 	build: {
 		outDir: "build",
 		sourcemap: true,
