@@ -151,6 +151,8 @@ function RecordsGrid({ index, onOpen }: RecordsGridProps) {
 				zIndex: 3,
 				display: "grid",
 				gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+				// Each row as tall as its cards. Auto rows in this fixed-height scroll box would otherwise shrink the clipped cards to fit it.
+				gridAutoRows: "max-content",
 				gap: 1.5,
 				alignContent: "start"
 			}}
