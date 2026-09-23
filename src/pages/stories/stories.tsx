@@ -26,6 +26,9 @@ const TABS = [
 	{ key: "records", label: "Operator Records" }
 ] as const;
 
+/** The year shown for a group upstream never dated. The index sorts such groups first, so they lead the rail. */
+const UNDATED_YEAR = "0000";
+
 /** What a year on the Events and Side Stories rails counts. */
 const EVENT_NOUN = { one: "event", many: "events" };
 const SIDE_NOUN = { one: "side story", many: "side stories" };
@@ -111,7 +114,7 @@ function yearOf(group: StoryGroupMeta): number | null {
 function yearRail(groups: StoryGroupMeta[], noun: { one: string; many: string }): { key: string; title: string; holds: string[] }[] {
 	const years = new Map<string, string[]>();
 	for (const group of groups) {
-		const year = yearOf(group)?.toString() ?? "Undated";
+		const year = yearOf(group)?.toString() ?? UNDATED_YEAR;
 		const ids = years.get(year);
 		if (ids) {
 			ids.push(group.id);
@@ -229,7 +232,7 @@ export default function Stories() {
 			groups.map((group, index) => ({
 				id: group.id,
 				title: group.name,
-				label: tab === "main" ? `EPISODE ${episodeNumber(index)}` : (yearOf(group)?.toString() ?? ""),
+				label: tab === "main" ? `EPISODE ${episodeNumber(index)}` : (yearOf(group)?.toString() ?? UNDATED_YEAR),
 				cover: data ? storyAssetUrl("covers", group.id, data.presence) : null
 			})),
 		[groups, tab, data]
