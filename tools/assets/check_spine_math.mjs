@@ -1854,6 +1854,35 @@ function checkPathTimelines(modules) {
 	return runCases("path timelines", cases);
 }
 
+/**
+ * Checks the framing bounds: with `visibleOnly`, a triangle list whose tint alpha is 0 is left out, since it never shows. Without it, every
+ * list counts, as the geometry gate compares against the rig's declared size.
+ *
+ * @param {object} geometryModule The loaded `geometry.ts` module.
+ * @returns {string[]} One failure message per mismatch.
+ */
+function checkFraming(geometryModule) {
+	const list = (alpha, points) => ({
+		page: 0,
+		positions: Float32Array.from(points),
+		uvs: new Float32Array(points.length),
+		indices: new Uint16Array(0),
+		color: { r: 1, g: 1, b: 1, a: alpha },
+		darkColor: null,
+		blendMode: "normal",
+		slotIndex: 0
+	});
+	const shown = list(1, [0, 0, 10, 20]);
+	const hidden = list(0, [-500, -500, 900, 900]);
+	const box = (value) => (value === null ? null : [value.minX, value.minY, value.maxX, value.maxY]);
+	const cases = [
+		["every list counts by default", () => [[-500, -500, 900, 900], box(geometryModule.bounds([shown, hidden]))]],
+		["visible only leaves out a list at alpha 0", () => [[0, 0, 10, 20], box(geometryModule.bounds([shown, hidden], true))]],
+		["visible only with nothing visible is null", () => [null, box(geometryModule.bounds([hidden], true))]]
+	];
+	return runCases("framing", cases);
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -1865,7 +1894,7 @@ try {
 	failures = [...checkBones(skeletonModule), ...checkReset(skeletonModule), ...checkAttachments(skeletonModule), ...checkSkinChange(skeletonModule)];
 	try {
 		const geometryModule = await server.ssrLoadModule("/src/spine/geometry.ts");
-		failures.push(...checkGeometry(skeletonModule, geometryModule), ...checkSlotState(skeletonModule, geometryModule));
+		failures.push(...checkGeometry(skeletonModule, geometryModule), ...checkSlotState(skeletonModule, geometryModule), ...checkFraming(geometryModule));
 	} catch (error) {
 		failures.push(`geometry: could not run: ${error.message}`);
 	}

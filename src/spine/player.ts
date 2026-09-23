@@ -120,7 +120,7 @@ function animationBox(rig: LoadedRig, animation: Animation, loop: boolean): View
 		skeleton.setToSetupPose();
 		applyAnimation(skeleton, animation, samples > 1 ? (animation.duration * i) / (loop ? samples : samples - 1) : 0);
 		skeleton.updateWorldTransform();
-		box = unionView(box, bounds(skeletonTriangles(skeleton, rig.atlas, rig.pageSizes)));
+		box = unionView(box, bounds(skeletonTriangles(skeleton, rig.atlas, rig.pageSizes), true));
 	}
 	return box;
 }
@@ -475,7 +475,7 @@ export class SpinePlayer {
 			return;
 		}
 		rig.skeleton.updateWorldTransform();
-		rig.framedBox = bounds(skeletonTriangles(rig.skeleton, rig.atlas, rig.pageSizes));
+		rig.framedBox = bounds(skeletonTriangles(rig.skeleton, rig.atlas, rig.pageSizes), true);
 	}
 
 	/**

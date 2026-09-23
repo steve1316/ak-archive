@@ -958,17 +958,22 @@ export function skeletonTriangles(skeleton: Skeleton, atlas: Atlas, pages: PageS
 }
 
 /**
- * Finds the axis-aligned box around every position in a set of triangle lists.
+ * Finds the axis-aligned box around every position in a set of triangle lists. Framing asks for the visible lists only: rigs keep effect
+ * layers and spare copies of a part fully transparent, sometimes hundreds of units from the body, and counting them would shrink the view.
  *
  * @param lists The triangle lists.
- * @returns The box, or null when the lists hold no positions.
+ * @param visibleOnly True to leave out any list whose tint alpha is 0, since it never shows.
+ * @returns The box, or null when the counted lists hold no positions.
  */
-export function bounds(lists: TriangleList[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
+export function bounds(lists: TriangleList[], visibleOnly = false): { minX: number; minY: number; maxX: number; maxY: number } | null {
 	let minX = Infinity;
 	let minY = Infinity;
 	let maxX = -Infinity;
 	let maxY = -Infinity;
 	for (const list of lists) {
+		if (visibleOnly && list.color.a <= 0) {
+			continue;
+		}
 		for (let i = 0; i < list.positions.length; i += 2) {
 			minX = Math.min(minX, list.positions[i]!);
 			minY = Math.min(minY, list.positions[i + 1]!);
