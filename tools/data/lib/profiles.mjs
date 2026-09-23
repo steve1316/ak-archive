@@ -9,6 +9,12 @@ import { splitRecord } from "./record.mjs";
 import { isPlaceholder, stripMarkup } from "./text.mjs";
 
 /**
+ * Angle brackets left after `stripMarkup`. In the handbook these are glitch text in redacted fields, such as Ifrit's Basic Info, where a stray
+ * `<` and `>` wrap noise rather than a term, so they are dropped here. Anywhere else a leftover bracket fails the gate instead.
+ */
+const REDACTION_NOISE = /<[^>]*>/g;
+
+/**
  * One operator's lore sections and handbook record, split into a shard half and a side half.
  *
  * @param {string} id The operator id.
@@ -23,7 +29,7 @@ export function buildHandbook(id, { handbookDict }) {
 			title: section.storyTitle ?? "",
 			// A section can hold several story blocks. They read as one passage, so they are joined rather than surfaced separately.
 			text: asArray(section.stories)
-				.map((story) => stripMarkup(story.storyText))
+				.map((story) => stripMarkup(story.storyText).replace(REDACTION_NOISE, ""))
 				.filter(Boolean)
 				.join("\n\n")
 		}))

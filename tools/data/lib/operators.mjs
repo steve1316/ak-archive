@@ -6,7 +6,7 @@
 
 import { asArray } from "./json.mjs";
 import { POTENTIAL_FIELDS, statBlock } from "./stats.mjs";
-import { isPlaceholder, resolveTemplate, stripMarkup } from "./text.mjs";
+import { isPlaceholder, resolveText, stripMarkup } from "./text.mjs";
 
 /** Rows that are not operators at all. There are 639 TRAP and 68 TOKEN rows against 410 real operators. */
 const NOT_OPERATORS = new Set(["TOKEN", "TRAP"]);
@@ -75,7 +75,7 @@ export function selectOperators(characterTable, patchTable) {
 function traitDescription(row) {
 	const candidate = asArray(row.trait?.candidates)[0];
 	const text = candidate?.overrideDescripton ?? row.description;
-	return stripMarkup(resolveTemplate(text, asArray(candidate?.blackboard)));
+	return resolveText(text, asArray(candidate?.blackboard));
 }
 
 /**
@@ -124,7 +124,7 @@ export function keptTalentSlots(row) {
  * Amiya's first candidate is a locked placeholder - so taking `candidates[0]` would ship question marks as her talent. Every usable candidate
  * ships with its unlock condition instead, and the page picks the right one from the phase, level and potential on screen.
  *
- * Talent text on Global arrives already resolved - no candidate contains a `{placeholder}` - so `resolveTemplate` is a no-op here and is applied
+ * Talent text on Global arrives already resolved - no candidate contains a `{placeholder}` - so `resolveText`'s template pass is a no-op here and is applied
  * only so a future upstream change cannot leak a raw template past the gate.
  *
  * @param {object} row The operator's `character_table` row.
@@ -136,7 +136,7 @@ function buildTalents(row) {
 			// Amiya carries the only locked talent candidate at the pinned sha.
 			candidates: usableCandidates(talent).map((candidate) => ({
 				name: stripMarkup(candidate.name),
-				description: stripMarkup(resolveTemplate(candidate.description, asArray(candidate.blackboard))),
+				description: resolveText(candidate.description, asArray(candidate.blackboard)),
 				unlockPhase: phaseOf(candidate.unlockCondition?.phase),
 				unlockLevel: candidate.unlockCondition?.level ?? 1,
 				requiredPotential: (candidate.requiredPotentialRank ?? 0) + 1

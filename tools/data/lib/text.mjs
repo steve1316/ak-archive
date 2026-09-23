@@ -18,12 +18,6 @@ const FORMAT_TAG = /<(?:[@$][^>]*|\/[^>]*|i|color[^>]*)>/g;
 export const CONTENT_TAG = /<(['A-Za-z][^<>@$/]*)>/g;
 
 /**
- * Anything still in angle brackets after the two passes above. At the pinned sha that is only glitch text in a redacted handbook field, which
- * was always removed this way, so it keeps that behaviour rather than failing the gate.
- */
-const LEFTOVER_TAG = /<[^>]*>/g;
-
-/**
  * Upstream ships a locked field - a talent name, a lore section's body - as literal full-width question marks when its
  * content has not unlocked yet at the pinned sha, rather than omitting the field. `*` rather than `+` so an empty string also counts as a
  * placeholder: some callers filter empty text separately and some do not, and the shipped data has zero empty names, titles or texts across
@@ -54,7 +48,6 @@ export function stripMarkup(text) {
 	return (text ?? "")
 		.replace(FORMAT_TAG, "")
 		.replace(CONTENT_TAG, "$1")
-		.replace(LEFTOVER_TAG, "")
 		.replace(/[^\S\n]+/g, " ")
 		.replace(/ *\n */g, "\n")
 		.replace(/\n{3,}/g, "\n\n")
@@ -85,6 +78,17 @@ function formatValue(value, format) {
 	const decimals = (/\.(0+)/.exec(format) ?? ["", ""])[1].length;
 	const scaled = percent ? value * 100 : value;
 	return `${scaled.toFixed(decimals)}${percent ? "%" : ""}`;
+}
+
+/**
+ * Fill a template from its blackboard and strip its markup, the usual path for trait, talent and module text.
+ *
+ * @param {string} text The templated text.
+ * @param {Array<{key: string, value: number}>} blackboard The values for this record.
+ * @returns {string} Plain text.
+ */
+export function resolveText(text, blackboard) {
+	return stripMarkup(resolveTemplate(text, blackboard));
 }
 
 /**
