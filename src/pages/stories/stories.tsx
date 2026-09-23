@@ -14,6 +14,7 @@ import { storyGroupPath } from "../../lib/routes.js";
 import { loadStoryIndex, loadStoryPresence, storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { StoryGroupMeta, StoryIndex } from "../../types/story.js";
+import Backdrop from "./Backdrop.js";
 import DiscWheel from "./DiscWheel.js";
 import type { DiscItem } from "./DiscWheel.js";
 import StoryList from "./StoryList.js";
@@ -44,16 +45,6 @@ const TAB_BAR_HEIGHT = 64;
 
 /** The picker's frame: the dark area under the bar. */
 const FRAME_SX: SxProps<Theme> = { position: "relative", height: `calc(100vh - ${NAVBAR_HEIGHT}px)`, minHeight: 520, overflow: "hidden", background: "#0d0f14", color: "#e6e8ec" };
-
-/** The blurred art behind the picker. */
-const BACKDROP_SX: SxProps<Theme> = {
-	position: "absolute",
-	inset: -20,
-	backgroundSize: "cover",
-	backgroundPosition: "center",
-	filter: "blur(3px) brightness(0.45)",
-	transition: "background-image 0.4s"
-};
 
 /** The tab bar along the bottom. */
 const TAB_BAR_SX: SxProps<Theme> = {
@@ -306,7 +297,7 @@ export default function Stories() {
 			<Typography component="h1" sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
 				Stories
 			</Typography>
-			<Box sx={BACKDROP_SX} style={{ backgroundImage: backdrop ? `url(${backdrop})` : "none" }} />
+			{backdrop ? <Backdrop key={backdrop} url={backdrop} /> : null}
 			<Box sx={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at 70% 50%, transparent 30%, rgba(0,0,0,0.75) 100%)", pointerEvents: "none" }} />
 			{tab !== "records" ? (
 				<>
