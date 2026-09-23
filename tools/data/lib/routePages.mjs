@@ -50,16 +50,26 @@ export function enemyNumber(id) {
  * The art viewer, `operator/<n>/art`, is left out on purpose. Its page would need an `operator/<n>/` folder beside `operator/<n>.html`, and GitHub
  * Pages would then answer the operator page with a trailing-slash redirect. The viewer still works through `404.html`, as every route did before.
  *
- * @param {{operatorIds: string[], enemyHeadIds: string[]}} ids Every operator id, and every enemy group's head id.
+ * The story picker gets a page, and so does every story at `story/<group>/<story>`. `/stories/<group>` does not: its page would need a
+ * `stories/` folder beside `stories.html`, which is the same trailing-slash clash as the art viewer's.
+ *
+ * @param {{operatorIds: string[], enemyHeadIds: string[], storyPaths?: string[]}} ids Every operator id, every enemy group's head id, and every
+ * story as a `<group>/<story>` pair.
  * @returns {string[]} The paths, such as `operator/10` and `enemy/1506`.
  */
-export function routePagePaths({ operatorIds, enemyHeadIds }) {
+export function routePagePaths({ operatorIds, enemyHeadIds, storyPaths = [] }) {
 	const paths = new Set(["operators", "enemies"]);
 	for (const id of operatorIds) {
 		paths.add(`operator/${operatorNumber(id)}`);
 	}
 	for (const id of enemyHeadIds) {
 		paths.add(`enemy/${enemyNumber(id)}`);
+	}
+	if (storyPaths.length) {
+		paths.add("stories");
+	}
+	for (const storyPath of storyPaths) {
+		paths.add(`story/${storyPath}`);
 	}
 	return [...paths].sort();
 }

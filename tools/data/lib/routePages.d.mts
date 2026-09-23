@@ -7,4 +7,4 @@ export declare function operatorNumber(id: string): string;
 export declare function enemyNumber(id: string): string;
 
 /** Every route a reader can land on directly, relative to the base. See `routePages.mjs`. */
-export declare function routePagePaths(ids: { operatorIds: string[]; enemyHeadIds: string[] }): string[];
+export declare function routePagePaths(ids: { operatorIds: string[]; enemyHeadIds: string[]; storyPaths?: string[] }): string[];

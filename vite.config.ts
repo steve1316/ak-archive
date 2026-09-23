@@ -159,13 +159,18 @@ async function dataIds(): Promise<{ operators: string[]; enemies: string[]; enem
 }
 
 /**
- * Every route a reader can land on directly, for the kit's `routePages`, which writes a real page for each so a shared link answers 200.
+ * Every route a reader can land on directly, operators, enemies and stories, for the kit's `routePages`, which writes a real page for each so
+ * a shared link answers 200.
  *
  * @returns The route paths, relative to the base.
  */
 async function routePageList(): Promise<string[]> {
 	const ids = await dataIds();
-	return routePagePaths({ operatorIds: ids.operators, enemyHeadIds: ids.enemyHeads });
+	const groupDir = path.join(STORY_DATA_DIR, "groups");
+	const groupFiles = await fs.readdir(groupDir).catch(() => [] as string[]);
+	const groups = await Promise.all(groupFiles.map(async (file) => JSON.parse(await fs.readFile(path.join(groupDir, file), "utf8")) as { id: string; stories: { id: string }[] }));
+	const storyPaths = groups.flatMap((group) => group.stories.map((story) => `${group.id}/${story.id}`));
+	return routePagePaths({ operatorIds: ids.operators, enemyHeadIds: ids.enemyHeads, storyPaths });
 }
 
 /**

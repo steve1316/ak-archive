@@ -14,3 +14,8 @@ test("routePagePaths names every page route once, and no route that would need a
 	const paths = routePagePaths({ operatorIds: ["char_010_chen", "char_002_amiya"], enemyHeadIds: ["enemy_1506_patrt", "enemy_1007_slime"] });
 	assert.deepEqual(paths, ["enemies", "enemy/1007", "enemy/1506", "operator/10", "operator/2", "operators"]);
 });
+
+test("routePagePaths adds the picker and one page per story, but no page for a group", () => {
+	const paths = routePagePaths({ operatorIds: [], enemyHeadIds: [], storyPaths: ["main_0/main_0_a", "1stact/act1_b"] });
+	assert.deepEqual(paths, ["enemies", "operators", "stories", "story/1stact/act1_b", "story/main_0/main_0_a"]);
+});
