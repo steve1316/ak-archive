@@ -10,23 +10,10 @@
  * the other, and `check.mjs` asserts the three hand-verified fixtures that keep them honest.
  */
 
-import type { ModuleStats, Operator, StatValues, TrustBonus } from "../types/operator.js";
+import type { Operator, StatValues, TrustBonus } from "../types/operator.js";
 
 /** The stat fields, in the order a stats panel reads them. */
 const FIELDS: ReadonlyArray<keyof StatValues> = ["maxHp", "atk", "def", "magicResistance", "cost", "blockCnt", "baseAttackTime", "respawnTime"];
-
-/** Display labels for every stat a stats card or a module bonus can name. */
-export const STAT_LABELS: Record<keyof ModuleStats, string> = {
-	maxHp: "HP",
-	atk: "ATK",
-	def: "DEF",
-	magicResistance: "Arts resist",
-	cost: "Cost",
-	blockCnt: "Block",
-	baseAttackTime: "Interval",
-	respawnTime: "Redeploy",
-	aspd: "ASPD"
-};
 
 /** The four stats trust can touch. Mirrors `TRUST_FIELDS` in `tools/data/lib/stats.mjs`, which is what fills `stats.trustBonus`. */
 const TRUST_FIELDS: ReadonlyArray<keyof TrustBonus> = ["maxHp", "atk", "def", "magicResistance"];

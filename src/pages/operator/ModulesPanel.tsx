@@ -9,8 +9,8 @@ import { ArtPlaceholder, ENEMY_CARD_ASPECT } from "archive-kit";
 import { hasModuleArt, moduleArtUrl } from "../../lib/assets.js";
 import { loadModuleLore } from "../../lib/data.js";
 import { GROUP_HEADING_SX, RAISED_TILE_SX } from "../../lib/layout.js";
-import { STAT_LABELS } from "../../lib/stats.js";
-import type { Controls, ModuleStats, OperatorFull } from "../../types/operator.js";
+import { formatModuleStats } from "../../lib/modules.js";
+import type { Controls, OperatorFull } from "../../types/operator.js";
 import ModuleBadge from "./ModuleBadge.js";
 
 /** The module picture's edge in px. The source is 220px, so it stays sharp at 2x. */
@@ -117,7 +117,7 @@ export default function ModulesPanel({ operator, controls, onChange }: ModulesPa
 	}
 	const stage = controls.moduleStage;
 	const current = module.stages[stage - 1];
-	const stats = (Object.entries(current?.stats ?? {}) as [keyof ModuleStats, number][]).map(([field, value]) => `${STAT_LABELS[field]} +${value}`).join(", ");
+	const stats = current ? formatModuleStats(current.stats) : "";
 
 	const handleSelect = (_event: MouseEvent<HTMLElement>, value: string | null) => {
 		if (value !== null) {

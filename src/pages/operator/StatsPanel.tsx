@@ -7,8 +7,8 @@ import type { SxProps, Theme } from "@mui/material";
 import { LevelSlider } from "archive-kit";
 
 import RangeGrid from "../../components/RangeGrid.js";
-import { withModuleStats } from "../../lib/modules.js";
-import { STAT_LABELS, statsAt } from "../../lib/stats.js";
+import { STAT_LABELS, signedBonus, withModuleStats } from "../../lib/modules.js";
+import { statsAt } from "../../lib/stats.js";
 import type { Controls, ModuleStage, OperatorFull, StatValues, TrustBonus } from "../../types/operator.js";
 import { SECTION_HEADING_SX, SECTION_SX, STAT_ROW_SX } from "../../lib/layout.js";
 import ModuleBadge from "./ModuleBadge.js";
@@ -49,7 +49,7 @@ const RANGE_SX: SxProps<Theme> = { flex: "none", mt: 1.25, pt: 1.25, borderTop: 
 const TRUST_POTENTIAL_ROW_SX: SxProps<Theme> = { display: "flex", alignItems: "center", gap: 1 };
 
 /**
- * A bonus badge after a stat's value, such as `+50` for full trust or `ASPD +7` for a module.
+ * A bonus badge after a stat's value, such as `+50` for full trust, or `ASPD +7` or `-8` for a module.
  *
  * @param text The badge text.
  * @param title What the bonus comes from, shown on hover.
@@ -132,6 +132,7 @@ export default function StatsPanel({ operator, stage, controls, onChange }: Stat
 			<Box sx={ROWS_SX}>
 				{STAT_ROWS.map((row) => {
 					const bonus = operator.stats.trustBonus[row.trustKey];
+					const moduleBonus = stage?.stats[row.key];
 					return (
 						<Box key={row.key} sx={ROW_SX}>
 							<Typography variant="body2" color="text.secondary">
@@ -140,7 +141,7 @@ export default function StatsPanel({ operator, stage, controls, onChange }: Stat
 							<Typography variant="body2">
 								{stats[row.key]}
 								{trust && bonus > 0 ? renderBadge(`+${bonus}`, "Full trust") : null}
-								{stage?.stats[row.key] ? renderBadge(`+${stage.stats[row.key]}`, "Module") : null}
+								{moduleBonus ? renderBadge(signedBonus(moduleBonus), "Module") : null}
 							</Typography>
 						</Box>
 					);
@@ -149,7 +150,12 @@ export default function StatsPanel({ operator, stage, controls, onChange }: Stat
 					<Typography variant="body2" color="text.secondary">
 						Cost / Block
 					</Typography>
-					<Typography variant="body2">{`${stats.cost} / ${stats.blockCnt}`}</Typography>
+					<Typography variant="body2">
+						{stats.cost}
+						{stage?.stats.cost ? renderBadge(signedBonus(stage.stats.cost), "Module") : null}
+						{` / ${stats.blockCnt}`}
+						{stage?.stats.blockCnt ? renderBadge(signedBonus(stage.stats.blockCnt), "Module") : null}
+					</Typography>
 				</Box>
 				<Box sx={ROW_SX}>
 					<Typography variant="body2" color="text.secondary">
@@ -157,8 +163,9 @@ export default function StatsPanel({ operator, stage, controls, onChange }: Stat
 					</Typography>
 					<Typography variant="body2">
 						{`${stats.baseAttackTime}s`}
-						{stage?.stats.aspd ? renderBadge(`ASPD +${stage.stats.aspd}`, "Module") : null}
+						{stage?.stats.aspd ? renderBadge(`ASPD ${signedBonus(stage.stats.aspd)}`, "Module") : null}
 						{` / ${stats.respawnTime}s`}
+						{stage?.stats.respawnTime ? renderBadge(signedBonus(stage.stats.respawnTime), "Module") : null}
 					</Typography>
 				</Box>
 			</Box>

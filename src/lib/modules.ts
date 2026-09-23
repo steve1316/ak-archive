@@ -9,6 +9,19 @@
 
 import type { Controls, ModuleStage, ModuleStats, OperatorFull, OperatorModule, StatValues, Talent, TalentCandidate } from "../types/operator.js";
 
+/** Display labels for every stat a stats card or a module bonus can name. */
+export const STAT_LABELS: Record<keyof ModuleStats, string> = {
+	maxHp: "HP",
+	atk: "ATK",
+	def: "DEF",
+	magicResistance: "Arts resist",
+	cost: "Cost",
+	blockCnt: "Block",
+	baseAttackTime: "Interval",
+	respawnTime: "Redeploy",
+	aspd: "ASPD"
+};
+
 /** The trait as the page shows it. */
 export interface EffectiveTrait {
 	/** The operator's own trait, or null when a module replaces it. */
@@ -27,6 +40,26 @@ export interface ModuleEffect {
 	trait: EffectiveTrait;
 	/** Every talent to show, in order, including any the module adds. A module's versions carry `moduleNote`. */
 	talents: Talent[];
+}
+
+/**
+ * A bonus with its sign, the way the game prints one. Module bonuses can be negative, such as a cost cut of 8.
+ *
+ * @param value The bonus.
+ * @returns `+7`, or `-8` for a negative.
+ */
+export function signedBonus(value: number): string {
+	return value > 0 ? `+${value}` : String(value);
+}
+
+/**
+ * A stage's stat bonus as one line, such as `Cost -8, ATK +82, ASPD +7`.
+ *
+ * @param stats The stage's stats.
+ * @returns The line, empty when the stage adds no stats.
+ */
+export function formatModuleStats(stats: ModuleStats): string {
+	return (Object.entries(stats) as [keyof ModuleStats, number][]).map(([field, value]) => `${STAT_LABELS[field]} ${signedBonus(value)}`).join(", ");
 }
 
 /**
