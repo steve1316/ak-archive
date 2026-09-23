@@ -15,6 +15,7 @@ import { RIG_BUCKET_COUNT, rigBucket } from "../../tools/data/lib/rigBuckets.mjs
 import type { EnemySpineIndex, SpineEntry, SpineIndex } from "../types/spine.js";
 import type { RigUrls } from "../spine/player.js";
 import { assets } from "./assets.js";
+import { isBaseVariant } from "./forms.js";
 
 export type { RigUrls } from "../spine/player.js";
 
@@ -29,9 +30,6 @@ export const ENEMY_SPINE_DEV_ROOT = `${import.meta.env.BASE_URL}__spine-enemies/
  * splits each rig index into buckets of about 60 KB, so a page fetches only the one its operator or enemy is in.
  */
 const store = createDataStore({ urls: rigIndexUrls });
-
-/** Matches a page form key for an operator's default outfit: a plain elite number, with or without the `plus` suffix. */
-const BASE_FORM_PATTERN = /^\d+(plus)?$/i;
 
 /** The index key of an operator's default outfit. */
 const BASE_FORM_KEY = "base";
@@ -100,7 +98,7 @@ export function enemyRigUrls(root: string, enemyId: string, rig: { skel: string;
  * @returns The index key, or null when the operator has no rigs for that form.
  */
 export function spineFormKey(pageKey: string, entry: SpineEntry): string | null {
-	if (BASE_FORM_PATTERN.test(pageKey)) {
+	if (isBaseVariant(pageKey)) {
 		return BASE_FORM_KEY in entry ? BASE_FORM_KEY : null;
 	}
 	const wanted = pageKey.toLowerCase();

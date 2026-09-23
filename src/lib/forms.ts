@@ -30,6 +30,12 @@ const BASE_LABEL = "Base";
 /** The query parameter that carries the selected form, matching gfl's. */
 const FORM_PARAM = "skin";
 
+/**
+ * A base variant: a plain elite number, with or without the `plus` suffix, so `1`, `2` and Amiya's `1plus`. Anything else is an outfit. Mirrors
+ * `BASE_VARIANT` in `tools/assets/names.py`, which spells `plus` as `+` - change one, update the other too.
+ */
+const BASE_VARIANT = /^\d+(plus)?$/i;
+
 /** A form the page can show, resolved to the file each art kind publishes it under. */
 export interface OperatorForm {
 	/** The form's key, which is what `?skin=` carries. */
@@ -131,6 +137,26 @@ export function formsOf(operator: Operator): OperatorForm[] {
 		}
 	}
 	return forms;
+}
+
+/**
+ * Whether a form key names the operator's own art rather than an outfit.
+ *
+ * @param key The form or variant key.
+ * @returns True for a plain elite number, with or without the `plus` suffix.
+ */
+export function isBaseVariant(key: string): boolean {
+	return BASE_VARIANT.test(key);
+}
+
+/**
+ * Every illustration variant published for an operator, for callers that hold only an id rather than a loaded `Operator`.
+ *
+ * @param id The operator id.
+ * @returns The variant keys in the illustration directory's own spelling, or an empty list when it has none.
+ */
+export function illustrationVariants(id: string): string[] {
+	return VARIANTS.illustrations?.[id] ?? [];
 }
 
 /**
