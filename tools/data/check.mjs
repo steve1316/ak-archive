@@ -1190,6 +1190,9 @@ const storyRefs = read("story-asset-refs");
 const storyAssetsPath = path.join(OUT_DIR, "story-assets.json");
 const hasStoryAssets = fs.existsSync(storyAssetsPath);
 let storyAssetCount = 0;
+// The refresh sets `CHECK_STORY_GAPS=warn`: story assets are not core, so a story step that failed must not hold back the rest of the data.
+const storyGapsWarn = process.env.CHECK_STORY_GAPS === "warn";
+const storyGaps = [];
 if (hasStoryAssets) {
 	const storyAssets = read("story-assets");
 	const publishedStory = Object.fromEntries(["backgrounds", "images", "items", "sprites", "audio", "covers", "maps"].map((kind) => [kind, new Set(storyAssets[kind] ?? [])]));
@@ -1201,15 +1204,20 @@ if (hasStoryAssets) {
 			// Audio keys are the lowercased reference. Every image kind takes the sprite rule, as `story_names.manifest_key` does.
 			const key = manifestKind === "audio" ? name.toLowerCase() : spriteKey(name);
 			if (!publishedStory[manifestKind].has(key) && !unavailableStory[manifestKind]?.has(name)) {
-				fail(`story ${kind} ${name} is neither published nor listed as unavailable in story-assets.json`);
+				storyGaps.push(`story ${kind} ${name} is neither published nor listed as unavailable in story-assets.json`);
 			}
 		}
 	}
 	for (const group of [...storyIndex.main, ...storyIndex.events, ...storyIndex.side]) {
 		if (!publishedStory.covers.has(group.id) && !unavailableStory.covers?.has(group.id)) {
-			fail(`story group ${group.id} has no cover and no unavailable entry in story-assets.json`);
+			storyGaps.push(`story group ${group.id} has no cover and no unavailable entry in story-assets.json`);
 		}
 	}
+}
+if (storyGapsWarn && storyGaps.length) {
+	console.warn(`warning: ${storyGaps.length} story asset reference(s) are neither published nor listed, first: ${storyGaps[0]}`);
+} else {
+	storyGaps.forEach(fail);
 }
 
 // The asset gap ledger. Every core asset the data points at must be published or listed, and a pending gap may not outlive the grace period.
@@ -1267,7 +1275,7 @@ console.log(
 		.join(", ")}`
 );
 if (hasStoryAssets) {
-	console.log(`story art   ${storyAssetCount} published, every reference accounted for`);
+	console.log(`story art   ${storyAssetCount} published, ${storyGaps.length ? `${storyGaps.length} references unaccounted for (warned)` : "every reference accounted for"}`);
 }
 console.log("placeholders none leaked");
 if (hasManifest) {
