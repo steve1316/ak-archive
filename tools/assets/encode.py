@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import functools
 import glob
 import json
 import os
@@ -258,18 +259,19 @@ def icon_key(stem):
     return re.sub(r"_+$", "", re.sub(r"[^a-z0-9_]+", "_", stem.lower()))
 
 
+@functools.cache
 def load_details():
     """
-    Read every operator's details record the importer wrote.
+    Read every operator's details record the importer wrote. Cached, since the skills and modules stages both read it in one run.
 
     Returns:
-        A list of details dicts, one per operator.
+        A tuple of details dicts, one per operator.
     """
     details = []
     for path in sorted(glob.glob(os.path.join(DATA_DIR, "details-*.json"))):
         with open(path, encoding="utf-8") as handle:
             details.extend(json.load(handle).values())
-    return details
+    return tuple(details)
 
 
 def load_skill_icon_keys():
