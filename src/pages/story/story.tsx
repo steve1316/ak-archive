@@ -11,11 +11,11 @@ import { LoadError, ScrollToTop } from "archive-kit";
 
 import { loadStory, loadStoryGroup, loadStoryPresence, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import { isControlTarget } from "../../lib/keys.js";
+import { isControlTarget, isTextTarget } from "../../lib/keys.js";
 import { NAVBAR_HEIGHT } from "../../lib/layout.js";
 import { storyGroupPath } from "../../lib/routes.js";
 import type { LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
-import { START, advance, choose, emptyStage, fillNickname, skipToStop, upcomingArt } from "./engine.js";
+import { START, advance, choose, emptyEffects, emptyStage, fillNickname, skipToStop, upcomingArt } from "./engine.js";
 import type { Advance } from "./engine.js";
 import StoryLog from "./StoryLog.js";
 import type { LogEntry } from "./StoryLog.js";
@@ -280,13 +280,32 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const index = group.stories.findIndex((entry) => entry.id === story.id);
 	const next = index >= 0 ? group.stories[index + 1] : undefined;
 
-	const land = useCallback((result: Advance, passed: LogEntry[]) => {
-		setRun(result);
-		setTyped(0);
-		setLog((entries) => [...entries, ...passed, ...stopEntries(result)]);
-		if (result.effects.shake > 0) {
-			setShakeKey((key) => key + 1);
+	// Every stop the reader has left, with the Log's length there, so the left arrow can step back to it.
+	const history = useRef<{ run: Advance; logLength: number }[]>([]);
+	const logLength = log.length;
+
+	const land = useCallback(
+		(result: Advance, passed: LogEntry[]) => {
+			history.current.push({ run, logLength });
+			setRun(result);
+			setTyped(0);
+			setLog((entries) => [...entries, ...passed, ...stopEntries(result)]);
+			if (result.effects.shake > 0) {
+				setShakeKey((key) => key + 1);
+			}
+		},
+		[run, logLength]
+	);
+
+	// Step back to the previous stop with its line shown in full. Its sounds and shake do not play again, and the Log forgets what came after.
+	const back = useCallback(() => {
+		const previous = history.current.pop();
+		if (!previous) {
+			return;
 		}
+		setRun({ ...previous.run, effects: emptyEffects() });
+		setTyped(Number.MAX_SAFE_INTEGER);
+		setLog((entries) => entries.slice(0, previous.logLength));
 	}, []);
 
 	const step = useCallback(() => {
@@ -344,19 +363,27 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		}
 	}, [steps, run, presence]);
 
-	// The key listener reads `step` through a ref, so the typewriter's ticks do not re-attach it.
+	// The key listener reads `step` and `back` through a ref, so the typewriter's ticks do not re-attach it.
 	const stepRef = useRef(step);
+	const backRef = useRef(back);
 	useEffect(() => {
 		stepRef.current = step;
-	}, [step]);
+		backRef.current = back;
+	}, [step, back]);
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			// Space and Enter keep their own meaning in a field, a button or a link, and do nothing behind the open Log.
-			if ((event.code === "Space" || event.code === "Enter") && !isControlTarget(event.target) && !logOpen) {
+			// Space and Enter keep their own meaning in a field, a button or a link, and the arrows in a field. None of them act behind the open Log.
+			const forward = (event.code === "Space" || event.code === "Enter") && !isControlTarget(event.target);
+			const arrow = (event.code === "ArrowRight" || event.code === "ArrowLeft") && !isTextTarget(event.target);
+			if ((forward || arrow) && !logOpen) {
 				event.preventDefault();
 				resumeAudio();
-				stepRef.current();
+				if (event.code === "ArrowLeft") {
+					backRef.current();
+				} else {
+					stepRef.current();
+				}
 			} else if (event.code === "Escape") {
 				setLogOpen(false);
 				setHideUi(false);
