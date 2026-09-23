@@ -1,5 +1,4 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import type { FocusEvent } from "react";
 
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { Route, Routes, useLocation } from "react-router-dom";
@@ -64,9 +63,6 @@ const NAV_ITEMS: readonly NavItem[] = [
  */
 const OPERATOR_OPTIONS: SearchOption[] = searchIndex.map((entry) => ({ path: operatorPath(entry.id), name: entry.name, keys: [normaliseName(entry.name)] }));
 
-/** Lets the navbar's wrapper catch focus without adding a box of its own to the layout. */
-const CONTENTS_STYLE = { display: "contents" } as const;
-
 /** How long to wait before prefetching on a browser with no `requestIdleCallback`, such as Safari. */
 const PREFETCH_FALLBACK_MS = 2000;
 
@@ -91,18 +87,15 @@ export default function App() {
 	// takes focus, which most visits never do. A failed fetch leaves operator search working and is retried on the next focus.
 	const [enemyOptions, setEnemyOptions] = useState<SearchOption[]>([]);
 	const enemiesLoaded = enemyOptions.length > 0;
-	const handleNavbarFocus = useCallback(
-		(event: FocusEvent) => {
-			if (enemiesLoaded || !(event.target instanceof HTMLInputElement)) {
-				return;
-			}
-			loadEnemySearchIndex().then(
-				(entries) => setEnemyOptions(entries.map((entry) => ({ path: enemyPath(entry.group ?? entry.id, entry.id), name: entry.name, keys: [normaliseName(entry.name)], tag: "Enemy" }))),
-				() => undefined
-			);
-		},
-		[enemiesLoaded]
-	);
+	const handleSearchFocus = useCallback(() => {
+		if (enemiesLoaded) {
+			return;
+		}
+		loadEnemySearchIndex().then(
+			(entries) => setEnemyOptions(entries.map((entry) => ({ path: enemyPath(entry.group ?? entry.id, entry.id), name: entry.name, keys: [normaliseName(entry.name)], tag: "Enemy" }))),
+			() => undefined
+		);
+	}, [enemiesLoaded]);
 
 	const searchOptions = useMemo<SearchOption[]>(() => [...OPERATOR_OPTIONS, ...enemyOptions], [enemyOptions]);
 
@@ -119,10 +112,7 @@ export default function App() {
 	return (
 		<ThemeProvider theme={theme}>
 			<CssBaseline />
-			{/* The kit's navbar takes no focus callback, so the search box's focus is caught here as it bubbles. */}
-			<div style={CONTENTS_STYLE} onFocus={handleNavbarFocus}>
-				<ArchiveNavbar title="Arknights Archive" navItems={NAV_ITEMS} searchOptions={searchOptions} homeLink="/" searchLabel="Search operators and enemies" />
-			</div>
+			<ArchiveNavbar title="Arknights Archive" navItems={NAV_ITEMS} searchOptions={searchOptions} homeLink="/" searchLabel="Search operators and enemies" onSearchFocus={handleSearchFocus} />
 			<ScrollToTopOnNavigate>
 				{/*
 				 * Keyed on the path so a caught throw is forgotten on the next navigation. Without the key the boundary stays in its error
