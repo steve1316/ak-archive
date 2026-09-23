@@ -141,21 +141,17 @@ export function typedRuns(line: { text: string; spans?: Span[] }, typed: number)
 }
 
 /**
- * The story stage: background, art scene, sprites, fades, subtitles and the text box, laid out with the values tuned against the game.
+ * The stage's art: background, art scene, sprites, subtitle and sticker. Memoised on the stage, which only changes when the story moves on, so
+ * the typewriter's ticks leave it alone.
  *
  * @param props Component props.
- * @returns The stage.
+ * @returns The art.
  */
-function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState; presence: StoryPresence }) {
 	const slots = (Object.keys(stage.sprites) as Slot[]).filter((slot) => stage.sprites[slot]);
 	const alone = slots.length === 1;
 	return (
-		<Box
-			sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined, animation: shakeKey ? "storyShake 0.5s linear" : undefined }}
-			key={shakeKey}
-			onClick={onClick}
-			data-region="story-stage"
-		>
+		<>
 			{stage.background ? <Layer layer={stage.background} presence={presence} /> : null}
 			{stage.image ? <Layer layer={stage.image} presence={presence} /> : null}
 			{slots.map((slot) => {
@@ -183,6 +179,25 @@ function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, ch
 				</Box>
 			) : null}
 			{stage.sticker ? <Box sx={{ position: "absolute", left: "10%", right: "10%", top: "15%", fontSize: "2.4cqh", whiteSpace: "pre-line" }}>{stage.sticker}</Box> : null}
+		</>
+	);
+});
+
+/**
+ * The story stage: the art, the text box and the blocker, laid out with the values tuned against the game.
+ *
+ * @param props Component props.
+ * @returns The stage.
+ */
+function StoryStage({ stage, name, line, typed, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+	return (
+		<Box
+			sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }}
+			style={{ animation: shakeKey ? `storyShake${shakeKey % 2} 0.5s linear` : undefined }}
+			onClick={onClick}
+			data-region="story-stage"
+		>
+			<StageArt stage={stage} presence={presence} />
 			{!hideText && line ? (
 				<Box sx={TEXT_LAYER_SX}>
 					<Box sx={VIGNETTE_SX} />

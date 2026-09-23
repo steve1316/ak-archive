@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
-import type { StageState } from "./engine.js";
+import type { Effects, StageState } from "./engine.js";
 
 /** How loud the music and sound effects play before the script's own volume is applied. */
 const MUSIC_VOLUME = 0.5;
@@ -10,8 +10,8 @@ const EFFECT_VOLUME = 0.7;
 interface StoryAudioInput {
 	/** The track the stage wants, or null for silence. */
 	music: StageState["music"];
-	/** Sounds to play now, with a counter that changes each time a new batch arrives. */
-	sounds: { id: number; list: { key: string; volume: number }[]; stop: boolean };
+	/** The last walk's effects. A new object each walk, so its sounds play once per walk. */
+	effects: Effects;
 	/** Whether everything is muted. */
 	muted: boolean;
 	/** Resolves a reference to its published URL, or null. */
@@ -25,9 +25,9 @@ interface StoryAudioInput {
  * @param input The music, sounds, mute state and URL resolver.
  * @returns A function that resumes blocked playback.
  */
-export function useStoryAudio({ music, sounds, muted, urlOf }: StoryAudioInput): () => void {
+export function useStoryAudio({ music, effects, muted, urlOf }: StoryAudioInput): () => void {
 	const track = useRef<HTMLAudioElement | null>(null);
-	const effects = useRef<HTMLAudioElement[]>([]);
+	const playing = useRef<HTMLAudioElement[]>([]);
 	const mutedRef = useRef(muted);
 	const loopKey = music?.loop ?? null;
 	const introKey = music?.intro ?? null;
@@ -38,27 +38,27 @@ export function useStoryAudio({ music, sounds, muted, urlOf }: StoryAudioInput):
 		if (track.current) {
 			track.current.muted = muted;
 		}
-		for (const effect of effects.current) {
+		for (const effect of playing.current) {
 			effect.muted = muted;
 		}
 	}, [muted]);
 
 	useEffect(() => {
-		track.current?.pause();
-		track.current = null;
 		const loopUrl = loopKey ? urlOf(loopKey) : null;
 		if (!loopUrl) {
 			return;
 		}
 		const introUrl = introKey ? urlOf(introKey) : null;
-		const loop = new Audio(loopUrl);
+		const makeTrack = (url: string) => {
+			const audio = new Audio(url);
+			audio.volume = MUSIC_VOLUME * volume;
+			audio.muted = mutedRef.current;
+			return audio;
+		};
+		const loop = makeTrack(loopUrl);
 		loop.loop = true;
-		loop.volume = MUSIC_VOLUME * volume;
-		loop.muted = mutedRef.current;
 		if (introUrl) {
-			const intro = new Audio(introUrl);
-			intro.volume = MUSIC_VOLUME * volume;
-			intro.muted = mutedRef.current;
+			const intro = makeTrack(introUrl);
 			intro.addEventListener("ended", () => {
 				if (track.current === intro) {
 					track.current = loop;
@@ -77,13 +77,13 @@ export function useStoryAudio({ music, sounds, muted, urlOf }: StoryAudioInput):
 	}, [loopKey, introKey, volume, urlOf]);
 
 	useEffect(() => {
-		if (sounds.stop) {
-			for (const effect of effects.current) {
+		if (effects.stopSounds) {
+			for (const effect of playing.current) {
 				effect.pause();
 			}
-			effects.current = [];
+			playing.current = [];
 		}
-		for (const sound of sounds.list) {
+		for (const sound of effects.sounds) {
 			const url = urlOf(sound.key);
 			if (!url) {
 				continue;
@@ -91,27 +91,27 @@ export function useStoryAudio({ music, sounds, muted, urlOf }: StoryAudioInput):
 			const effect = new Audio(url);
 			effect.volume = Math.min(1, EFFECT_VOLUME * sound.volume);
 			effect.muted = mutedRef.current;
-			effects.current.push(effect);
+			playing.current.push(effect);
 			effect.addEventListener("ended", () => {
-				effects.current = effects.current.filter((entry) => entry !== effect);
+				playing.current = playing.current.filter((entry) => entry !== effect);
 			});
 			void effect.play().catch(() => undefined);
 		}
-	}, [sounds, urlOf]);
+	}, [effects, urlOf]);
 
+	// The music effect's cleanup stops the track on unmount. Sound effects outlive their walk, so they are stopped here.
 	useEffect(
 		() => () => {
-			track.current?.pause();
-			for (const effect of effects.current) {
+			for (const effect of playing.current) {
 				effect.pause();
 			}
 		},
 		[]
 	);
 
-	return () => {
+	return useCallback(() => {
 		if (track.current?.paused) {
 			void track.current.play().catch(() => undefined);
 		}
-	};
+	}, []);
 }

@@ -1,7 +1,7 @@
 import "@fontsource/noto-sans/400.css";
 import "@fontsource/noto-sans/500.css";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Box, Button, GlobalStyles, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
@@ -11,7 +11,8 @@ import { LoadError, ScrollToTop } from "archive-kit";
 
 import { loadStory, loadStoryGroup, loadStoryPresence, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import type { LineStep, StoryFile, StoryGroup } from "../../types/story.js";
+import { NAVBAR_HEIGHT } from "../../lib/layout.js";
+import type { LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
 import { START, advance, choose, emptyStage, skipToStop } from "./engine.js";
 import type { Advance } from "./engine.js";
 import StoryLog from "./StoryLog.js";
@@ -34,7 +35,7 @@ const MUTED_KEY = "storyMuted";
 const DEFAULT_NICKNAME = "Doctor";
 
 /** The page: a black band with the stage centred at the largest 16:9 that fits under the bar. */
-const PAGE_SX: SxProps<Theme> = { background: "#000", minHeight: "calc(100vh - 64px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", py: 1 };
+const PAGE_SX: SxProps<Theme> = { background: "#000", minHeight: `calc(100vh - ${NAVBAR_HEIGHT}px)`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", py: 1 };
 
 /** The stage's box: as wide as the page allows while still fitting the viewport's height. */
 const STAGE_BOX_SX: SxProps<Theme> = { width: "min(100%, calc((100vh - 120px) * 16 / 9))" };
@@ -86,16 +87,20 @@ const NARROW_TEXT_SX: SxProps<Theme> = {
 	lineHeight: 1.5
 };
 
-/** The keyframes the stage uses for fades and shakes. */
+/** One camera shake. */
+const SHAKE_FRAMES = {
+	"0%, 100%": { transform: "translate(0, 0)" },
+	"20%": { transform: "translate(-0.6%, 0.4%)" },
+	"40%": { transform: "translate(0.6%, -0.4%)" },
+	"60%": { transform: "translate(-0.4%, -0.3%)" },
+	"80%": { transform: "translate(0.4%, 0.3%)" }
+};
+
+/** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
 const KEYFRAMES = {
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
-	"@keyframes storyShake": {
-		"0%, 100%": { transform: "translate(0, 0)" },
-		"20%": { transform: "translate(-0.6%, 0.4%)" },
-		"40%": { transform: "translate(0.6%, -0.4%)" },
-		"60%": { transform: "translate(-0.4%, -0.3%)" },
-		"80%": { transform: "translate(0.4%, 0.3%)" }
-	}
+	"@keyframes storyShake0": SHAKE_FRAMES,
+	"@keyframes storyShake1": SHAKE_FRAMES
 };
 
 /**
@@ -127,14 +132,102 @@ function writeStored(key: string, value: string) {
 }
 
 /**
+ * A line as a Log entry.
+ *
+ * @param line The line.
+ * @returns The entry.
+ */
+function lineEntry(line: LineStep): LogEntry {
+	return { kind: "line", name: line.name, text: line.text };
+}
+
+/**
  * The Log entries a walk adds: the line it stopped at, if any.
  *
  * @param result The walk.
  * @returns The new entries.
  */
 function stopEntries(result: Advance): LogEntry[] {
-	return result.stop.kind === "line" ? [{ kind: "line", name: result.stop.line.name, text: result.stop.line.text }] : [];
+	return result.stop.kind === "line" ? [lineEntry(result.stop.line)] : [];
 }
+
+/**
+ * A story's title with its stage code, such as `0-1 Collapse`.
+ *
+ * @param entry The story.
+ * @returns The title.
+ */
+function storyTitle(entry: StoryGroupEntry): string {
+	return `${entry.code ? `${entry.code} ` : ""}${entry.name}`;
+}
+
+/**
+ * A click handler that keeps the click from reaching the stage, which would advance the story.
+ *
+ * @param handler What the click does.
+ * @returns The click handler.
+ */
+function stopClick(handler: () => void) {
+	return (event: { stopPropagation: () => void }) => {
+		event.stopPropagation();
+		handler();
+	};
+}
+
+/** Props for PlayerChrome. */
+interface PlayerChromeProps {
+	/** Whether sound is muted. */
+	muted: boolean;
+	/** Whether AUTO is on. */
+	auto: boolean;
+	/** Whether SKIP can run, which is only while a line is showing. */
+	canSkip: boolean;
+	/** Opens the Log. */
+	onLog: () => void;
+	/** Hides the text and chrome. */
+	onHide: () => void;
+	/** Toggles the sound. */
+	onMute: () => void;
+	/** Toggles AUTO. */
+	onAuto: () => void;
+	/** Skips to the next choice or the end. */
+	onSkip: () => void;
+}
+
+/**
+ * LOG and HIDE at the top left, and SOUND, AUTO and SKIP at the top right. Memoised, so the typewriter's ticks leave it alone.
+ *
+ * @param props Component props.
+ * @returns The chrome.
+ */
+const PlayerChrome = memo(function PlayerChrome({ muted, auto, canSkip, onLog, onHide, onMute, onAuto, onSkip }: PlayerChromeProps) {
+	return (
+		<>
+			<Box sx={{ ...CHROME_SX, left: "4%" }}>
+				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onLog)}>
+					LOG
+				</Button>
+				<Button sx={CHROME_BUTTON_SX} aria-label="Hide the text" onClick={stopClick(onHide)}>
+					HIDE
+				</Button>
+			</Box>
+			<Box sx={{ ...CHROME_SX, right: "4%" }}>
+				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onMute)}>
+					{muted ? "SOUND OFF" : "SOUND ON"}
+				</Button>
+				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onAuto)}>
+					AUTO{" "}
+					<Box component="span" sx={{ color: auto ? "primary.main" : "#999", ml: 0.5 }}>
+						{auto ? "ON" : "OFF"}
+					</Box>
+				</Button>
+				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onSkip)} disabled={!canSkip}>
+					SKIP
+				</Button>
+			</Box>
+		</>
+	);
+});
 
 /** Props for StoryPlayer. */
 interface StoryPlayerProps {
@@ -163,13 +256,13 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const [logOpen, setLogOpen] = useState(false);
 	const [muted, setMuted] = useState(() => readStored(MUTED_KEY) === "1");
 	const [nickname, setNickname] = useState(() => readStored(NICKNAME_KEY) || DEFAULT_NICKNAME);
-	const [sounds, setSounds] = useState({ id: 0, list: run.effects.sounds, stop: run.effects.stopSounds });
 	const [shakeKey, setShakeKey] = useState(0);
 
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
-	const resumeAudio = useStoryAudio({ music: run.stage.music, sounds, muted, urlOf });
+	const resumeAudio = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, urlOf });
 
 	const line: LineStep | null = run.stop.kind === "line" ? run.stop.line : null;
+	const decision = run.stop.kind === "decision" ? run.stop.decision : null;
 	const shown = useMemo(
 		() => (line ? { ...line, text: line.text.replaceAll("{@nickname}", nickname), spans: line.spans?.map((span) => ({ ...span, text: span.text.replaceAll("{@nickname}", nickname) })) } : null),
 		[line, nickname]
@@ -182,7 +275,6 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		setRun(result);
 		setTyped(0);
 		setLog((entries) => [...entries, ...passed, ...stopEntries(result)]);
-		setSounds((current) => ({ id: current.id + 1, list: result.effects.sounds, stop: result.effects.stopSounds }));
 		if (result.effects.shake > 0) {
 			setShakeKey((key) => key + 1);
 		}
@@ -211,10 +303,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 			return;
 		}
 		const { result, lines } = skipToStop(steps, run.cursor, run.stage);
-		land(
-			result,
-			lines.map((entry) => ({ kind: "line" as const, name: entry.name, text: entry.text }))
-		);
+		land(result, lines.map(lineEntry));
 	}, [run, steps, land]);
 
 	// Typewriter: reveal the line a character at a time.
@@ -235,12 +324,18 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		return () => window.clearTimeout(timer);
 	}, [auto, logOpen, run, typed, length, step]);
 
+	// The key listener reads `step` through a ref, so the typewriter's ticks do not re-attach it.
+	const stepRef = useRef(step);
+	useEffect(() => {
+		stepRef.current = step;
+	}, [step]);
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (event.code === "Space" || event.code === "Enter") {
 				event.preventDefault();
 				resumeAudio();
-				step();
+				stepRef.current();
 			} else if (event.code === "Escape") {
 				setLogOpen(false);
 				setHideUi(false);
@@ -248,7 +343,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [step, resumeAudio]);
+	}, [resumeAudio]);
 
 	const onStage = useCallback(() => {
 		resumeAudio();
@@ -273,45 +368,20 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		});
 	}, []);
 
-	const stopClick = (handler: () => void) => (event: { stopPropagation: () => void }) => {
-		event.stopPropagation();
-		handler();
-	};
+	const openLog = useCallback(() => setLogOpen(true), []);
+	const closeLog = useCallback(() => setLogOpen(false), []);
+	const hide = useCallback(() => setHideUi(true), []);
+	const toggleAuto = useCallback(() => setAuto((value) => !value), []);
 
 	return (
 		<Box sx={PLAYER_SX}>
 			<GlobalStyles styles={KEYFRAMES} />
 			<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
-				{!hideUi ? (
-					<>
-						<Box sx={{ ...CHROME_SX, left: "4%" }}>
-							<Button sx={CHROME_BUTTON_SX} onClick={stopClick(() => setLogOpen(true))}>
-								LOG
-							</Button>
-							<Button sx={CHROME_BUTTON_SX} aria-label="Hide the text" onClick={stopClick(() => setHideUi(true))}>
-								HIDE
-							</Button>
-						</Box>
-						<Box sx={{ ...CHROME_SX, right: "4%" }}>
-							<Button sx={CHROME_BUTTON_SX} onClick={stopClick(toggleMute)}>
-								{muted ? "SOUND OFF" : "SOUND ON"}
-							</Button>
-							<Button sx={CHROME_BUTTON_SX} onClick={stopClick(() => setAuto((value) => !value))}>
-								AUTO{" "}
-								<Box component="span" sx={{ color: auto ? "primary.main" : "#999", ml: 0.5 }}>
-									{auto ? "ON" : "OFF"}
-								</Box>
-							</Button>
-							<Button sx={CHROME_BUTTON_SX} onClick={stopClick(skip)} disabled={run.stop.kind !== "line"}>
-								SKIP
-							</Button>
-						</Box>
-					</>
-				) : null}
-				{run.stop.kind === "decision" ? (
+				{!hideUi ? <PlayerChrome muted={muted} auto={auto} canSkip={line !== null} onLog={openLog} onHide={hide} onMute={toggleMute} onAuto={toggleAuto} onSkip={skip} /> : null}
+				{decision ? (
 					<Box sx={CHOICES_SX} onClick={(event) => event.stopPropagation()}>
-						{run.stop.decision.options.map((option, choice) => (
-							<Button key={choice} sx={CHOICE_SX} onClick={() => pick(option, run.stop.kind === "decision" ? (run.stop.decision.values[choice] ?? "") : "")}>
+						{decision.options.map((option, choice) => (
+							<Button key={choice} sx={CHOICE_SX} onClick={() => pick(option, decision.values[choice] ?? "")}>
 								{option.replaceAll("{@nickname}", nickname)}
 							</Button>
 						))}
@@ -323,8 +393,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 							<Typography sx={{ fontSize: "3cqh" }}>End of story</Typography>
 							{next ? (
 								<Button component={Link} to={`/story/${group.id}/${next.id}`} variant="contained">
-									Next: {next.code ? `${next.code} ` : ""}
-									{next.name}
+									Next: {storyTitle(next)}
 								</Button>
 							) : null}
 							<Button component={Link} to={`/stories/${group.id}`} variant="outlined">
@@ -333,7 +402,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 						</Box>
 					</Box>
 				) : null}
-				{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={onNickname} onClose={() => setLogOpen(false)} /> : null}
+				{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={onNickname} onClose={closeLog} /> : null}
 			</StoryStage>
 			{!hideUi && shown ? (
 				<Box sx={NARROW_TEXT_SX} onClick={onStage}>
@@ -384,7 +453,7 @@ export default function Story() {
 	const entry = data?.group.stories.find((item) => item.id === storyId);
 	useEffect(() => {
 		if (data && entry) {
-			document.title = `${entry.code ? `${entry.code} ` : ""}${entry.name} - ${data.group.name} - Arknights Archive`;
+			document.title = `${storyTitle(entry)} - ${data.group.name} - Arknights Archive`;
 		}
 	}, [data, entry]);
 
@@ -400,7 +469,7 @@ export default function Story() {
 							{data.group.name}
 						</Button>
 						<Typography component="h1" variant="body1">
-							{entry ? `${entry.code ? `${entry.code} ` : ""}${entry.name}` : data.story.id}
+							{entry ? storyTitle(entry) : data.story.id}
 						</Typography>
 						<Typography variant="body2" color="text.secondary">
 							{entry?.tag}
