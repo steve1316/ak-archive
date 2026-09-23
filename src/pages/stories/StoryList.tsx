@@ -1,12 +1,22 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import { Box, Button, Typography } from "@mui/material";
 import { Link } from "react-router-dom";
 
 import { LoadError } from "archive-kit";
 
+import { useCloseOnOutsideClick } from "../../lib/dismiss.js";
 import { loadStoryGroup } from "../../lib/story.js";
 import type { StoryGroup } from "../../types/story.js";
+
+/**
+ * Whether a click outside the list is spent on closing it alone: any click on the picker except its tab bar, so closing the list never also
+ * turns the disc or opens another group, while a tab still switches in one click.
+ *
+ * @param target The clicked element.
+ * @returns True on the picker, outside its tab bar.
+ */
+const onPicker = (target: Element) => target.closest('[data-region="story-picker"]') !== null && target.closest('[role="tablist"]') === null;
 
 /** Props for StoryList. */
 interface StoryListProps {
@@ -19,7 +29,7 @@ interface StoryListProps {
 }
 
 /**
- * A group's stories, each linking into the player, in a panel over the left of the picker.
+ * A group's stories, each linking into the player, in a panel over the left of the picker. A click anywhere outside it closes it.
  *
  * @param props Component props.
  * @returns The panel.
@@ -28,6 +38,9 @@ function StoryList({ groupId, subtitle, onClose }: StoryListProps) {
 	const [group, setGroup] = useState<StoryGroup | null>(null);
 	const [error, setError] = useState(false);
 	const [attempt, setAttempt] = useState(0);
+	const panel = useRef<HTMLDivElement>(null);
+
+	useCloseOnOutsideClick(panel, onClose, onPicker);
 
 	useEffect(() => {
 		let active = true;
@@ -44,6 +57,7 @@ function StoryList({ groupId, subtitle, onClose }: StoryListProps) {
 
 	return (
 		<Box
+			ref={panel}
 			sx={{
 				position: "absolute",
 				top: 0,

@@ -1,12 +1,21 @@
-import { memo, useEffect, useLayoutEffect, useRef } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 
 import { Box, IconButton, TextField, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 
+import { useCloseOnOutsideClick } from "../../lib/dismiss.js";
 import { fillNickname } from "./engine.js";
 
 /** The Log's background, shared by the drawer and its pinned header. */
 const LOG_BG = "rgba(8,10,14,0.95)";
+
+/**
+ * Whether a click outside the Log is spent on closing it alone: any click on the player, so closing the Log never also advances the story.
+ *
+ * @param target The clicked element.
+ * @returns True inside the player.
+ */
+const onPlayer = (target: Element) => target.closest('[data-region="story-player"]') !== null;
 
 /** One entry in the Log: a line, or a choice the reader picked. */
 export type LogEntry = { kind: "line"; name: string | null; text: string } | { kind: "pick"; text: string };
@@ -40,22 +49,7 @@ function StoryLog({ entries, nickname, onNickname, onClose }: StoryLogProps) {
 		}
 	}, []);
 
-	// A click outside the drawer closes it. A click on the player does only that, so closing the Log never also advances the story or presses a
-	// button under it.
-	useEffect(() => {
-		const onClick = (event: MouseEvent) => {
-			if (!(event.target instanceof Element) || drawer.current?.contains(event.target)) {
-				return;
-			}
-			if (event.target.closest('[data-region="story-player"]')) {
-				event.stopPropagation();
-				event.preventDefault();
-			}
-			onClose();
-		};
-		window.addEventListener("click", onClick, true);
-		return () => window.removeEventListener("click", onClick, true);
-	}, [onClose]);
+	useCloseOnOutsideClick(drawer, onClose, onPlayer);
 
 	return (
 		<Box

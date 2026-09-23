@@ -301,7 +301,7 @@ export default function Stories() {
 	const backdrop = current ? (storyAssetUrl("maps", current.id, data.presence) ?? storyAssetUrl("covers", current.id, data.presence)) : null;
 
 	return (
-		<Box component="main" sx={FRAME_SX}>
+		<Box component="main" sx={FRAME_SX} data-region="story-picker">
 			<ScrollToTop />
 			<Typography component="h1" sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
 				Stories
