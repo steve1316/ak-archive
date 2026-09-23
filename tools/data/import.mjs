@@ -2,7 +2,7 @@
 /**
  * Generate the site's operator data from the pinned upstream tables.
  *
- * Writes one shard, one profile side file and one details file per class under `src/data`, plus a small search index and a provenance file.
+ * Writes one shard, one profile side file, one details file and one module lore file per class under `src/data`, plus a small search index and a provenance file.
  * Enemies get one index file, one details file per enemy level and their own search index, which the navbar loads after first paint.
  * Output is deterministic for a given upstream commit, so re-running an unchanged import produces no diff.
  *
@@ -136,11 +136,11 @@ async function main() {
 		const handbook = buildHandbook(id, profileContext);
 		const record = { ...buildOperator(id, row, context), forms: forms.get(id) ?? [], releaseDate: dates.operators[id] ?? null };
 		const equips = modulesByChar.get(id) ?? [];
-		const moduleLore = buildModuleLore(equips);
 		return {
 			id,
 			row,
-			side: Object.keys(moduleLore).length > 0 ? { ...handbook.side, moduleLore } : handbook.side,
+			side: handbook.side,
+			moduleLore: buildModuleLore(equips),
 			record,
 			details: { skills: buildSkills(row, skillTable), modules: buildModules(row, record.talents, equips, battleEquip, characterTable), ...handbook.shard }
 		};
@@ -158,12 +158,15 @@ async function main() {
 		const records = entries.map((entry) => entry.record);
 		const profiles = Object.fromEntries(entries.map((entry) => [entry.id, entry.side]));
 		const details = Object.fromEntries(entries.map((entry) => [entry.id, entry.details]));
+		// Keyed by module id rather than operator id, since the Modules tab asks for one module's story. Operators without modules add nothing.
+		const moduleLore = Object.assign({}, ...entries.map((entry) => entry.moduleLore));
 		const a = writeJson(path.join(OUT_DIR, `${shard.file}.json`), records);
 		const b = writeJson(path.join(OUT_DIR, `${shard.profiles}.json`), profiles);
 		const c = writeJson(path.join(OUT_DIR, `${shard.details}.json`), details);
-		total += a + b + c;
+		const d = writeJson(path.join(OUT_DIR, `${shard.moduleLore}.json`), moduleLore);
+		total += a + b + c + d;
 		console.log(
-			`  ${shard.file.padEnd(24)} ${String(records.length).padStart(3)} operators  ${(a / 1024).toFixed(0).padStart(5)} KB  + profiles ${(b / 1024).toFixed(0).padStart(5)} KB  + details ${(c / 1024).toFixed(0).padStart(5)} KB`
+			`  ${shard.file.padEnd(24)} ${String(records.length).padStart(3)} operators  ${(a / 1024).toFixed(0).padStart(5)} KB  + profiles ${(b / 1024).toFixed(0).padStart(5)} KB  + details ${(c / 1024).toFixed(0).padStart(5)} KB  + module lore ${(d / 1024).toFixed(0).padStart(4)} KB`
 		);
 	}
 

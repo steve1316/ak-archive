@@ -27,11 +27,29 @@ import type { Operator, OperatorDetails, Profile, SearchEntry, UpstreamInfo } fr
 const DATA_URLS = Object.fromEntries(
 	Object.entries(
 		import.meta.glob<string>(
-			["../data/operators-*.json", "../data/profiles-*.json", "../data/details-*.json", "../data/enemies.json", "../data/enemy-details-*.json", "../data/enemy-search-index.json"],
+			[
+				"../data/operators-*.json",
+				"../data/profiles-*.json",
+				"../data/details-*.json",
+				"../data/module-lore-*.json",
+				"../data/enemies.json",
+				"../data/enemy-details-*.json",
+				"../data/enemy-search-index.json"
+			],
 			{ query: "?url", import: "default", eager: true }
 		)
 	).map(([path, url]) => [path.replace(/^.*\/|\.json$/g, ""), url])
 );
+
+/** The per-class side files beside a shard's operator records. */
+type ShardFiles = {
+	/** Handbook prose, loaded when the handbook section nears the viewport. */
+	profiles: string;
+	/** Skills, modules and handbook record, loaded with the operator page. */
+	details: string;
+	/** Module story text by module id, loaded when the Modules tab opens. */
+	moduleLore: string;
+};
 
 /**
  * The generated shards, in the same order and over the same files as `tools/data/lib/shards.mjs`.
@@ -41,15 +59,15 @@ const DATA_URLS = Object.fromEntries(
  * `search-index.json` carries that and the search index is how a shard is found without loading all eight. The file list and the order must
  * stay identical across both tables. The key field must not.
  */
-const SHARDS: ReadonlyArray<Shard<string> & { profiles: string; details: string }> = [
-	{ file: "operators-guard", profiles: "profiles-guard", details: "details-guard", holds: (profession) => profession === "Guard" },
-	{ file: "operators-sniper", profiles: "profiles-sniper", details: "details-sniper", holds: (profession) => profession === "Sniper" },
-	{ file: "operators-caster", profiles: "profiles-caster", details: "details-caster", holds: (profession) => profession === "Caster" },
-	{ file: "operators-specialist", profiles: "profiles-specialist", details: "details-specialist", holds: (profession) => profession === "Specialist" },
-	{ file: "operators-supporter", profiles: "profiles-supporter", details: "details-supporter", holds: (profession) => profession === "Supporter" },
-	{ file: "operators-defender", profiles: "profiles-defender", details: "details-defender", holds: (profession) => profession === "Defender" },
-	{ file: "operators-vanguard", profiles: "profiles-vanguard", details: "details-vanguard", holds: (profession) => profession === "Vanguard" },
-	{ file: "operators-medic", profiles: "profiles-medic", details: "details-medic", holds: (profession) => profession === "Medic" }
+const SHARDS: ReadonlyArray<Shard<string> & ShardFiles> = [
+	{ file: "operators-guard", profiles: "profiles-guard", details: "details-guard", moduleLore: "module-lore-guard", holds: (profession) => profession === "Guard" },
+	{ file: "operators-sniper", profiles: "profiles-sniper", details: "details-sniper", moduleLore: "module-lore-sniper", holds: (profession) => profession === "Sniper" },
+	{ file: "operators-caster", profiles: "profiles-caster", details: "details-caster", moduleLore: "module-lore-caster", holds: (profession) => profession === "Caster" },
+	{ file: "operators-specialist", profiles: "profiles-specialist", details: "details-specialist", moduleLore: "module-lore-specialist", holds: (profession) => profession === "Specialist" },
+	{ file: "operators-supporter", profiles: "profiles-supporter", details: "details-supporter", moduleLore: "module-lore-supporter", holds: (profession) => profession === "Supporter" },
+	{ file: "operators-defender", profiles: "profiles-defender", details: "details-defender", moduleLore: "module-lore-defender", holds: (profession) => profession === "Defender" },
+	{ file: "operators-vanguard", profiles: "profiles-vanguard", details: "details-vanguard", moduleLore: "module-lore-vanguard", holds: (profession) => profession === "Vanguard" },
+	{ file: "operators-medic", profiles: "profiles-medic", details: "details-medic", moduleLore: "module-lore-medic", holds: (profession) => profession === "Medic" }
 ];
 
 /** The store owns fetching and the cache that drops a failed load so a retry actually retries. */
@@ -70,12 +88,12 @@ const professionById = new Map(searchIndex.map((entry) => [entry.id, entry.profe
  * @param id The operator id.
  * @returns The shard, or null when the id is in no shard, which means it is not an operator.
  */
-function shardOf(id: string): (Shard<string> & { profiles: string; details: string }) | null {
+function shardOf(id: string): (Shard<string> & ShardFiles) | null {
 	const profession = professionById.get(id);
 	if (!profession) {
 		return null;
 	}
-	return shardFor(SHARDS, profession) as (Shard<string> & { profiles: string; details: string }) | null;
+	return shardFor(SHARDS, profession) as (Shard<string> & ShardFiles) | null;
 }
 
 /**
@@ -119,6 +137,22 @@ export async function loadProfile(id: string): Promise<Profile | undefined> {
 	}
 	const profiles = await store.loadFile<Record<string, Profile>>(shard.profiles);
 	return profiles[id];
+}
+
+/**
+ * Load one module's story text. Called by the Modules tab, so the class's module lore file is fetched only once that tab opens.
+ *
+ * @param operatorId The operator the module belongs to, which picks the class file.
+ * @param moduleId The module id.
+ * @returns The lore, or undefined when the operator is in no shard or the module has none.
+ */
+export async function loadModuleLore(operatorId: string, moduleId: string): Promise<string | undefined> {
+	const shard = shardOf(operatorId);
+	if (!shard) {
+		return undefined;
+	}
+	const lore = await store.loadFile<Record<string, string>>(shard.moduleLore);
+	return lore[moduleId];
 }
 
 /**

@@ -38,6 +38,9 @@ const MIN_FORMS = 410;
 /** Operators carrying at least one skill: the measured count at the pinned sha, exact for the same reason the asset floors are. */
 const MIN_SKILLED = 398;
 
+/** The asset manifest sections keyed by operator id. Every other section is a flat key list or keyed by enemy id. */
+const OPERATOR_SECTIONS = new Set(["portraits", "illustrations", "skins", "variants"]);
+
 /** Module floors at the pinned sha: every ADVANCED module of an imported operator. */
 const MIN_MODULES = 473;
 const MIN_MODULE_OPERATORS = 371;
@@ -322,6 +325,7 @@ function checkDates(entries, label, floor, fixtures) {
 const shardOperators = new Map(SHARDS.map((shard) => [shard.key, read(shard.file)]));
 const shardProfiles = new Map(SHARDS.map((shard) => [shard.key, read(shard.profiles)]));
 const shardDetails = new Map(SHARDS.map((shard) => [shard.key, read(shard.details)]));
+const shardModuleLore = new Map(SHARDS.map((shard) => [shard.key, read(shard.moduleLore)]));
 
 const operators = SHARDS.flatMap((shard) => shardOperators.get(shard.key));
 const byId = new Map(operators.map((operator) => [operator.id, operator]));
@@ -557,12 +561,25 @@ for (const fixture of MODULE_FIXTURES) {
 	}
 }
 
+// Every module's lore must sit in its class's module lore file, since the Modules tab looks it up there by module id.
+for (const shard of SHARDS) {
+	const lore = shardModuleLore.get(shard.key);
+	for (const operator of shardOperators.get(shard.key)) {
+		for (const module of detailsById.get(operator.id)?.modules ?? []) {
+			if (!lore[module.id]) {
+				fail(`${operator.id} module ${module.id} has no lore in ${shard.moduleLore}`);
+			}
+		}
+	}
+}
+
 // Markup leakage, across everything the site ships.
 for (const shard of SHARDS) {
 	for (const [data, name] of [
 		[shardOperators.get(shard.key), shard.file],
 		[shardProfiles.get(shard.key), shard.profiles],
-		[shardDetails.get(shard.key), shard.details]
+		[shardDetails.get(shard.key), shard.details],
+		[shardModuleLore.get(shard.key), shard.moduleLore]
 	]) {
 		eachString(data, name, (text, where) => {
 			const hit = MARKUP.exec(text);
@@ -801,8 +818,8 @@ let enemyIconCount = 0;
 if (hasManifest) {
 	const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 	for (const [section, entries] of Object.entries(manifest)) {
-		// skillIcons is a flat list of icon keys, not a map of operator ids, so it carries no ids to check here. Enemy ids are checked below.
-		if (section === "skillIcons" || section === "enemies" || section === "moduleArt" || section === "moduleTypes") {
+		// Only the operator-keyed sections name operator ids. The flat key lists and the enemy map are checked on their own below.
+		if (!OPERATOR_SECTIONS.has(section)) {
 			continue;
 		}
 		// The variants section has a nested structure with portraits and illustrations keys
