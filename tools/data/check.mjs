@@ -1148,12 +1148,22 @@ for (const groupId of storyGroupIds) {
 		for (const step of steps) {
 			if (!STEP_TYPES.has(step.t)) {
 				fail(`story ${entry.id} has a step of unknown type ${step.t}`);
-			} else if (step.t === "unknown") {
+				continue;
+			}
+			if (step.t === "unknown") {
 				unknownCommands.set(step.c, (unknownCommands.get(step.c) ?? 0) + 1);
-			} else if (step.t === "line" && (RAW_TAG.test(step.text) || (step.spans ?? []).some((span) => RAW_TAG.test(span.text)))) {
-				fail(`story ${entry.id} leaks raw markup: ${step.text.slice(0, 80)}`);
-			} else if (step.t === "decision" && step.options.length !== step.values.length) {
+			}
+			// Every place text reaches the reader: a line and its speaker, a choice's options, and a command's text such as a subtitle's.
+			const texts = [step.text, step.name, ...(step.spans ?? []).map((span) => span.text), ...(step.options ?? []), step.a?.text, ...(step.a?.spans ?? []).map((span) => span.text)];
+			const leak = texts.find((text) => typeof text === "string" && RAW_TAG.test(text));
+			if (leak) {
+				fail(`story ${entry.id} leaks raw markup: ${leak.slice(0, 80)}`);
+			}
+			if (step.t === "decision" && step.options.length !== step.values.length) {
 				fail(`story ${entry.id} has a decision with ${step.options.length} options and ${step.values.length} values`);
+			}
+			if (step.t === "predicate" && step.refs !== null && step.refs.length === 0) {
+				fail(`story ${entry.id} has a predicate with an empty reference list`);
 			}
 		}
 	}
