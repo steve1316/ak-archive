@@ -179,8 +179,8 @@ function stopClick(handler: () => void) {
 
 /** Props for PlayerChrome. */
 interface PlayerChromeProps {
-	/** Whether sound is muted. */
-	muted: boolean;
+	/** Whether sound is heard: not muted, and not held back by the browser. */
+	soundOn: boolean;
 	/** Whether AUTO is on. */
 	auto: boolean;
 	/** Whether SKIP can run, which is only while a line is showing. */
@@ -190,7 +190,7 @@ interface PlayerChromeProps {
 	/** Hides the text and chrome. */
 	onHide: () => void;
 	/** Toggles the sound. */
-	onMute: () => void;
+	onSound: () => void;
 	/** Toggles AUTO. */
 	onAuto: () => void;
 	/** Skips to the next choice or the end. */
@@ -203,7 +203,7 @@ interface PlayerChromeProps {
  * @param props Component props.
  * @returns The chrome.
  */
-const PlayerChrome = memo(function PlayerChrome({ muted, auto, canSkip, onLog, onHide, onMute, onAuto, onSkip }: PlayerChromeProps) {
+const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog, onHide, onSound, onAuto, onSkip }: PlayerChromeProps) {
 	return (
 		<>
 			<Box sx={{ ...CHROME_SX, left: "4%" }}>
@@ -215,8 +215,8 @@ const PlayerChrome = memo(function PlayerChrome({ muted, auto, canSkip, onLog, o
 				</Button>
 			</Box>
 			<Box sx={{ ...CHROME_SX, right: "4%" }}>
-				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onMute)}>
-					{muted ? "SOUND OFF" : "SOUND ON"}
+				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onSound)}>
+					{soundOn ? "SOUND ON" : "SOUND OFF"}
 				</Button>
 				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onAuto)}>
 					AUTO{" "}
@@ -262,7 +262,7 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const [shakeKey, setShakeKey] = useState(0);
 
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
-	const resumeAudio = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, urlOf });
+	const { resume: resumeAudio, blocked } = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, urlOf });
 
 	const line: LineStep | null = run.stop.kind === "line" ? run.stop.line : null;
 	const caption = run.stop.kind === "caption" ? fillNickname(run.stop.text, nickname) : null;
@@ -351,7 +351,6 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	}, [resumeAudio, logOpen]);
 
 	const onStage = useCallback(() => {
-		resumeAudio();
 		if (hideUi) {
 			setHideUi(false);
 			return;
@@ -359,19 +358,23 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		if (!logOpen) {
 			step();
 		}
-	}, [resumeAudio, hideUi, logOpen, step]);
+	}, [hideUi, logOpen, step]);
 
 	const onNickname = useCallback((value: string) => {
 		setNickname(value);
 		writeStored(NICKNAME_KEY, value);
 	}, []);
 
-	const toggleMute = useCallback(() => {
+	// While the browser holds the sound back, SOUND shows OFF and a click on it only lets the sound start, which the player's click capture does.
+	const toggleSound = useCallback(() => {
+		if (blocked && !muted) {
+			return;
+		}
 		setMuted((value) => {
 			writeStored(MUTED_KEY, value ? "0" : "1");
 			return !value;
 		});
-	}, []);
+	}, [blocked, muted]);
 
 	const openLog = useCallback(() => setLogOpen(true), []);
 	const closeLog = useCallback(() => setLogOpen(false), []);
@@ -379,10 +382,10 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const toggleAuto = useCallback(() => setAuto((value) => !value), []);
 
 	return (
-		<Box sx={PLAYER_SX}>
+		<Box sx={PLAYER_SX} onClickCapture={resumeAudio}>
 			<GlobalStyles styles={KEYFRAMES} />
 			<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} nickname={nickname} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
-				{!hideUi ? <PlayerChrome muted={muted} auto={auto} canSkip={reading} onLog={openLog} onHide={hide} onMute={toggleMute} onAuto={toggleAuto} onSkip={skip} /> : null}
+				{!hideUi ? <PlayerChrome soundOn={!muted && !blocked} auto={auto} canSkip={reading} onLog={openLog} onHide={hide} onSound={toggleSound} onAuto={toggleAuto} onSkip={skip} /> : null}
 				{decision ? (
 					<Box sx={CHOICES_SX} onClick={(event) => event.stopPropagation()}>
 						{decision.options.map((option, choice) => (

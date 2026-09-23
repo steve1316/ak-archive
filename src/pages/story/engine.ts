@@ -5,9 +5,9 @@
 /**
  * The story player's state machine. It walks a story's flat steps from one stop to the next and folds every command in between into the stage.
  *
- * A stop is a line, a choice, or the end. Everything else - backgrounds, art scenes, sprites, fades, music, sounds, shakes, pauses - is applied
- * on the way and never waits for the reader. Choices follow the game's rule: `Predicate` shows what follows only when the last picked value is in
- * its refs, up to the next `Predicate`, and a bare `Predicate` (null refs) rejoins every branch.
+ * A stop is a line, a caption (a subtitle or sticker the reader clicks past), a choice, or the end. Everything else - backgrounds, art scenes,
+ * sprites, fades, music, sounds, shakes, pauses - is applied on the way and never waits for the reader. Choices follow the game's rule: `Predicate`
+ * shows what follows only when the last picked value is in its refs, up to the next `Predicate`, and a bare `Predicate` (null refs) rejoins every branch.
  *
  * This module is pure and imports only types, so `tools/data/test/story-engine.test.mjs` runs it under Node's type stripping.
  */
@@ -67,12 +67,15 @@ export interface StageState {
 	grayscale: boolean;
 }
 
+/** One sound cue: play a sound, or stop the sounds on one channel, or on every channel when `channel` is null. */
+export type SoundCue = { kind: "play"; key: string; volume: number; loop: boolean; channel: string | null } | { kind: "stop"; channel: string | null; fade: number };
+
 /** One-off effects met on the way to a stop. */
 export interface Effects {
-	/** Sounds to play, in order. */
-	sounds: { key: string; volume: number }[];
-	/** Whether playing sounds stop. */
-	stopSounds: boolean;
+	/** Sound cues, in script order. */
+	sounds: SoundCue[];
+	/** How long the music fades out over when a `stopmusic` was met, in seconds. */
+	musicFade: number;
 	/** How long the stage shakes, in seconds, or 0. */
 	shake: number;
 	/** Pauses met, in seconds, which AUTO waits out. */
@@ -137,7 +140,7 @@ export function emptyStage(): StageState {
  * @returns The effects.
  */
 export function emptyEffects(): Effects {
-	return { sounds: [], stopSounds: false, shake: 0, delay: 0, clearText: false };
+	return { sounds: [], musicFade: 0, shake: 0, delay: 0, clearText: false };
 }
 
 /**
@@ -175,6 +178,16 @@ function num(value: unknown, fallback: number): number {
  */
 function text(value: unknown): string | null {
 	return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * A sound channel argument. Scripts name channels with words or numbers, so a number becomes its string.
+ *
+ * @param value The raw argument.
+ * @returns The channel, or null when none is named.
+ */
+function channelOf(value: unknown): string | null {
+	return typeof value === "number" ? String(value) : text(value);
 }
 
 /**
@@ -297,16 +310,17 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0) } } : stage;
 		}
 		case "stopmusic":
+			effects.musicFade = num(a.fadetime, 0);
 			return { ...stage, music: null };
 		case "playsound": {
 			const key = text(a.key);
 			if (key) {
-				effects.sounds.push({ key, volume: num(a.volume, 1) });
+				effects.sounds.push({ kind: "play", key, volume: num(a.volume, 1), loop: a.loop === true, channel: channelOf(a.channel) });
 			}
 			return stage;
 		}
 		case "stopsound":
-			effects.stopSounds = true;
+			effects.sounds.push({ kind: "stop", channel: channelOf(a.channel), fade: num(a.fadetime, 0) });
 			return stage;
 		case "subtitle": {
 			const line = text(a.text);

@@ -82,7 +82,7 @@ test("a predicate listing every value shows its lines whatever was picked", () =
 test("effects collect sounds, shakes, pauses and a cleared box on the way to a line", () => {
 	const steps = [cmd("playsound", { key: "s_a", volume: 0.5 }), cmd("camerashake", { duration: 1 }), cmd("delay", { time: 0.6 }), cmd("dialog"), line(null, "x")];
 	const { effects } = advance(steps, START, emptyStage());
-	assert.deepEqual(effects, { sounds: [{ key: "s_a", volume: 0.5 }], stopSounds: false, shake: 1, delay: 0.6, clearText: true });
+	assert.deepEqual(effects, { sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null }], musicFade: 0, shake: 1, delay: 0.6, clearText: true });
 });
 
 test("blockers, art scenes with their tween, grayscale and unknown commands fold into the stage", () => {
@@ -171,4 +171,28 @@ test("fillNickname puts the reader's name into a line's text and every styled ru
 		text: "Hi Kal",
 		spans: [{ text: "Hi " }, { text: "Kal", i: true }]
 	});
+});
+
+test("sound cues keep their order, loop flag and channel, and stopsound stops one channel or all of them with its fade", () => {
+	const steps = [
+		cmd("playsound", { key: "rain", loop: true, channel: "bgs", volume: 0.4 }),
+		cmd("stopsound", { channel: "bgs", fadetime: 1.5 }),
+		cmd("playsound", { key: "door" }),
+		cmd("stopsound"),
+		line(null, "x")
+	];
+	assert.deepEqual(advance(steps, START, emptyStage()).effects.sounds, [
+		{ kind: "play", key: "rain", volume: 0.4, loop: true, channel: "bgs" },
+		{ kind: "stop", channel: "bgs", fade: 1.5 },
+		{ kind: "play", key: "door", volume: 1, loop: false, channel: null },
+		{ kind: "stop", channel: null, fade: 0 }
+	]);
+});
+
+test("stopmusic records its fade-out time", () => {
+	const steps = [cmd("playmusic", { key: "m_loop", crossfade: 2 }), line(null, "a"), cmd("stopmusic", { fadetime: 3 }), line(null, "b")];
+	const first = advance(steps, START, emptyStage());
+	assert.equal(first.stage.music.crossfade, 2);
+	const second = advance(steps, first.cursor, first.stage);
+	assert.deepEqual([second.stage.music, second.effects.musicFade], [null, 3]);
 });
