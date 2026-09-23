@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent } from "react";
 
 import { Box, ButtonBase, Chip, TextField, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
@@ -241,6 +242,7 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 	const [query, setQuery] = useState("");
 	const [classes, setClasses] = useState<ReadonlySet<string>>(new Set());
 	const [rarities, setRarities] = useState<ReadonlySet<number>>(new Set());
+	const [scrubbing, setScrubbing] = useState<string | null>(null);
 	const list = useRef<HTMLDivElement>(null);
 
 	const operators = useMemo(() => recordOperators(index.records, searchIndex), [index]);
@@ -289,6 +291,16 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 		}
 	};
 
+	// Dragging along the A-Z jump scrolls the list to each letter the pointer passes over, like a phone's contact list.
+	const scrubTo = (event: PointerEvent<HTMLElement>) => {
+		const bar = event.currentTarget.getBoundingClientRect();
+		const letter = document.elementFromPoint(bar.left + bar.width / 2, event.clientY)?.closest<HTMLElement>("[data-jump]")?.dataset.jump;
+		if (letter && letter !== scrubbing && byLetter.has(letter)) {
+			setScrubbing(letter);
+			jumpTo(letter);
+		}
+	};
+
 	return (
 		<Box sx={BROWSER_SX}>
 			<Box sx={LIST_SX}>
@@ -326,7 +338,7 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 					</Box>
 				</Box>
 				<Box sx={{ flex: 1, display: "flex", minHeight: 0 }}>
-					<Box ref={list} sx={{ flex: 1, overflowY: "auto", p: "0 8px 12px 14px" }}>
+					<Box ref={list} sx={{ flex: 1, overflowY: "auto", p: "0 8px 12px 14px", scrollbarWidth: { md: "none" }, "&::-webkit-scrollbar": { display: { md: "none" } } }}>
 						{visible.length === 0 ? <Typography sx={{ color: "text.secondary", p: 2 }}>No operator matches.</Typography> : null}
 						{[...byLetter].map(([letter, group]) => (
 							<Box key={letter}>
@@ -358,14 +370,42 @@ function RecordsBrowser({ index, selectedGroup, onSelect }: RecordsBrowserProps)
 							</Box>
 						))}
 					</Box>
-					{/* The A-Z jump needs more height than a phone's short list has, so the search box does its job there. */}
-					<Box sx={{ display: { xs: "none", md: "flex" }, flexDirection: "column", justifyContent: "space-between", py: 1, width: 26, flex: "none" }}>
+					{/* The A-Z jump stands in for the list's scrollbar, which is hidden beside it. It needs more height than a phone's short list has,
+					    so there the search box does its job and the scrollbar stays. */}
+					<Box
+						onPointerDown={(event) => {
+							event.currentTarget.setPointerCapture(event.pointerId);
+							scrubTo(event);
+						}}
+						onPointerMove={(event) => event.currentTarget.hasPointerCapture(event.pointerId) && scrubTo(event)}
+						onPointerUp={() => setScrubbing(null)}
+						onPointerCancel={() => setScrubbing(null)}
+						sx={{
+							display: { xs: "none", md: "flex" },
+							flexDirection: "column",
+							justifyContent: "space-between",
+							py: 1,
+							width: 26,
+							flex: "none",
+							touchAction: "none",
+							userSelect: "none",
+							cursor: "pointer"
+						}}
+					>
 						{allLetters.map((letter) => (
 							<ButtonBase
 								key={letter}
+								data-jump={letter}
 								disabled={!byLetter.has(letter)}
 								onClick={() => jumpTo(letter)}
-								sx={{ fontSize: 12, color: "text.secondary", borderRadius: 0.5, "&.Mui-disabled": { opacity: 0.25 }, "&:hover": { color: "#fff" } }}
+								sx={{
+									fontSize: 12,
+									color: scrubbing === letter ? "#fff" : "text.secondary",
+									background: scrubbing === letter ? "rgba(30,155,215,0.35)" : "transparent",
+									borderRadius: 0.5,
+									"&.Mui-disabled": { opacity: 0.25 },
+									"&:hover": { color: "#fff" }
+								}}
 							>
 								{letter}
 							</ButtonBase>
