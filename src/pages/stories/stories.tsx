@@ -7,7 +7,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { LoadError, ScrollToTop } from "archive-kit";
 
 import { isControlTarget } from "../../lib/keys.js";
-import { NAVBAR_HEIGHT } from "../../lib/layout.js";
+import { fillBelowNavbar } from "../../lib/layout.js";
 import { storyGroupPath } from "../../lib/routes.js";
 import { loadStoryIndex, loadStoryPresence, storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
@@ -45,8 +45,15 @@ type DiscTab = Exclude<TabKey, "records">;
 /** The height of the tab bar along the bottom, which the rail and disc stop above. */
 const TAB_BAR_HEIGHT = 64;
 
-/** The picker's frame: the dark area under the bar. */
-const FRAME_SX: SxProps<Theme> = { position: "relative", height: `calc(100vh - ${NAVBAR_HEIGHT}px)`, minHeight: 520, overflow: "hidden", background: "#0d0f14", color: "#e6e8ec" };
+/** The picker's frame: the dark area under the bar, as tall as the screen shows right now, so the tab bar never sits below the fold. */
+const FRAME_SX: SxProps<Theme> = (theme) => ({
+	position: "relative",
+	...fillBelowNavbar(theme.mixins.toolbar, "height"),
+	minHeight: 520,
+	overflow: "hidden",
+	background: "#0d0f14",
+	color: "#e6e8ec"
+});
 
 /** The tab bar along the bottom. */
 const TAB_BAR_SX: SxProps<Theme> = {

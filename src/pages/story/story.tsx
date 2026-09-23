@@ -12,7 +12,7 @@ import { LoadError, ScrollToTop } from "archive-kit";
 import { loadStory, loadStoryGroup, loadStoryPresence, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { isControlTarget, isTextTarget } from "../../lib/keys.js";
-import { NAVBAR_HEIGHT } from "../../lib/layout.js";
+import { fillBelowNavbar } from "../../lib/layout.js";
 import { storyGroupPath } from "../../lib/routes.js";
 import type { LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
 import { START, advance, choose, emptyEffects, emptyStage, fillNickname, skipToStop, upcomingArt } from "./engine.js";
@@ -41,7 +41,15 @@ const AUTO_KEY = "storyAuto";
 const DEFAULT_NICKNAME = "Doctor";
 
 /** The page: a black band with the stage centred at the largest 16:9 that fits under the bar. */
-const PAGE_SX: SxProps<Theme> = { background: "#000", minHeight: `calc(100vh - ${NAVBAR_HEIGHT}px)`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", py: 1 };
+const PAGE_SX: SxProps<Theme> = (theme) => ({
+	background: "#000",
+	...fillBelowNavbar(theme.mixins.toolbar, "minHeight"),
+	display: "flex",
+	flexDirection: "column",
+	alignItems: "center",
+	justifyContent: "center",
+	py: 1
+});
 
 /** The stage's box: as wide as the page allows while still fitting the viewport's height. */
 const STAGE_BOX_SX: SxProps<Theme> = { width: "min(100%, calc((100vh - 120px) * 16 / 9))" };
