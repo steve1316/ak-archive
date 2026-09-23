@@ -11,7 +11,7 @@ import type { Plugin } from "vite";
 import { baseTrailingSlash, spaFallback } from "archive-kit/config";
 
 import { EMPTY_PRESENCE, slimManifest } from "./tools/data/lib/presence.mjs";
-import { splitRigIndex } from "./tools/data/lib/rigBuckets.mjs";
+import { RIG_BUCKET_COUNT, splitRigIndex } from "./tools/data/lib/rigBuckets.mjs";
 import { routePagePaths } from "./tools/data/lib/routePages.mjs";
 
 // Pages serves the site from /ak-archive/, while Docker and local previews serve it from the root. VITE_BASE lets the same source produce both.
@@ -203,12 +203,8 @@ function routePagesPlugin(): Plugin {
  * @returns Each bucket's JSON text, keyed by its file name without extension, such as `spine-index-3`.
  */
 async function rigIndexBuckets(): Promise<Map<string, string>> {
-	const buckets = new Map<string, string>();
-	for (const [name, file] of Object.entries(RIG_INDEX_PATHS)) {
-		const index = JSON.parse(await fs.readFile(file, "utf8")) as Record<string, unknown>;
-		splitRigIndex(index).forEach((bucket, number) => buckets.set(`${name}-${number}`, JSON.stringify(bucket)));
-	}
-	return buckets;
+	const indexes = await Promise.all(Object.entries(RIG_INDEX_PATHS).map(async ([name, file]) => [name, JSON.parse(await fs.readFile(file, "utf8")) as Record<string, unknown>] as const));
+	return new Map(indexes.flatMap(([name, index]) => splitRigIndex(index).map((bucket, number) => [`${name}-${number}`, JSON.stringify(bucket)] as const)));
 }
 
 /**
@@ -228,6 +224,13 @@ function rigIndexPlugin(): Plugin {
 			building = config.command === "build";
 		},
 		configureServer(server) {
+			// Split once and kept until a rig index changes on disk, since one page load asks for several buckets.
+			let buckets: Promise<Map<string, string>> | null = null;
+			server.watcher.on("change", (file) => {
+				if (Object.values(RIG_INDEX_PATHS).includes(file)) {
+					buckets = null;
+				}
+			});
 			server.middlewares.use((req, res, next) => {
 				const prefix = `${server.config.base}${RIG_INDEX_DEV_PREFIX}`;
 				if (!req.url?.startsWith(prefix)) {
@@ -239,8 +242,9 @@ function rigIndexPlugin(): Plugin {
 						.slice(prefix.length)
 						.split("?")[0]
 						?.replace(/\.json$/, "") ?? "";
-				void rigIndexBuckets().then((buckets) => {
-					const text = buckets.get(name);
+				buckets ??= rigIndexBuckets();
+				buckets.then((split) => {
+					const text = split.get(name);
 					res.statusCode = text === undefined ? 404 : 200;
 					res.setHeader("Content-Type", "application/json");
 					res.end(text ?? "Not found");
@@ -258,13 +262,18 @@ function rigIndexPlugin(): Plugin {
 				this.addWatchFile(file);
 			}
 			const urls: Record<string, string> = {};
-			for (const [name, text] of await rigIndexBuckets()) {
-				if (building) {
+			if (building) {
+				for (const [name, text] of await rigIndexBuckets()) {
 					const fileName = `assets/${name}-${createHash("sha256").update(text).digest("hex").slice(0, 8)}.json`;
 					this.emitFile({ type: "asset", fileName, source: text });
 					urls[name] = `${base}${fileName}`;
-				} else {
-					urls[name] = `${base}${RIG_INDEX_DEV_PREFIX}${name}.json`;
+				}
+			} else {
+				// The dev server splits on request, so the names are all this needs.
+				for (const name of Object.keys(RIG_INDEX_PATHS)) {
+					for (let number = 0; number < RIG_BUCKET_COUNT; number++) {
+						urls[`${name}-${number}`] = `${base}${RIG_INDEX_DEV_PREFIX}${name}-${number}.json`;
+					}
 				}
 			}
 			return `export default ${JSON.stringify(urls)};`;
