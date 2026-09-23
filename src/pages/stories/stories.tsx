@@ -26,6 +26,10 @@ const TABS = [
 	{ key: "records", label: "Operator Records" }
 ] as const;
 
+/** What a year on the Events and Side Stories rails counts. */
+const EVENT_NOUN = { one: "event", many: "events" };
+const SIDE_NOUN = { one: "side story", many: "side stories" };
+
 /** One tab's key. */
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -97,12 +101,14 @@ function yearOf(group: StoryGroupMeta): number | null {
 }
 
 /**
- * The Events and Side Stories rail: one entry per year, holding that year's groups.
+ * The Events and Side Stories rail: one entry per year, holding that year's groups and counting them as events or side stories, so the count
+ * never reads like a group's own story count.
  *
  * @param groups The tab's groups, by start time.
+ * @param noun What one group is called on this tab, singular and plural.
  * @returns The rail entries.
  */
-function yearRail(groups: StoryGroupMeta[]): { key: string; title: string; holds: string[] }[] {
+function yearRail(groups: StoryGroupMeta[], noun: { one: string; many: string }): { key: string; title: string; holds: string[] }[] {
 	const years = new Map<string, string[]>();
 	for (const group of groups) {
 		const year = yearOf(group)?.toString() ?? "Undated";
@@ -113,7 +119,7 @@ function yearRail(groups: StoryGroupMeta[]): { key: string; title: string; holds
 			years.set(year, [group.id]);
 		}
 	}
-	return [...years.entries()].map(([year, ids]) => ({ key: year, title: `${ids.length} ${ids.length === 1 ? "story" : "stories"}`, holds: ids }));
+	return [...years.entries()].map(([year, ids]) => ({ key: year, title: `${ids.length} ${ids.length === 1 ? noun.one : noun.many}`, holds: ids }));
 }
 
 /** Props for RecordsGrid. */
@@ -243,7 +249,10 @@ export default function Stories() {
 
 	const closeList = useCallback(() => showGroup(null), [showGroup]);
 
-	const railGroups = useMemo(() => (tab === "main" ? (data?.index.acts ?? []).map((act) => ({ key: act.id, title: act.name, holds: act.groups })) : yearRail(groups)), [data, tab, groups]);
+	const railGroups = useMemo(
+		() => (tab === "main" ? (data?.index.acts ?? []).map((act) => ({ key: act.id, title: act.name, holds: act.groups })) : yearRail(groups, tab === "events" ? EVENT_NOUN : SIDE_NOUN)),
+		[data, tab, groups]
+	);
 
 	const open = useCallback(() => {
 		if (current) {
