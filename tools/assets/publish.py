@@ -12,6 +12,7 @@ site while looking perfectly correct in the GitHub repo browser.
 
 Usage:
     python3 -u tools/assets/publish.py add [--confirm] [--staging PATH]
+    python3 -u tools/assets/publish.py add --incremental [--remote URL] [--confirm] [--staging PATH]
     python3 -u tools/assets/publish.py remove [--confirm] [--staging PATH]
     python3 -u tools/assets/publish.py wait-live [PATH ...] [--sample N] [--staging PATH]
 """
@@ -44,6 +45,9 @@ MANIFEST_PATH = os.path.join(DATA_DIR, MANIFEST_NAME)
 
 REPO = "steve1316/ak-archive-assets"
 CLONE_URL = f"https://github.com/{REPO}.git"
+
+# The SSH remote the scheduled refresh clones and pushes over, with a deploy key rather than `gh` credentials.
+SSH_URL = f"git@github.com:{REPO}.git"
 BRANCH = "main"
 RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
 
@@ -148,15 +152,15 @@ def assert_assets_clone(publish_dir, action):
         action: What the caller is about to do, used in the error message.
 
     Raises:
-        RuntimeError: If `publish_dir` is not a git repository root, or its `origin` remote is not the assets repo.
+        RuntimeError: If `publish_dir` is not a git repository root, or its `origin` remote is not the assets repo over HTTPS or SSH.
     """
     if not is_git_repo(publish_dir):
         raise RuntimeError(f"refusing to {action} {publish_dir}: it is not a git repository root")
 
     result = subprocess.run(["git", "-C", publish_dir, "remote", "get-url", "origin"], check=False, capture_output=True, text=True)
     origin = result.stdout.strip()
-    if result.returncode != 0 or origin != CLONE_URL:
-        raise RuntimeError(f"refusing to {action} {publish_dir}: its origin is {origin or 'unset'}, not {CLONE_URL}")
+    if result.returncode != 0 or origin not in (CLONE_URL, SSH_URL):
+        raise RuntimeError(f"refusing to {action} {publish_dir}: its origin is {origin or 'unset'}, not {CLONE_URL} or {SSH_URL}")
 
 
 def clean_untracked(publish_dir):
@@ -211,6 +215,62 @@ def clone_or_refresh(publish_dir):
         subprocess.run(["git", "clone", "--progress", "--branch", BRANCH, CLONE_URL, publish_dir], check=True)
 
     clean_untracked(publish_dir)
+
+
+def sparse_patterns(paths):
+    """
+    The sparse-checkout patterns for an incremental publish: the manifest and exactly the paths being added, each anchored at the repo root.
+
+    Args:
+        paths: Published paths this run adds.
+
+    Returns:
+        The sorted `--no-cone` patterns.
+    """
+    return sorted({f"/{MANIFEST_NAME}"} | {f"/{path}" for path in paths})
+
+
+def claims_against(existing_paths, files):
+    """
+    The file list a manifest's claims are checked against in an incremental publish: what the asset repo already holds plus what this run adds.
+
+    Args:
+        existing_paths: Every path the asset repo's tree has, from `git ls-tree`.
+        files: `(path, size)` pairs this run adds.
+
+    Returns:
+        `(path, size)` pairs covering both, sizes of existing files being 0 since only presence matters.
+    """
+    added = {path for path, _size in files}
+    return list(files) + [(path, 0) for path in sorted(existing_paths) if path not in added]
+
+
+def clone_sparse(publish_dir, remote, paths):
+    """
+    Put a blobless, sparse clone of the assets repo at `publish_dir` that checks out only the manifest and the paths being added.
+
+    A full clone of the asset repo is several GB. The history and the file listing come down as trees only, and file contents are fetched just for
+    the handful of paths checked out, so a daily run never pays for the whole repo.
+
+    Args:
+        publish_dir: Where the clone goes. Must not exist yet.
+        remote: The URL to clone from and push to.
+        paths: Published paths this run adds.
+
+    Returns:
+        The set of every path the repo's tree already holds.
+
+    Raises:
+        RuntimeError: When `publish_dir` already exists.
+        subprocess.CalledProcessError: When a git command fails.
+    """
+    if os.path.exists(publish_dir):
+        raise RuntimeError(f"{publish_dir} already exists - an incremental publish always starts from a fresh clone")
+    subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", "--branch", BRANCH, remote, publish_dir], check=True)
+    subprocess.run(["git", "-C", publish_dir, "sparse-checkout", "set", "--no-cone", "--stdin"], input="\n".join(sparse_patterns(paths)) + "\n", text=True, check=True)
+    subprocess.run(["git", "-C", publish_dir, "checkout", BRANCH], check=True)
+    listed = subprocess.run(["git", "-C", publish_dir, "ls-tree", "-r", "--name-only", "HEAD"], check=True, capture_output=True, text=True)
+    return set(listed.stdout.split())
 
 
 # //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -536,10 +596,18 @@ def run_add(args):
     """
     encoded_dir = os.path.join(args.staging, "assets")
     publish_dir = os.path.join(args.staging, "publish")
-
-    clone_or_refresh(publish_dir)
-
     files = publishable_files(encoded_dir)
+
+    # The incremental path is the scheduled refresh's: a tree holding only this run's new files, pushed from a sparse clone. The manifest's claims are
+    # then checked against what the asset repo already has plus what this run adds, since the run's own tree is only the new part.
+    if args.incremental:
+        existing = clone_sparse(publish_dir, args.remote or SSH_URL, [path for path, _size in files])
+        claim_files = claims_against(existing, files)
+    else:
+        if args.remote:
+            print("--remote is only used with --incremental; the full clone always uses the HTTPS remote")
+        clone_or_refresh(publish_dir)
+        claim_files = files
     problems = check_sizes(files)
     if problems:
         print("refusing to publish, nothing was written:")
@@ -560,7 +628,7 @@ def run_add(args):
 
     # The stale half of the same problem: a manifest that exists and matches the committed copy, but claims art this encoded tree does not hold.
     regenerated_manifest = load_manifest(MANIFEST_PATH)
-    stale_claims = check_manifest_against_tree(regenerated_manifest, files)
+    stale_claims = check_manifest_against_tree(regenerated_manifest, claim_files)
     if stale_claims:
         print(f"the manifest claims {len(stale_claims)} file(s) the encoded tree does not have:")
         for problem in stale_claims[:STALE_CLAIMS_SHOWN]:
@@ -717,6 +785,8 @@ def main():
     add_command = subcommands.add_parser("add", help="Stage the encoded tree into a clone of the assets repo, and publish it only with --confirm.")
     add_command.add_argument("--confirm", action="store_true", help="Actually commit and push. Without it the run stops after the summary and writes nothing to the remote.")
     add_command.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
+    add_command.add_argument("--incremental", action="store_true", help="Publish from a blobless sparse clone that checks out only the new paths. What the scheduled refresh uses.")
+    add_command.add_argument("--remote", help="Clone and push over this URL instead of the default. Defaults to the SSH remote with --incremental.")
 
     remove_command = subcommands.add_parser("remove", help="Delete published redundant-crop files, only with --confirm.")
     remove_command.add_argument("--staging", default=DEFAULT_STAGING_DIR, help="Root of the staged tree. Defaults to tools/assets/.staging.")
