@@ -43,8 +43,8 @@ const EFFECT_SX: SxProps<Theme> = { ...RAISED_TILE_SX, p: 1.25, mt: 1.25, fontSi
 /** An effect tile's label: the card's small group heading, shown as a block over the text. */
 const EFFECT_LABEL_SX: SxProps<Theme> = { ...GROUP_HEADING_SX, display: "block", mb: 0.5 };
 
-/** The lore paragraph. */
-const LORE_SX: SxProps<Theme> = { mt: 1.75, fontSize: 13.5, lineHeight: 1.65, color: "text.secondary", whiteSpace: "pre-line" };
+/** The lore paragraph: a fixed-height box that scrolls, the same height as the handbook's lore body, since module stories run long. */
+const LORE_SX: SxProps<Theme> = { mt: 1.75, height: 300, overflowY: "auto", pr: 1, fontSize: 13.5, lineHeight: 1.65, color: "text.secondary", whiteSpace: "pre-line" };
 
 /** Props for EffectTile. */
 interface EffectTileProps {
