@@ -45,6 +45,12 @@ const FULLSCREEN_SX: SxProps<Theme> = {
 	"&:hover .MuiSvgIcon-root, &.Mui-focusVisible .MuiSvgIcon-root": { transform: "scale(1.15)" }
 };
 
+/**
+ * The end of a story: the stage dimmed behind a note and the links on. It sits under the chrome, which stays at 4, so LOG, HIDE, SOUND, AUTO
+ * and fullscreen still work once the story is over.
+ */
+const END_SX: SxProps<Theme> = { position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(0,0,0,0.6)", zIndex: 3 };
+
 /** The choice list, centred on the stage. */
 const CHOICES_SX: SxProps<Theme> = {
 	position: "absolute",
@@ -252,7 +258,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 						</Box>
 					) : null}
 					{run.stop.kind === "end" ? (
-						<Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(0,0,0,0.6)", zIndex: 6 }} onClick={(event) => event.stopPropagation()}>
+						<Box sx={END_SX} onClick={(event) => event.stopPropagation()}>
 							<Box sx={{ textAlign: "center", display: "grid", gap: 2 }}>
 								<Typography sx={{ fontSize: "3cqh" }}>End of story</Typography>
 								{next ? (

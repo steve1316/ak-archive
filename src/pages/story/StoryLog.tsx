@@ -25,7 +25,7 @@ const LOG_SX: SxProps<Theme> = {
 	pb: 2,
 	overflowY: "auto",
 	cursor: "default",
-	// Above the choices and the end card, which sit at 6.
+	// Above the chrome at 4, the end card at 3 and the choices at 6.
 	zIndex: 7
 };
 
