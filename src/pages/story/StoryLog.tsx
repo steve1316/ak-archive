@@ -5,7 +5,9 @@ import type { SxProps, Theme } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 
 import { useCloseOnOutsideClick } from "../../lib/dismiss.js";
+import { musicTitle } from "../../lib/story.js";
 import { fillNickname } from "./engine.js";
+import { useMusicTitles } from "./useMusicTitles.js";
 
 /** The pinned header's background, solid so the lines scrolling under it do not bleed through. */
 const LOG_SOLID_BG = "#08090d";
@@ -35,8 +37,19 @@ const LOG_SX: SxProps<Theme> = {
  */
 const onPlayer = (target: Element) => target.closest('[data-region="story-player"]') !== null;
 
-/** One entry in the Log: a line, or a choice the reader picked. */
-export type LogEntry = { kind: "line"; name: string | null; text: string } | { kind: "pick"; text: string };
+/** One entry in the Log: a line, a choice the reader picked, or a track that started, by the reference the script played. */
+export type LogEntry = { kind: "line"; name: string | null; text: string } | { kind: "pick"; text: string } | { kind: "music"; ref: string };
+
+/**
+ * Where a track starts in the Log: a quiet line naming it, or nothing for a track with no title.
+ *
+ * @param props Component props.
+ * @param props.title The track's title, or null.
+ * @returns The line.
+ */
+function MusicEntry({ title }: { title: string | null }) {
+	return title ? <Typography sx={{ color: "text.secondary", fontStyle: "italic", fontSize: 13, mb: 1.25 }}>&#9834; Now Playing: {title}</Typography> : null;
+}
 
 /** Props for StoryLog. */
 interface StoryLogProps {
@@ -69,6 +82,7 @@ function StoryLog({ entries, nickname, onNickname, onClose }: StoryLogProps) {
 	}, []);
 
 	useCloseOnOutsideClick(drawer, onClose, onPlayer);
+	const titles = useMusicTitles();
 
 	return (
 		<Box ref={drawer} onClick={(event) => event.stopPropagation()} sx={LOG_SX}>
@@ -84,7 +98,9 @@ function StoryLog({ entries, nickname, onNickname, onClose }: StoryLogProps) {
 				<TextField label="Your name" size="small" value={nickname} onChange={(event) => onNickname(event.target.value)} sx={{ width: "100%" }} />
 			</Box>
 			{entries.map((entry, index) =>
-				entry.kind === "pick" ? (
+				entry.kind === "music" ? (
+					<MusicEntry key={index} title={musicTitle(titles, entry.ref)} />
+				) : entry.kind === "pick" ? (
 					<Typography key={index} sx={{ color: "#f0c36a", mb: 1.25 }}>
 						{"> "}
 						{fillNickname(entry.text, nickname)}

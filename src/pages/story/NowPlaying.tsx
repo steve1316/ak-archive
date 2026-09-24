@@ -4,8 +4,9 @@ import type { MouseEvent } from "react";
 import { Box } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
-import { loadMusicTitles, musicTitle } from "../../lib/story.js";
+import { musicTitle } from "../../lib/story.js";
 import type { StageState } from "./engine.js";
+import { useMusicTitles } from "./useMusicTitles.js";
 
 /** How long the note shows after a track starts, in milliseconds. */
 const SHOW_MS = 3000;
@@ -56,24 +57,20 @@ interface NowPlayingProps {
 }
 
 /**
- * "Now Playing" and the track's title, for a few seconds each time a track starts, so a reader can find it later. The titles load the first
- * time a note is needed, and the store keeps them. The note stays while the pointer is over it, so the title can be selected and copied.
- * Memoised, so the typewriter's ticks leave it alone.
+ * "Now Playing" and the track's title, for a few seconds each time a track starts, so a reader can find it later. The note stays while the
+ * pointer is over it, so the title can be selected and copied. Memoised, so the typewriter's ticks leave it alone.
  *
  * @param props Component props.
  * @returns The note, or nothing while the scene is silent or the track has no title.
  */
 function NowPlaying({ music }: NowPlayingProps) {
-	const [titles, setTitles] = useState<Record<string, string>>({});
+	const titles = useMusicTitles();
 	const [shown, setShown] = useState(false);
 	const hovered = useRef(false);
 	const timer = useRef<number | undefined>(undefined);
 	const title = music ? musicTitle(titles, music.loop) : null;
 
-	useEffect(() => {
-		void loadMusicTitles().then(setTitles);
-		return () => window.clearTimeout(timer.current);
-	}, []);
+	useEffect(() => () => window.clearTimeout(timer.current), []);
 
 	const hideAfter = useCallback((ms: number) => {
 		window.clearTimeout(timer.current);

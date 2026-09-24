@@ -33,7 +33,7 @@ const DEFAULT_NICKNAME = "Doctor";
 export interface StoryRun {
 	/** Where the story stands: the stage, the stop it waits at and the last walk's effects. */
 	run: Advance;
-	/** Every line and choice read so far, oldest first, ending with the line on screen. */
+	/** Every line, choice and track start so far, oldest first, ending with the line on screen. */
 	log: LogEntry[];
 	/** How many characters of the line have typed out. */
 	typed: number;
@@ -126,16 +126,20 @@ function lineEntry(line: { name: string | null; text: string }): LogEntry {
 }
 
 /**
- * The Log entries a walk adds: the line or caption it stopped at, if any.
+ * The Log entries a walk adds: the track it started, if any, then the line or caption it stopped at, if any. So the Log shows where each
+ * track begins. A track that starts again counts, since the engine hands over new music only when a track starts.
  *
  * @param result The walk.
+ * @param before The music playing before the walk.
  * @returns The new entries.
  */
-function stopEntries(result: Advance): LogEntry[] {
+function stopEntries(result: Advance, before: Advance["stage"]["music"]): LogEntry[] {
+	const music = result.stage.music;
+	const started: LogEntry[] = music && music !== before ? [{ kind: "music", ref: music.loop }] : [];
 	if (result.stop.kind === "line") {
-		return [lineEntry(result.stop.line)];
+		return [...started, lineEntry(result.stop.line)];
 	}
-	return result.stop.kind === "caption" ? [lineEntry({ name: null, text: result.stop.text })] : [];
+	return result.stop.kind === "caption" ? [...started, lineEntry({ name: null, text: result.stop.text })] : started;
 }
 
 /**
@@ -151,7 +155,7 @@ function stopEntries(result: Advance): LogEntry[] {
 export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, presence: StoryPresence): StoryRun {
 	const steps = story.steps;
 	const [run, setRun] = useState<Advance>(() => advance(steps, START, emptyStage()));
-	const [log, setLog] = useState<LogEntry[]>(() => stopEntries(run));
+	const [log, setLog] = useState<LogEntry[]>(() => stopEntries(run, null));
 	const [typed, setTyped] = useState(0);
 	const [auto, setAuto] = useState(() => readStored(AUTO_KEY) === "1");
 	const [hideUi, setHideUi] = useState(false);
@@ -185,7 +189,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 			history.current.push({ run, logLength });
 			setRun(result);
 			setTyped(0);
-			setLog((entries) => [...entries, ...passed, ...stopEntries(result)]);
+			setLog((entries) => [...entries, ...passed, ...stopEntries(result, run.stage.music)]);
 			if (result.effects.shake > 0) {
 				setShakeKey((key) => key + 1);
 			}
