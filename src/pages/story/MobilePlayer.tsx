@@ -19,8 +19,8 @@ import type { StoryPresence } from "../../lib/story.js";
 import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
+import NowPlaying from "./NowPlaying.js";
 import StoryStage, { typedRuns } from "./StoryStage.js";
-import { useNowPlaying } from "./useNowPlaying.js";
 import type { StoryRun } from "./useStoryRun.js";
 
 /** The reader in the story's own font. */
@@ -63,7 +63,8 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 		[group, back, canBack, openLog, auto, toggleAuto, soundOn, toggleSound, skip, reading]
 	);
 
-	const track = useNowPlaying(run.stage.music);
+	// Built once per track rather than per render, so the memoised stage holds still while a line types.
+	const nowPlaying = useMemo(() => <NowPlaying music={run.stage.music} />, [run.stage.music]);
 
 	const lines = useMemo<StoryLine[]>(
 		() =>
@@ -103,8 +104,11 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 
 	return (
 		<MobileStoryReader
-			scene={<StoryStage stage={run.stage} nickname={nickname} presence={presence} hideText shakeKey={shakeKey} />}
-			caption={track ? `Now Playing: ${track}` : undefined}
+			scene={
+				<StoryStage stage={run.stage} nickname={nickname} presence={presence} hideText shakeKey={shakeKey}>
+					{nowPlaying}
+				</StoryStage>
+			}
 			controls={controls}
 			lines={lines}
 			current={current}

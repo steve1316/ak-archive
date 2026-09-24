@@ -13,9 +13,9 @@ import type { StoryPresence } from "../../lib/story.js";
 import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
+import NowPlaying from "./NowPlaying.js";
 import StoryLog from "./StoryLog.js";
 import StoryStage from "./StoryStage.js";
-import { useNowPlaying } from "./useNowPlaying.js";
 import type { StoryRun } from "./useStoryRun.js";
 
 /** The stage's box: as wide as the page allows while still fitting the viewport's height. */
@@ -43,21 +43,6 @@ const FULLSCREEN_SX: SxProps<Theme> = {
 		transition: "transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)"
 	},
 	"&:hover .MuiSvgIcon-root, &.Mui-focusVisible .MuiSvgIcon-root": { transform: "scale(1.15)" }
-};
-
-/** What is playing, quietly, in the stage's bottom right corner, the same note the phone reader shows. It carries its own scrim for white scenes. */
-const NOW_PLAYING_SX: SxProps<Theme> = {
-	position: "absolute",
-	right: "1.3%",
-	bottom: "1.4%",
-	zIndex: 4,
-	px: 1,
-	py: 0.25,
-	borderRadius: "3px",
-	bgcolor: "rgba(0, 0, 0, 0.45)",
-	fontSize: "max(12px, 1.8cqh)",
-	color: "rgba(255, 255, 255, 0.85)",
-	pointerEvents: "none"
 };
 
 /** The choice list, centred on the stage. */
@@ -222,7 +207,6 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 	} = reader;
 	const player = useRef<HTMLDivElement>(null);
 	const fullscreen = useFullscreen(player);
-	const track = useNowPlaying(run.stage.music);
 
 	const choices = decision
 		? decision.options.map((option, choice) => (
@@ -261,7 +245,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							onFull={fullscreen.toggle}
 						/>
 					) : null}
-					{!hideUi && track ? <Box sx={NOW_PLAYING_SX}>Now Playing: {track}</Box> : null}
+					{!hideUi ? <NowPlaying music={run.stage.music} /> : null}
 					{choices ? (
 						<Box sx={CHOICES_SX} onClick={(event) => event.stopPropagation()}>
 							{choices}
