@@ -54,6 +54,18 @@ export function spriteKey(name) {
 }
 
 /**
+ * The key a music track is titled by: its file name lowercased, without the `_intro` or `_loop` half and without the `$` a bank name carries.
+ * A track's intro and loop share one key, so both halves show one title.
+ *
+ * @param {string} ref The reference a script plays, such as `Sound_Beta_2/Music/beta1_180603/m_dia_mist_loop` or `$sys_friend_loop`.
+ * @returns {string} The key, such as `m_dia_mist` or `sys_friend`.
+ */
+export function musicKey(ref) {
+	const file = ref.slice(ref.lastIndexOf("/") + 1).toLowerCase();
+	return file.replace(/^\$/, "").replace(/_(intro|loop)$/, "");
+}
+
+/**
  * An empty reference list.
  *
  * @returns {Record<string, Set<string>>} One empty set per asset kind.

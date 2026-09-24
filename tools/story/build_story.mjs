@@ -1,6 +1,6 @@
 /**
- * Write the story data the player reads: an index, one file per group and one file per story, plus the list of every asset the stories
- * reference, which the asset pipeline publishes from.
+ * Write the story data the player reads: an index, one file per group and one file per story, and the title of each track the stories play,
+ * plus the list of every asset the stories reference, which the asset pipeline publishes from.
  *
  * The output is rebuilt from scratch on every import, so a story upstream removes also leaves the site. A story whose script parses to no
  * steps is treated as missing rather than shipped, since the player would open it to a blank stage.
@@ -14,6 +14,7 @@ import { listStoryScripts, loadStoryText, mapLimit } from "../data/lib/storyFile
 import { loadTable } from "../data/lib/upstream.mjs";
 import { buildStoryIndex, withoutStories } from "./build_index.mjs";
 import { addAssetRefs, emptyAssetRefs, serializeAssetRefs } from "./keys.mjs";
+import { musicTitles } from "./music_titles.mjs";
 import { parseScript } from "./parse_avg.mjs";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -36,7 +37,8 @@ const FETCH_LIMIT = 16;
  * What was written, the scripts left out, each unknown command's count, and each operator's record sets.
  */
 export async function writeStoryData({ lock, outDir, reviewTable, chapterTable, handbookDict }) {
-	const [variables, scripts] = await Promise.all([loadTable("story/story_variables", lock), listStoryScripts(lock)]);
+	// `audio_data` is for the music titles. It is 9 MB, so it downloads alongside the stories rather than after them.
+	const [variables, scripts, audioData] = await Promise.all([loadTable("story/story_variables", lock), listStoryScripts(lock), loadTable("audio_data", lock)]);
 	const plan = buildStoryIndex({ reviewTable, chapterTable, handbookDict, scripts });
 	const storyDir = path.join(outDir, "story");
 	fs.rmSync(storyDir, { recursive: true, force: true });
@@ -71,6 +73,8 @@ export async function writeStoryData({ lock, outDir, reviewTable, chapterTable, 
 		groups++;
 	}
 	bytes += writeJson(path.join(storyDir, "story-index.json"), final.index);
-	bytes += writeJson(path.join(outDir, "story-asset-refs.json"), serializeAssetRefs(refs));
+	const assetRefs = serializeAssetRefs(refs);
+	bytes += writeJson(path.join(outDir, "music-titles.json"), musicTitles(assetRefs.music, audioData));
+	bytes += writeJson(path.join(outDir, "story-asset-refs.json"), assetRefs);
 	return { stories: final.stories.length, groups, bytes, missing: final.index.missing, unknown, records: final.records };
 }

@@ -1,12 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { addAssetRefs, emptyAssetRefs, serializeAssetRefs, spriteKey } from "../../story/keys.mjs";
+import { addAssetRefs, emptyAssetRefs, musicKey, serializeAssetRefs, spriteKey } from "../../story/keys.mjs";
 
 test("spriteKey lowercases a sprite name and turns # and $ into dashes, in all three upstream forms", () => {
 	assert.equal(spriteKey("char_002_amiya_1#7"), "char_002_amiya_1-7");
 	assert.equal(spriteKey("avg_npc_484_1#5$1"), "avg_npc_484_1-5-1");
 	assert.equal(spriteKey("Avg_NPC_061"), "avg_npc_061");
+});
+
+test("musicKey gives an intro and its loop one key, and drops a bank name's $", () => {
+	assert.equal(musicKey("Sound_Beta_2/Music/beta1_180603/m_dia_mist_loop"), "m_dia_mist");
+	assert.equal(musicKey("Sound_Beta_2/Music/beta1_180603/m_dia_mist_intro"), "m_dia_mist");
+	assert.equal(musicKey("Sound_Beta_2/Music/AVG/M_AVG_Darkness_03_loop"), "m_avg_darkness_03");
+	assert.equal(musicKey("$sys_friend_loop"), "sys_friend");
 });
 
 test("addAssetRefs collects every asset a story names, by kind, once each", () => {
