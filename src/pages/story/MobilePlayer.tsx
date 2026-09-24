@@ -20,6 +20,7 @@ import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
 import NowPlaying from "./NowPlaying.js";
+import StorySettings from "./StorySettings.js";
 import { useMusicTitles } from "./useMusicTitles.js";
 import StoryStage, { typedRuns } from "./StoryStage.js";
 import type { StoryRun } from "./useStoryRun.js";
@@ -51,8 +52,8 @@ interface MobilePlayerProps {
  * @returns The player.
  */
 export default function MobilePlayer({ reader, group, presence }: MobilePlayerProps) {
-	const { run, log, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, shakeKey } = reader;
-	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, interact } = reader;
+	const { run, log, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, settings, shakeKey } = reader;
+	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact } = reader;
 
 	// Built once per change rather than per render, since the reader re-renders on every typed character.
 	const controls = useMemo<StoryControl[]>(
@@ -133,6 +134,8 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 			onInteract={interact}
 			logOpen={logOpen}
 			onCloseLog={closeLog}
+			settings={<StorySettings settings={settings} nickname={nickname} onNickname={setNickname} sceneSize />}
+			sceneSize={settings.sceneSize}
 			sx={READER_SX}
 		/>
 	);
