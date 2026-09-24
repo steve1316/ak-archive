@@ -271,10 +271,11 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	}, []);
 
 	// Read again: the story from its first stop, as if newly opened. The picks live in the run's cursor, so a fresh walk forgets them too.
+	// A stop on every channel leads its sounds, so a sound effect still looping from the first reading stops.
 	const restart = useCallback(() => {
 		const first = advance(steps, START, emptyStage());
 		history.current = [];
-		setRun(first);
+		setRun({ ...first, effects: { ...first.effects, sounds: [{ kind: "stop", channel: null, fade: 0 }, ...first.effects.sounds] } });
 		setLog(stopEntries(first, null));
 		setTyped(0);
 		setShakeKey(0);
