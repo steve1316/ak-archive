@@ -2,6 +2,8 @@ import { memo, useRef } from "react";
 
 import { Box, Button, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
+import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
 import { Link } from "react-router-dom";
 
 import { useFullscreen } from "archive-kit";
@@ -22,10 +24,25 @@ const STAGE_BOX_SX = { width: "min(100%, calc((100dvh - 120px) * 16 / 9))" } as 
 const TITLE_SX: SxProps<Theme> = { ...STAGE_BOX_SX, display: "flex", alignItems: "baseline", gap: 1.5, mb: 1, color: "#cfd3da" };
 
 /** The top-right and top-left chrome. */
-const CHROME_SX: SxProps<Theme> = { position: "absolute", top: "4%", display: "flex", gap: "2cqh", zIndex: 4, fontSize: "max(11px, 2.2cqh)" };
+const CHROME_SX: SxProps<Theme> = { position: "absolute", top: "4%", display: "flex", alignItems: "center", gap: "2cqh", zIndex: 4, fontSize: "max(11px, 2.2cqh)" };
 
 /** One chrome button: plain text on the stage. */
 const CHROME_BUTTON_SX: SxProps<Theme> = { color: "#fff", minWidth: 0, p: "0.4cqh 0.8cqh", fontSize: "inherit", fontFamily: "inherit", letterSpacing: "0.04em" };
+
+/**
+ * The fullscreen control: a chrome button like LOG and HIDE, so it highlights the same way, holding the icon the phone reader uses. The icon is
+ * outlined, so it reads on a white scene, and grows a little on hover or focus. Only the icon scales, so the row never shifts.
+ */
+const FULLSCREEN_SX: SxProps<Theme> = {
+	...CHROME_BUTTON_SX,
+	"& .MuiSvgIcon-root": {
+		// The text buttons' line height, so the highlight is the same size as theirs.
+		fontSize: "1.75em",
+		filter: "drop-shadow(1px 0 0 rgba(0,0,0,0.85)) drop-shadow(-1px 0 0 rgba(0,0,0,0.85)) drop-shadow(0 1px 0 rgba(0,0,0,0.85)) drop-shadow(0 -1px 0 rgba(0,0,0,0.85))",
+		transition: "transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)"
+	},
+	"&:hover .MuiSvgIcon-root, &.Mui-focusVisible .MuiSvgIcon-root": { transform: "scale(1.15)" }
+};
 
 /** The choice list, centred on the stage. */
 const CHOICES_SX: SxProps<Theme> = {
@@ -101,7 +118,7 @@ interface PlayerChromeProps {
 }
 
 /**
- * LOG and HIDE at the top left, and SOUND, AUTO, SKIP and FULL at the top right. Memoised, so the typewriter's ticks leave it alone.
+ * The fullscreen icon, LOG and HIDE at the top left, and SOUND, AUTO and SKIP at the top right. Memoised, so the typewriter's ticks leave it alone.
  *
  * @param props Component props.
  * @returns The chrome.
@@ -110,6 +127,11 @@ const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog,
 	return (
 		<>
 			<Box sx={{ ...CHROME_SX, left: "4%" }}>
+				{full !== null ? (
+					<Button sx={FULLSCREEN_SX} aria-label={full ? "Leave fullscreen" : "Fill the screen"} onClick={stopClick(onFull)}>
+						{full ? <FullscreenExitIcon /> : <FullscreenIcon />}
+					</Button>
+				) : null}
 				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onLog)}>
 					LOG
 				</Button>
@@ -130,11 +152,6 @@ const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog,
 				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onSkip)} disabled={!canSkip}>
 					SKIP
 				</Button>
-				{full !== null ? (
-					<Button sx={CHROME_BUTTON_SX} aria-label={full ? "Leave fullscreen" : "Fill the screen"} onClick={stopClick(onFull)}>
-						{full ? "EXIT" : "FULL"}
-					</Button>
-				) : null}
 			</Box>
 		</>
 	);
@@ -155,8 +172,8 @@ interface DesktopPlayerProps {
 }
 
 /**
- * The desktop player: the title row over the stage, the game's own text box on the stage, and LOG, HIDE, SOUND, AUTO, SKIP and FULL along its
- * top, with choices and the end card over it and the Log's drawer to its right.
+ * The desktop player: the title row over the stage, the game's own text box on the stage, and the fullscreen icon, LOG, HIDE, SOUND, AUTO and
+ * SKIP along its top, with choices and the end card over it and the Log's drawer to its right.
  *
  * @param props Component props.
  * @returns The player.
