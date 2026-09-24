@@ -138,7 +138,8 @@ export default function EnemyPage() {
 
 	// Draws the Animations card's stage: the selected variant's chibi. Keyed by the variant inside the stage, so a switch loads its own rig.
 	const renderStage = useCallback(
-		({ onStatus }: StageRequest) => (variant ? <EnemySpineStage enemyId={variant.id} iconUrl={hasEnemyIcon(variant.id) ? enemyIconUrl(variant.id) : null} onStatus={onStatus} /> : null),
+		({ onStatus, sx }: StageRequest) =>
+			variant ? <EnemySpineStage enemyId={variant.id} iconUrl={hasEnemyIcon(variant.id) ? enemyIconUrl(variant.id) : null} onStatus={onStatus} sx={sx} /> : null,
 		[variant]
 	);
 
@@ -175,7 +176,7 @@ export default function EnemyPage() {
 								/>
 								<RecordBlock record={recordOf(details)} affiliation={null} trait={details.description} />
 							</Box>
-							<AnimationsCard key={group.enemy.id} interactive battleOnly renderStage={renderStage} />
+							<AnimationsCard key={group.enemy.id} battleOnly renderStage={renderStage} />
 						</Box>
 						<Box sx={STATS_ROW_STRETCH_SX}>
 							<EnemyStatsPanel levels={details.levels} level={shownLevel} onLevelChange={setLevel} />

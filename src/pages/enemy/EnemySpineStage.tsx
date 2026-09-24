@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from "react";
 
+import type { SxProps, Theme } from "@mui/material";
+
 import GenericSpineStage, { useRigIndex } from "../../components/SpineStage.js";
 import { StagePlaceholder } from "../../components/AnimationsCard.js";
 import type { StageStatus } from "../../components/AnimationsCard.js";
@@ -13,6 +15,8 @@ interface EnemySpineStageProps {
 	iconUrl: string | null;
 	/** Reports the stage's status to the card. */
 	onStatus: (status: StageStatus) => void;
+	/** The stage box's style, handed down by the card. */
+	sx: SxProps<Theme>;
 }
 
 /**
@@ -21,16 +25,14 @@ interface EnemySpineStageProps {
  * @param props Component props.
  * @returns The stage.
  */
-export default function EnemySpineStage({ enemyId, iconUrl, onStatus }: EnemySpineStageProps) {
+export default function EnemySpineStage({ enemyId, iconUrl, onStatus, sx }: EnemySpineStageProps) {
 	const { index, state } = useRigIndex(loadEnemySpineIndexFile, enemySpineIndexFile(enemyId), enemyId);
 	const rig = index?.[enemyId] ?? null;
 	const urls = useMemo(() => (rig ? enemyRigUrls(enemySpineRoot(), enemyId, rig) : null), [rig, enemyId]);
 	const renderPlaceholder = useCallback((message: string) => <StagePlaceholder iconUrl={iconUrl} message={message} />, [iconUrl]);
 
-	// Guarded per variant, not per group: each variant is its own rig, so a switch clears the error a failed one left on the boundary.
 	return (
 		<GenericSpineStage
-			guardKey={enemyId}
 			rigKey={rig ? enemyId : null}
 			rig={rig}
 			urls={urls}
@@ -40,6 +42,7 @@ export default function EnemySpineStage({ enemyId, iconUrl, onStatus }: EnemySpi
 			canvasLabel="Enemy animation"
 			hasBack={false}
 			onStatus={onStatus}
+			sx={sx}
 		/>
 	);
 }

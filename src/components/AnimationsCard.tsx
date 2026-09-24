@@ -12,12 +12,10 @@ export type RigKind = "battle" | "dorm";
 /** Which way the battle chibi faces: `front` plays the index's `battle` rig, `back` its `back` rig. */
 export type RigFacing = "front" | "back";
 
-/** What the stage reports back to the card, for the controls and the caption around it. */
+/** What the stage reports back to the card, for the Front/Back switch. */
 export interface StageStatus {
 	/** Whether the selected form has a back-facing battle rig, which enables the Back toggle. */
 	hasBack: boolean;
-	/** The caption's first line, such as "Attack - 2 / 7", or null when nothing is playing. */
-	caption: string | null;
 }
 
 /** What the card asks its stage to draw. */
@@ -28,10 +26,12 @@ export interface StageRequest {
 	facing: RigFacing;
 	/** Stable callback the stage calls whenever its status changes. */
 	onStatus: (status: StageStatus) => void;
+	/** The stage box's style, for the stage to hand to `AnimationStage`. It fills the card's remaining height. */
+	sx: SxProps<Theme>;
 }
 
 /**
- * The stage. Takes every pixel the card has left, which is what lets row 1's slack land here instead of in an empty box. The tight radius
+ * The stage box. Takes every pixel the card has left, which is what lets row 1's slack land here instead of in an empty box. The tight radius
  * matches the art card beside it in row 1.
  */
 const STAGE_SX: SxProps<Theme> = {
@@ -52,23 +52,15 @@ const KIND_SX: SxProps<Theme> = { flex: "none", mb: SECTION_HEADING_GAP };
 /** The Front/Back switch under the Battle tab. */
 const FACING_SX: SxProps<Theme> = { flex: "none", alignSelf: "center", mb: SECTION_HEADING_GAP };
 
-/** The caption under the stage, naming the playing animation. */
-const CAPTION_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center", display: "flex", flexDirection: "column" };
-
-/** The caption block while nothing plays: hidden, but still holding its height. */
-const CAPTION_HIDDEN_SX: SxProps<Theme> = { flex: "none", mt: 0.875, textAlign: "center", display: "flex", flexDirection: "column", visibility: "hidden" };
-
-/** The status the card starts with, and the one the stage reports on its way out, so no caption or Back toggle outlives the rig it described. */
-export const INITIAL_STATUS: StageStatus = { hasBack: false, caption: null };
+/** The status the card starts with, and the one the stage reports on its way out, so no Back toggle outlives the rig it described. */
+export const INITIAL_STATUS: StageStatus = { hasBack: false };
 
 /** The placeholder's stand-in icon, such as an operator's class icon or an enemy's icon, greyed so it reads as absent rather than as content. */
 const PLACEHOLDER_ICON_SX: SxProps<Theme> = { width: 70, display: "block", mx: "auto", mb: 1.125, opacity: 0.45, filter: "grayscale(1)" };
 
 /** Props for AnimationsCard. */
 interface AnimationsCardProps {
-	/** Whether the stage plays and responds to clicks, wheel and drags. The animation caption is only shown when it does. */
-	interactive: boolean;
-	/** Draws the stage for the selected rig kind and facing. */
+	/** Draws the stage for the selected rig kind and facing, or returns null before the subject loads. */
 	renderStage: (request: StageRequest) => ReactNode;
 	/** Hides the Battle/Dorm switch and the Front/Back toggle, for a subject with a single battle rig such as an enemy. */
 	battleOnly?: boolean;
@@ -100,14 +92,14 @@ export function StagePlaceholder({ iconUrl, message }: StagePlaceholderProps) {
 }
 
 /**
- * The Animations card from gfl's doll page: Battle and Dorm, a Front/Back switch under Battle, then a stage that fills the card. No zoom
- * buttons - the stage zooms on the wheel and pans on a drag, as gfl's does, and a click cycles to the next animation. With `battleOnly` the
- * card is just the stage and its caption.
+ * The Animations card from gfl's doll page: Battle and Dorm, a Front/Back switch under Battle, then a stage that fills the card with the
+ * caption under it. archive-kit's `AnimationStage` draws both: the wheel zooms, a drag pans, and a tap steps to the next animation. With
+ * `battleOnly` the card is just the stage and its caption.
  *
  * @param props Component props.
  * @returns The card.
  */
-export default function AnimationsCard({ interactive, renderStage, battleOnly = false }: AnimationsCardProps) {
+export default function AnimationsCard({ renderStage, battleOnly = false }: AnimationsCardProps) {
 	const [kind, setKind] = useState<RigKind>("battle");
 	const [chosenFacing, setChosenFacing] = useState<RigFacing>("front");
 	const [status, setStatus] = useState<StageStatus>(INITIAL_STATUS);
@@ -146,15 +138,8 @@ export default function AnimationsCard({ interactive, renderStage, battleOnly = 
 					</ToggleButton>
 				</ToggleButtonGroup>
 			) : null}
-			<Box sx={STAGE_SX}>{renderStage({ kind, facing: chosenFacing, onStatus: setStatus })}</Box>
-			{interactive ? (
-				// The caption keeps its height while nothing plays, so the stage does not jump when an animation loads.
-				<Box sx={status.caption === null ? CAPTION_HIDDEN_SX : CAPTION_SX}>
-					<Typography variant="caption" color="text.primary" aria-live="polite">
-						{status.caption ?? "\u00a0"}
-					</Typography>
-				</Box>
-			) : null}
+			{/* The stage draws its own box and the caption under it. Before the subject loads, an empty box holds the card's shape. */}
+			{renderStage({ kind, facing: chosenFacing, onStatus: setStatus, sx: STAGE_SX }) ?? <Box sx={STAGE_SX} />}
 		</Paper>
 	);
 }

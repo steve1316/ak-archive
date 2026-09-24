@@ -163,8 +163,8 @@ export default function Operator() {
 	 * @returns The stage, or nothing before the operator loads.
 	 */
 	const renderStage = useCallback(
-		({ kind, facing, onStatus }: StageRequest) =>
-			operator ? <SpineStage operatorId={operator.id} formKey={formKey} kind={kind} facing={facing} profession={operator.profession} onStatus={onStatus} /> : null,
+		({ kind, facing, onStatus, sx }: StageRequest) =>
+			operator ? <SpineStage operatorId={operator.id} formKey={formKey} kind={kind} facing={facing} profession={operator.profession} onStatus={onStatus} sx={sx} /> : null,
 		[operator, formKey]
 	);
 
@@ -197,7 +197,7 @@ export default function Operator() {
 									<IdentityBlock operator={operator} forms={forms} formKey={formKey} onFormChange={handleFormChange} />
 									<RecordBlock record={operator.record} affiliation={affiliationOf(operator)} trait={effect?.trait.base ?? null} traitExtra={effect?.trait.extra ?? null} />
 								</Box>
-								<AnimationsCard key={operator.id} interactive renderStage={renderStage} />
+								<AnimationsCard key={operator.id} renderStage={renderStage} />
 							</Box>
 							<Box sx={STATS_ROW_STRETCH_SX}>
 								<StatsPanel operator={operator} stage={effect?.stage ?? null} controls={controls} onChange={handleControlsChange} />

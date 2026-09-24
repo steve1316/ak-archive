@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from "react";
 
+import type { SxProps, Theme } from "@mui/material";
+
 import GenericSpineStage, { useRigIndex } from "../../components/SpineStage.js";
 import { StagePlaceholder } from "../../components/AnimationsCard.js";
 import type { RigFacing, RigKind, StageStatus } from "../../components/AnimationsCard.js";
@@ -20,6 +22,8 @@ interface SpineStageProps {
 	profession: string;
 	/** Reports the stage's status to the card. */
 	onStatus: (status: StageStatus) => void;
+	/** The stage box's style, handed down by the card. */
+	sx: SxProps<Theme>;
 }
 
 /**
@@ -28,7 +32,7 @@ interface SpineStageProps {
  * @param props Component props.
  * @returns The stage.
  */
-export default function SpineStage({ operatorId, formKey, kind, facing, profession, onStatus }: SpineStageProps) {
+export default function SpineStage({ operatorId, formKey, kind, facing, profession, onStatus, sx }: SpineStageProps) {
 	const { index, state } = useRigIndex(loadSpineIndexFile, spineIndexFile(operatorId), `${operatorId}/${formKey}/${kind}/${facing}`);
 	const entry = index?.[operatorId];
 	const spineKey = entry && formKey !== null ? spineFormKey(formKey, entry) : null;
@@ -41,7 +45,6 @@ export default function SpineStage({ operatorId, formKey, kind, facing, professi
 
 	return (
 		<GenericSpineStage
-			guardKey={operatorId}
 			rigKey={rigKey}
 			rig={rig}
 			urls={urls}
@@ -51,6 +54,7 @@ export default function SpineStage({ operatorId, formKey, kind, facing, professi
 			canvasLabel="Operator chibi animation"
 			hasBack={form?.back !== undefined}
 			onStatus={onStatus}
+			sx={sx}
 		/>
 	);
 }
