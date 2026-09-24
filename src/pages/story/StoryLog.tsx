@@ -83,15 +83,13 @@ function StoryLog({ entries, nickname, onClose }: StoryLogProps) {
 
 	return (
 		<Box ref={drawer} onClick={(event) => event.stopPropagation()} sx={LOG_SX}>
-			<Box sx={{ position: "sticky", top: 0, zIndex: 1, background: LOG_SOLID_BG, pt: 2, pb: 1.5, mb: 0.5 }}>
-				<Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-					<Typography component="h2" variant="h6" sx={{ flex: 1 }}>
-						Log
-					</Typography>
-					<IconButton aria-label="Close the log" onClick={onClose} size="small">
-						<CloseIcon />
-					</IconButton>
-				</Box>
+			<Box sx={{ position: "sticky", top: 0, zIndex: 1, background: LOG_SOLID_BG, pt: 2, pb: 1.5, mb: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
+				<Typography component="h2" variant="h6" sx={{ flex: 1 }}>
+					Log
+				</Typography>
+				<IconButton aria-label="Close the log" onClick={onClose} size="small">
+					<CloseIcon />
+				</IconButton>
 			</Box>
 			{entries.map((entry, index) =>
 				entry.kind === "music" ? (
