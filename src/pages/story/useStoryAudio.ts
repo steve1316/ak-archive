@@ -225,7 +225,7 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 		}
 		track.current = first;
 		if (fadeIn > 0) {
-			fadeVolume(first, 0, 0, apply);
+			setLevel(first, 0, apply);
 			fadeVolume(first, target, fadeIn, apply);
 		}
 		play(first);
