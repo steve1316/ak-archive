@@ -22,12 +22,17 @@ const AUTO_PER_CHAR_MS = 35;
 /** How many stops ahead the player preloads art for. */
 const PRELOAD_STOPS = 3;
 
-/** Where the reader's name, the mute state and AUTO are kept, so they carry over from one story to the next. Progress is never stored. */
+/** Where the reader's name is kept, so it carries over from one story to the next. Progress is never stored. */
 const NICKNAME_KEY = "storyNickname";
-const MUTED_KEY = "storyMuted";
-const AUTO_KEY = "storyAuto";
 
-/** Where the reader's story settings are kept. GFL shares this origin, so the key carries the site's name. */
+/**
+ * Where the mute state and AUTO were kept before they joined the story settings. GFL wrote the same mute key on this origin, so muting one
+ * archive muted the other. They are read once, to seed the settings, and never written again.
+ */
+const OLD_MUTED_KEY = "storyMuted";
+const OLD_AUTO_KEY = "storyAuto";
+
+/** Where the reader's story settings are kept, AUTO and mute included. GFL shares this origin, so the key carries the site's name. */
 const SETTINGS_KEY = "ak.storySettings";
 
 /** The name used until the reader sets one. */
@@ -73,7 +78,7 @@ export interface StoryRun {
 	soundOn: boolean;
 	/** The reader's name, which fills `{@nickname}`. */
 	nickname: string;
-	/** The reader's text speed, volumes and phone scene size, saved per browser. */
+	/** The reader's text speed, volumes, phone scene size, AUTO and mute, saved per browser. */
 	settings: StorySettingsState;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
@@ -171,14 +176,15 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const [run, setRun] = useState<Advance>(() => advance(steps, START, emptyStage()));
 	const [log, setLog] = useState<LogEntry[]>(() => stopEntries(run, null));
 	const [typed, setTyped] = useState(0);
-	const [auto, setAuto] = useState(() => readStored(AUTO_KEY) === "1");
 	const [hideUi, setHideUi] = useState(false);
 	const [logOpen, setLogOpen] = useState(false);
-	const [muted, setMuted] = useState(() => readStored(MUTED_KEY) === "1");
 	const [nickname, setNicknameState] = useState(() => readStored(NICKNAME_KEY) || DEFAULT_NICKNAME);
 	const [shakeKey, setShakeKey] = useState(0);
 
-	const settings = useStorySettings(SETTINGS_KEY);
+	// The old AUTO and mute keys, read once, seed the settings for anything the reader has not saved yet.
+	const [seed] = useState(() => ({ auto: readStored(OLD_AUTO_KEY) === "1", muted: readStored(OLD_MUTED_KEY) === "1" }));
+	const settings = useStorySettings(SETTINGS_KEY, seed);
+	const { auto, muted, setAuto, setMuted } = settings;
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
 	const { resume: resumeAudio, blocked } = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, bgm: settings.bgm, sfx: settings.sfx, urlOf });
 	const titles = useMusicTitles();
@@ -362,11 +368,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		if (blockedAtClick.current && !muted) {
 			return;
 		}
-		setMuted((value) => {
-			writeStored(MUTED_KEY, value ? "0" : "1");
-			return !value;
-		});
-	}, [muted]);
+		setMuted(!muted);
+	}, [muted, setMuted]);
 
 	// The phone's media controls show the story and the scene on screen, rather than the site's icon and address.
 	useMediaSession({ title, artist: group.name, album: "Arknights Archive", artwork: artUrl });
@@ -374,12 +377,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const openLog = useCallback(() => setLogOpen(true), []);
 	const closeLog = useCallback(() => setLogOpen(false), []);
 	const hide = useCallback(() => setHideUi(true), []);
-	const toggleAuto = useCallback(() => {
-		setAuto((value) => {
-			writeStored(AUTO_KEY, value ? "0" : "1");
-			return !value;
-		});
-	}, []);
+	const toggleAuto = useCallback(() => setAuto(!auto), [auto, setAuto]);
 
 	return {
 		run,
