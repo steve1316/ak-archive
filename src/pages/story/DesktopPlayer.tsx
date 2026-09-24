@@ -1,12 +1,13 @@
-import { memo, useRef } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 
 import { Box, Button, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import FullscreenIcon from "@mui/icons-material/Fullscreen";
 import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
+import SettingsIcon from "@mui/icons-material/Settings";
 import { Link } from "react-router-dom";
 
-import { useFullscreen } from "archive-kit";
+import { StorySettingsCard, useFullscreen } from "archive-kit";
 
 import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
@@ -15,6 +16,7 @@ import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
 import NowPlaying from "./NowPlaying.js";
 import StoryLog from "./StoryLog.js";
+import StorySettings from "./StorySettings.js";
 import StoryStage from "./StoryStage.js";
 import type { StoryRun } from "./useStoryRun.js";
 
@@ -34,10 +36,11 @@ const CHROME_BUTTON_SX: SxProps<Theme> = { color: "#fff", minWidth: 0, p: "0.4cq
 const CHROME_END_SX = { "& .MuiButton-root:hover, & .MuiButton-root.Mui-focusVisible": { bgcolor: "rgba(255, 255, 255, 0.16)" } } as const;
 
 /**
- * The fullscreen control: a chrome button like LOG and HIDE, so it highlights the same way, holding the icon the phone reader uses. The icon is
- * outlined, so it reads on a white scene, and grows a little on hover or focus. Only the icon scales, so the row never shifts.
+ * The icon controls, fullscreen and Settings: chrome buttons like LOG and HIDE, so they highlight the same way, holding the icons the phone
+ * reader uses. Each icon is outlined, so it reads on a white scene, and grows a little on hover or focus. Only the icon scales, so the row
+ * never shifts.
  */
-const FULLSCREEN_SX: SxProps<Theme> = {
+const ICON_BUTTON_SX: SxProps<Theme> = {
 	...CHROME_BUTTON_SX,
 	"& .MuiSvgIcon-root": {
 		// The text buttons' line height, so the highlight is the same size as theirs.
@@ -47,6 +50,9 @@ const FULLSCREEN_SX: SxProps<Theme> = {
 	},
 	"&:hover .MuiSvgIcon-root, &.Mui-focusVisible .MuiSvgIcon-root": { transform: "scale(1.15)" }
 };
+
+/** The Settings card, dropped under the chrome's left end. It scrolls on a short stage rather than running off it. */
+const SETTINGS_CARD_SX: SxProps<Theme> = { top: "10cqh", left: "4%", maxHeight: "86cqh" };
 
 /**
  * The end of a story: the stage dimmed behind a note and the links on. It sits under the chrome, which stays at 4, so LOG, HIDE, SOUND, AUTO
@@ -127,23 +133,31 @@ interface PlayerChromeProps {
 	onFull: () => void;
 	/** Whether the story has ended, when the stage is black and the hover tint turns white. */
 	ended: boolean;
+	/** Whether the Settings card is open. */
+	settingsOpen: boolean;
+	/** Opens the Settings card. */
+	onSettings: () => void;
 }
 
 /**
- * The fullscreen icon, LOG and HIDE at the top left, and SOUND, AUTO and SKIP at the top right. Memoised, so the typewriter's ticks leave it alone.
+ * The fullscreen and Settings icons, LOG and HIDE at the top left, and SOUND, AUTO and SKIP at the top right. Memoised, so the typewriter's
+ * ticks leave it alone.
  *
  * @param props Component props.
  * @returns The chrome.
  */
-const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog, onHide, onSound, onAuto, onSkip, full, onFull, ended }: PlayerChromeProps) {
+const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog, onHide, onSound, onAuto, onSkip, full, onFull, ended, settingsOpen, onSettings }: PlayerChromeProps) {
 	return (
 		<>
 			<Box sx={{ ...CHROME_SX, ...(ended ? CHROME_END_SX : null), left: "4%" }}>
 				{full !== null ? (
-					<Button sx={FULLSCREEN_SX} aria-label={full ? "Leave fullscreen" : "Fill the screen"} onClick={stopClick(onFull)}>
+					<Button sx={ICON_BUTTON_SX} aria-label={full ? "Leave fullscreen" : "Fill the screen"} onClick={stopClick(onFull)}>
 						{full ? <FullscreenExitIcon /> : <FullscreenIcon />}
 					</Button>
 				) : null}
+				<Button sx={ICON_BUTTON_SX} aria-label="Settings" aria-expanded={settingsOpen} onClick={stopClick(onSettings)}>
+					<SettingsIcon />
+				</Button>
 				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onLog)}>
 					LOG
 				</Button>
@@ -184,8 +198,8 @@ interface DesktopPlayerProps {
 }
 
 /**
- * The desktop player: the title row over the stage, the game's own text box on the stage, and the fullscreen icon, LOG, HIDE, SOUND, AUTO and
- * SKIP along its top, with choices and the end card over it and the Log's drawer to its right.
+ * The desktop player: the title row over the stage, the game's own text box on the stage, and the fullscreen and Settings icons, LOG, HIDE,
+ * SOUND, AUTO and SKIP along its top, with choices, the end card and the Settings card over it and the Log's drawer to its right.
  *
  * @param props Component props.
  * @returns The player.
@@ -204,6 +218,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		logOpen,
 		soundOn,
 		nickname,
+		settings,
 		shakeKey,
 		pick,
 		skip,
@@ -218,6 +233,9 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 	} = reader;
 	const player = useRef<HTMLDivElement>(null);
 	const fullscreen = useFullscreen(player);
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const openSettings = useCallback(() => setSettingsOpen(true), []);
+	const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
 	const choices = decision
 		? decision.options.map((option, choice) => (
@@ -255,9 +273,14 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							full={fullscreen.supported ? fullscreen.active : null}
 							onFull={fullscreen.toggle}
 							ended={run.stop.kind === "end"}
+							settingsOpen={settingsOpen}
+							onSettings={openSettings}
 						/>
 					) : null}
 					{!hideUi ? <NowPlaying music={run.stage.music} /> : null}
+					<StorySettingsCard open={settingsOpen && !hideUi} onClose={closeSettings} sx={SETTINGS_CARD_SX}>
+						<StorySettings settings={settings} nickname={nickname} onNickname={setNickname} />
+					</StorySettingsCard>
 					{choices ? (
 						<Box sx={CHOICES_SX} onClick={(event) => event.stopPropagation()}>
 							{choices}
@@ -279,7 +302,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 						</Box>
 					) : null}
 				</StoryStage>
-				{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={setNickname} onClose={closeLog} /> : null}
+				{logOpen ? <StoryLog entries={log} nickname={nickname} onClose={closeLog} /> : null}
 			</Box>
 		</>
 	);
