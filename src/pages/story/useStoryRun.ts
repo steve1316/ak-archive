@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useMediaSession } from "archive-kit";
+import { useMediaSession, useStorySettings } from "archive-kit";
+import type { StorySettingsState } from "archive-kit";
 
 import { storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
@@ -11,10 +12,10 @@ import type { Advance } from "./engine.js";
 import type { LogEntry } from "./StoryLog.js";
 import { useStoryAudio } from "./useStoryAudio.js";
 
-/** How long one character takes to type, in milliseconds. */
+/** How long one character takes to type at 1x, in milliseconds. */
 const TYPE_MS = 28;
 
-/** AUTO's pause after a line, in milliseconds: a base plus a share per character. */
+/** AUTO's pause after a line, in milliseconds: a base plus a share per character, which the text speed scales. */
 const AUTO_BASE_MS = 900;
 const AUTO_PER_CHAR_MS = 35;
 
@@ -25,6 +26,9 @@ const PRELOAD_STOPS = 3;
 const NICKNAME_KEY = "storyNickname";
 const MUTED_KEY = "storyMuted";
 const AUTO_KEY = "storyAuto";
+
+/** Where the reader's story settings are kept. GFL shares this origin, so the key carries the site's name. */
+const SETTINGS_KEY = "ak.storySettings";
 
 /** The name used until the reader sets one. */
 const DEFAULT_NICKNAME = "Doctor";
@@ -61,6 +65,8 @@ export interface StoryRun {
 	soundOn: boolean;
 	/** The reader's name, which fills `{@nickname}`. */
 	nickname: string;
+	/** The reader's text speed, volumes and phone scene size, saved per browser. */
+	settings: StorySettingsState;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
 	/** Steps back to the previous stop. */
@@ -164,8 +170,9 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const [nickname, setNicknameState] = useState(() => readStored(NICKNAME_KEY) || DEFAULT_NICKNAME);
 	const [shakeKey, setShakeKey] = useState(0);
 
+	const settings = useStorySettings(SETTINGS_KEY);
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
-	const { resume: resumeAudio, blocked } = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, urlOf });
+	const { resume: resumeAudio, blocked } = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, bgm: settings.bgm, sfx: settings.sfx, urlOf });
 	const preloaded = useRef(new Set<string>());
 
 	const line: LineStep | null = run.stop.kind === "line" ? run.stop.line : null;
@@ -239,18 +246,19 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		if (typed >= length) {
 			return;
 		}
-		const timer = window.setTimeout(() => setTyped((count) => count + 1), TYPE_MS);
+		const timer = window.setTimeout(() => setTyped((count) => count + 1), TYPE_MS / settings.speed);
 		return () => window.clearTimeout(timer);
-	}, [typed, length]);
+	}, [typed, length, settings.speed]);
 
-	// AUTO: once a line has typed out, wait in proportion to its length plus any pause the script asked for, then move on.
+	// AUTO: once a line has typed out, wait in proportion to its length plus any pause the script asked for, then move on. The per-character
+	// share follows the text speed, while the base and the script's own pauses do not.
 	useEffect(() => {
 		if (!auto || logOpen || !reading || typed < length) {
 			return;
 		}
-		const timer = window.setTimeout(step, AUTO_BASE_MS + AUTO_PER_CHAR_MS * (caption?.length ?? length) + run.effects.delay * 1000);
+		const timer = window.setTimeout(step, AUTO_BASE_MS + (AUTO_PER_CHAR_MS / settings.speed) * (caption?.length ?? length) + run.effects.delay * 1000);
 		return () => window.clearTimeout(timer);
-	}, [auto, logOpen, reading, caption, run, typed, length, step]);
+	}, [auto, logOpen, reading, caption, run, typed, length, step, settings.speed]);
 
 	// Preload the art of the next few stops, so a new scene does not appear half-loaded.
 	useEffect(() => {
@@ -356,6 +364,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		logOpen,
 		soundOn: !muted && !blocked,
 		nickname,
+		settings,
 		shakeKey,
 		back,
 		pick,
