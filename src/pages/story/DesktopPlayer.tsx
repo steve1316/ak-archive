@@ -8,7 +8,7 @@ import { useFullscreen } from "archive-kit";
 
 import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import { storyGroupPath } from "../../lib/routes.js";
+import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
 import { COMPACT, COMPACT_QUERY, STACKED, STACKED_QUERY } from "./layouts.js";
@@ -307,7 +307,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							<Box sx={{ textAlign: "center", display: "grid", gap: 2 }}>
 								<Typography sx={{ fontSize: "3cqh" }}>End of story</Typography>
 								{next ? (
-									<Button component={Link} to={`/story/${group.id}/${next.id}`} variant="contained">
+									<Button component={Link} to={storyPath(group.id, next.id)} variant="contained">
 										Next: {storyTitle(next)}
 									</Button>
 								) : null}

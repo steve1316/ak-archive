@@ -12,6 +12,7 @@ import { hasIllustration, hasPortrait, illustrationUrl, portraitUrl } from "../.
 import { searchIndex } from "../../lib/data.js";
 import { isTextTarget } from "../../lib/keys.js";
 import { CHIP_SELECTED_SX, CHIP_UNSELECTED_SX } from "../../lib/layout.js";
+import { storyPath } from "../../lib/routes.js";
 import { loadStoryGroup } from "../../lib/story.js";
 import type { StoryGroup, StoryIndex } from "../../types/story.js";
 import { filterOperators, pickSkinKey, recordOperators } from "./records.js";
@@ -252,7 +253,7 @@ const RecordDetail = memo(function RecordDetail({ operator, onBack }: RecordDeta
 								{group.name}
 							</Typography>
 							{group.stories.map((story) => (
-								<Box key={story.id} component={Link} to={`/story/${group.id}/${story.id}`} sx={STORY_SX}>
+								<Box key={story.id} component={Link} to={storyPath(group.id, story.id)} sx={STORY_SX}>
 									<Typography>{story.name}</Typography>
 									<Typography variant="caption" sx={{ border: "1px solid #2a303c", borderRadius: 1, px: 0.75, color: "text.secondary" }}>
 										{story.tag}

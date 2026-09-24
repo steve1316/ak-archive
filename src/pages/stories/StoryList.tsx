@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { LoadError } from "archive-kit";
 
 import { useCloseOnOutsideClick } from "../../lib/dismiss.js";
+import { storyPath } from "../../lib/routes.js";
 import { loadStoryGroup } from "../../lib/story.js";
 import type { StoryGroup } from "../../types/story.js";
 
@@ -88,7 +89,7 @@ function StoryList({ groupId, subtitle, onClose }: StoryListProps) {
 				<Box
 					key={story.id}
 					component={Link}
-					to={`/story/${group.id}/${story.id}`}
+					to={storyPath(group.id, story.id)}
 					sx={{
 						display: "grid",
 						gridTemplateColumns: "56px 1fr auto",

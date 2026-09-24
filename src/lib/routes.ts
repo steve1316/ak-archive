@@ -24,6 +24,17 @@ export function storyGroupPath(group: string | null = null): string {
 }
 
 /**
+ * The route for one story in the player.
+ *
+ * @param group The story group id.
+ * @param story The story id.
+ * @returns The route, without the site's base path.
+ */
+export function storyPath(group: string, story: string): string {
+	return `/story/${group}/${story}`;
+}
+
+/**
  * The route for an operator's page, or for a page under it such as the art viewer.
  *
  * @param id The upstream operator id.
