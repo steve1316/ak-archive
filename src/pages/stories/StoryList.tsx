@@ -3,9 +3,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Box, Button, Typography } from "@mui/material";
 import { Link } from "react-router-dom";
 
-import { LoadError } from "archive-kit";
-
-import { useCloseOnOutsideClick } from "../../lib/dismiss.js";
+import { LoadError, useCloseOnOutsidePress } from "archive-kit";
 import { storyPath } from "../../lib/routes.js";
 import { loadStoryGroup } from "../../lib/story.js";
 import type { StoryGroup } from "../../types/story.js";
@@ -41,7 +39,7 @@ function StoryList({ groupId, subtitle, onClose }: StoryListProps) {
 	const [attempt, setAttempt] = useState(0);
 	const panel = useRef<HTMLDivElement>(null);
 
-	useCloseOnOutsideClick(panel, onClose, onPicker);
+	useCloseOnOutsidePress(panel, onClose, onPicker);
 
 	useEffect(() => {
 		let active = true;
