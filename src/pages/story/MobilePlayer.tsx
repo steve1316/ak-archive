@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { Box, Button, TextField, Typography } from "@mui/material";
+import { Box, Button, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
@@ -52,7 +52,7 @@ interface MobilePlayerProps {
  */
 export default function MobilePlayer({ reader, group, presence }: MobilePlayerProps) {
 	const { run, log, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, shakeKey } = reader;
-	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact } = reader;
+	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, interact } = reader;
 
 	// Built once per change rather than per render, since the reader re-renders on every typed character.
 	const controls = useMemo<StoryControl[]>(
@@ -117,12 +117,6 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 			</Box>
 		) : null;
 
-	// Memoised, since the Log is memoised and a new header on every typed character would redraw every line in it.
-	const logHeader = useMemo(
-		() => <TextField label="Your name" size="small" value={nickname} onChange={(event) => setNickname(event.target.value)} sx={{ width: "100%" }} />,
-		[nickname, setNickname]
-	);
-
 	return (
 		<MobileStoryReader
 			scene={
@@ -139,7 +133,6 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 			onInteract={interact}
 			logOpen={logOpen}
 			onCloseLog={closeLog}
-			logHeader={logHeader}
 			sx={READER_SX}
 		/>
 	);
