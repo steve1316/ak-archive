@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { Box, Button, TextField, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
@@ -14,12 +14,13 @@ import { Link } from "react-router-dom";
 import { MobileStoryReader, StorySkipIcon } from "archive-kit";
 import type { StoryChoice, StoryControl, StoryCurrentLine, StoryLine } from "archive-kit";
 
-import { loadMusicTitles, musicTitle, storyTitle } from "../../lib/story.js";
+import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
 import StoryStage, { typedRuns } from "./StoryStage.js";
+import { useNowPlaying } from "./useNowPlaying.js";
 import type { StoryRun } from "./useStoryRun.js";
 
 /** The reader in the story's own font. */
@@ -62,13 +63,7 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 		[group, back, canBack, openLog, auto, toggleAuto, soundOn, toggleSound, skip, reading]
 	);
 
-	// The track titles load here rather than with the story, since only the phone shows them. The note fills in once they arrive.
-	const [musicTitles, setMusicTitles] = useState<Record<string, string>>({});
-	useEffect(() => {
-		void loadMusicTitles().then(setMusicTitles);
-	}, []);
-	// What is playing, so a reader can find the track later. Nothing shows while the scene is silent.
-	const track = run.stage.music ? musicTitle(musicTitles, run.stage.music.loop) : null;
+	const track = useNowPlaying(run.stage.music);
 
 	const lines = useMemo<StoryLine[]>(
 		() =>
