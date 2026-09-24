@@ -225,7 +225,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 
 	// Counted once per story: every line and caption in script order, both sides of each branch.
 	const order = useMemo(() => lineOrder(steps), [steps]);
-	const progress = useMemo(() => ({ at: lineNumber(order, run.cursor), total: order.total }), [order, run.cursor]);
+	// No count for a story with no lines. Floored at 1, so a story that opens on a choice reads "Line 1".
+	const progress = useMemo(() => (order.total > 0 ? { at: Math.max(1, lineNumber(order, run.cursor)), total: order.total } : null), [order, run.cursor]);
 	// A new object each time a track starts, so the corner shows its title again even for the same track.
 	const music = run.stage.music;
 	const track = useMemo(() => {
