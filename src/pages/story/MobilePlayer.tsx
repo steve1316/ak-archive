@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Box, Button, TextField, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 import { MobileStoryReader, StorySkipIcon } from "archive-kit";
 import type { StoryChoice, StoryControl, StoryCurrentLine, StoryLine } from "archive-kit";
 
-import { storyTitle } from "../../lib/story.js";
+import { loadMusicTitles, musicTitle, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
@@ -34,8 +34,6 @@ interface MobilePlayerProps {
 	reader: StoryRun;
 	/** The group the story belongs to, for the way back and the end card. */
 	group: StoryGroup;
-	/** The story's title, such as `0-1 Collapse`, for the scene's corner. */
-	title: string;
 	/** Which story assets are published. */
 	presence: StoryPresence;
 }
@@ -47,7 +45,7 @@ interface MobilePlayerProps {
  * @param props Component props.
  * @returns The player.
  */
-export default function MobilePlayer({ reader, group, title, presence }: MobilePlayerProps) {
+export default function MobilePlayer({ reader, group, presence }: MobilePlayerProps) {
 	const { run, log, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, shakeKey } = reader;
 	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact } = reader;
 
@@ -63,6 +61,14 @@ export default function MobilePlayer({ reader, group, title, presence }: MobileP
 		],
 		[group, back, canBack, openLog, auto, toggleAuto, soundOn, toggleSound, skip, reading]
 	);
+
+	// The track titles load here rather than with the story, since only the phone shows them. The note fills in once they arrive.
+	const [musicTitles, setMusicTitles] = useState<Record<string, string>>({});
+	useEffect(() => {
+		void loadMusicTitles().then(setMusicTitles);
+	}, []);
+	// What is playing, so a reader can find the track later. Nothing shows while the scene is silent.
+	const track = run.stage.music ? musicTitle(musicTitles, run.stage.music.loop) : null;
 
 	const lines = useMemo<StoryLine[]>(
 		() =>
@@ -103,7 +109,7 @@ export default function MobilePlayer({ reader, group, title, presence }: MobileP
 	return (
 		<MobileStoryReader
 			scene={<StoryStage stage={run.stage} nickname={nickname} presence={presence} hideText shakeKey={shakeKey} />}
-			caption={title}
+			caption={track ? `Now Playing: ${track}` : undefined}
 			controls={controls}
 			lines={lines}
 			current={current}

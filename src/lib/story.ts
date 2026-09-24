@@ -11,7 +11,7 @@
 import { createDataStore } from "archive-kit";
 import storyData from "virtual:story-data";
 
-import { spriteKey } from "../../tools/story/keys.mjs";
+import { musicKey, spriteKey } from "../../tools/story/keys.mjs";
 import { storyAssets } from "./assets.js";
 import type { StoryAssets, StoryFile, StoryGroup, StoryGroupEntry, StoryIndex } from "../types/story.js";
 
@@ -26,12 +26,11 @@ export interface StoryPresence {
 	hasAudio: (ref: string) => boolean;
 }
 
-/** Hashed URLs of the story index and the asset manifest, keyed by bare file name. */
+/** Hashed URLs of the story index, the asset manifest and the music titles, keyed by bare file name. */
 const INDEX_URLS = Object.fromEntries(
-	Object.entries(import.meta.glob<string>(["../data/story/story-index.json", "../data/story-assets.json"], { query: "?url", import: "default", eager: true })).map(([file, url]) => [
-		file.replace(/^.*\/|\.json$/g, ""),
-		url
-	])
+	Object.entries(import.meta.glob<string>(["../data/story/story-index.json", "../data/story-assets.json", "../data/music-titles.json"], { query: "?url", import: "default", eager: true })).map(
+		([file, url]) => [file.replace(/^.*\/|\.json$/g, ""), url]
+	)
 );
 
 /** The store owns fetching and the cache that drops a failed load so a retry actually retries. */
@@ -98,6 +97,26 @@ export function loadStoryGroup(id: string): Promise<StoryGroup> {
  */
 export function loadStory(id: string): Promise<StoryFile> {
 	return store.loadOnce(`story:${id}`, () => fetchStoryFile<StoryFile>(`stories/${encodeURIComponent(id)}.json`));
+}
+
+/**
+ * Load the title of each music track the stories play, by track key. A failed load gives no titles rather than failing the story.
+ *
+ * @returns The titles, such as `{ m_dia_street: "City" }`.
+ */
+export function loadMusicTitles(): Promise<Record<string, string>> {
+	return store.loadFile<Record<string, string>>("music-titles").catch(() => ({}));
+}
+
+/**
+ * The title of a track, from the titles `loadMusicTitles` gives.
+ *
+ * @param titles The titles by track key.
+ * @param ref The track a script plays, such as `Sound_Beta_2/Music/beta1_180603/m_dia_mist_loop`.
+ * @returns The title, such as `Mist`, or null for a track with none.
+ */
+export function musicTitle(titles: Record<string, string>, ref: string): string | null {
+	return titles[musicKey(ref)] ?? null;
 }
 
 /**
