@@ -7,7 +7,7 @@ import { Box, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { useParams } from "react-router-dom";
 
-import { LoadError, ScrollToTop } from "archive-kit";
+import { LoadError, MOBILE_LANDSCAPE_QUERY, ScrollToTop, useIsMobile } from "archive-kit";
 
 import { loadStory, loadStoryGroup, loadStoryPresence, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
@@ -15,6 +15,7 @@ import { fillBelowNavbar } from "../../lib/layout.js";
 import type { StoryFile, StoryGroup } from "../../types/story.js";
 import DesktopPlayer from "./DesktopPlayer.js";
 import { COMPACT, COMPACT_QUERY, STACKED, STACKED_QUERY } from "./layouts.js";
+import MobilePlayer from "./MobilePlayer.js";
 import { useStoryRun } from "./useStoryRun.js";
 
 /**
@@ -35,6 +36,16 @@ const PAGE_SX: SxProps<Theme> = (theme) => ({
 	[COMPACT]: { containerType: "size" }
 });
 
+/** The page on a phone: exactly the screen under the navbar, or the whole screen on its side, where the reader hides the navbar. The reader fills it. */
+const MOBILE_PAGE_SX: SxProps<Theme> = (theme) => ({
+	...fillBelowNavbar(theme.mixins.toolbar, "height"),
+	display: "flex",
+	flexDirection: "column",
+	background: "#000",
+	// Last, so it wins over the toolbar heights above.
+	[`@media ${MOBILE_LANDSCAPE_QUERY}`]: { height: "100dvh" }
+});
+
 /** Props for StoryPlayer. */
 interface StoryPlayerProps {
 	/** The story being played. */
@@ -47,17 +58,20 @@ interface StoryPlayerProps {
 	tag: string | undefined;
 	/** Which story assets are published. */
 	presence: StoryPresence;
+	/** Whether to draw the phone reader rather than the desktop player. */
+	mobile: boolean;
 }
 
 /**
- * Plays one story. Keyed on the story id by its parent, so opening another story always starts from an empty stage.
+ * Plays one story, on the phone reader or the desktop player. Both read from one `useStoryRun`, so turning a phone or docking a tablet keeps the
+ * reader's place. Keyed on the story id by its parent, so opening another story always starts from an empty stage.
  *
  * @param props Component props.
  * @returns The player.
  */
-function StoryPlayer({ story, group, title, tag, presence }: StoryPlayerProps) {
+function StoryPlayer({ story, group, title, tag, presence, mobile }: StoryPlayerProps) {
 	const reader = useStoryRun(story, group, title, presence);
-	return <DesktopPlayer reader={reader} group={group} title={title} tag={tag} presence={presence} />;
+	return mobile ? <MobilePlayer reader={reader} group={group} title={title} presence={presence} /> : <DesktopPlayer reader={reader} group={group} title={title} tag={tag} presence={presence} />;
 }
 
 /**
@@ -70,6 +84,7 @@ export default function Story() {
 	const [data, setData] = useState<{ story: StoryFile; group: StoryGroup; presence: StoryPresence } | null>(null);
 	const [error, setError] = useState(false);
 	const [attempt, setAttempt] = useState(0);
+	const mobile = useIsMobile();
 
 	useEffect(() => {
 		let active = true;
@@ -101,12 +116,12 @@ export default function Story() {
 	}, [data, entry, title]);
 
 	return (
-		<Box component="main" sx={PAGE_SX}>
+		<Box component="main" sx={mobile && data ? MOBILE_PAGE_SX : PAGE_SX}>
 			<ScrollToTop />
 			{error ? (
 				<LoadError what="this story" onRetry={() => setAttempt((value) => value + 1)} titleComponent="h1" />
 			) : data ? (
-				<StoryPlayer key={data.story.id} story={data.story} group={data.group} title={title} tag={entry?.tag} presence={data.presence} />
+				<StoryPlayer key={data.story.id} story={data.story} group={data.group} title={title} tag={entry?.tag} presence={data.presence} mobile={mobile} />
 			) : (
 				<Typography color="text.secondary" role="status">
 					Loading...

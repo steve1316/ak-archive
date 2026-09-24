@@ -57,16 +57,12 @@ export interface StoryRun {
 	hideUi: boolean;
 	/** Whether the Log is open. */
 	logOpen: boolean;
-	/** Whether the reader muted the sound. */
-	muted: boolean;
-	/** Whether the browser is holding the sound back until the reader interacts. */
-	blocked: boolean;
+	/** Whether sound is heard: not muted, and not held back by the browser until the reader interacts. */
+	soundOn: boolean;
 	/** The reader's name, which fills `{@nickname}`. */
 	nickname: string;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
-	/** Finishes the line, or moves on to the next stop. */
-	step: () => void;
 	/** Steps back to the previous stop. */
 	back: () => void;
 	/** Picks a choice. */
@@ -354,11 +350,9 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		auto,
 		hideUi,
 		logOpen,
-		muted,
-		blocked,
+		soundOn: !muted && !blocked,
 		nickname,
 		shakeKey,
-		step,
 		back,
 		pick,
 		skip,

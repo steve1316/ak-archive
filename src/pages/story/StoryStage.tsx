@@ -72,11 +72,11 @@ interface StoryStageProps {
 	/** What the stage shows. */
 	stage: StageState;
 	/** The speaker's name, or null for narration. */
-	name: string | null;
-	/** The line being shown, or null when the box is empty. */
-	line: { text: string; spans?: Span[] } | null;
+	name?: string | null;
+	/** The line being shown, or null when the box is empty. The phone reader leaves it out, since it draws the line itself. */
+	line?: { text: string; spans?: Span[] } | null;
 	/** How many characters of the line have typed out. */
-	typed: number;
+	typed?: number;
 	/** The reader's name, which fills `{@nickname}` in subtitles and stickers. */
 	nickname: string;
 	/** Which story assets are published. */
@@ -87,8 +87,8 @@ interface StoryStageProps {
 	shakeKey: number;
 	/** Anything drawn over the stage, such as the controls and choices. */
 	children?: ReactNode;
-	/** Called when the stage is clicked. */
-	onClick: () => void;
+	/** Called when the stage is clicked. The phone reader handles taps around the stage itself, so it passes none. */
+	onClick?: () => void;
 }
 
 /**
@@ -209,7 +209,7 @@ const StageArt = memo(function StageArt({ stage, nickname, presence }: { stage: 
  * @param props Component props.
  * @returns The stage.
  */
-function StoryStage({ stage, name, line, typed, nickname, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+function StoryStage({ stage, name = null, line = null, typed = 0, nickname, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
 	return (
 		<Box
 			sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }}

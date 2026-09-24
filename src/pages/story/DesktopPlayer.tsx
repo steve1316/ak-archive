@@ -215,8 +215,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		auto,
 		hideUi,
 		logOpen,
-		muted,
-		blocked,
+		soundOn,
 		nickname,
 		shakeKey,
 		pick,
@@ -284,7 +283,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 				>
 					{!hideUi ? (
 						<PlayerChrome
-							soundOn={!muted && !blocked}
+							soundOn={soundOn}
 							auto={auto}
 							canSkip={reading}
 							onLog={openLog}
