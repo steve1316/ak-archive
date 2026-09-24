@@ -10,37 +10,16 @@ import { Link, useParams } from "react-router-dom";
 
 import { LoadError, ScrollToTop } from "archive-kit";
 
-import { loadStory, loadStoryGroup, loadStoryPresence, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
+import { loadStory, loadStoryGroup, loadStoryPresence } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import { isControlTarget, isTextTarget } from "../../lib/keys.js";
 import { fillBelowNavbar } from "../../lib/layout.js";
 import { storyGroupPath } from "../../lib/routes.js";
-import type { LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
-import { START, advance, choose, emptyEffects, emptyStage, fillNickname, skipToStop, upcomingArt } from "./engine.js";
-import type { Advance } from "./engine.js";
+import type { StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
+import { fillNickname } from "./engine.js";
 import StoryLog from "./StoryLog.js";
-import type { LogEntry } from "./StoryLog.js";
 import { COMPACT, COMPACT_QUERY, STACKED, STACKED_QUERY } from "./layouts.js";
 import StoryStage, { typedRuns } from "./StoryStage.js";
-import { useStoryAudio } from "./useStoryAudio.js";
-
-/** How long one character takes to type, in milliseconds. */
-const TYPE_MS = 28;
-
-/** AUTO's pause after a line, in milliseconds: a base plus a share per character. */
-const AUTO_BASE_MS = 900;
-const AUTO_PER_CHAR_MS = 35;
-
-/** How many stops ahead the player preloads art for. */
-const PRELOAD_STOPS = 3;
-
-/** Where the reader's name, the mute state and AUTO are kept, so they carry over from one story to the next. Progress is never stored. */
-const NICKNAME_KEY = "storyNickname";
-const MUTED_KEY = "storyMuted";
-const AUTO_KEY = "storyAuto";
-
-/** The name used until the reader sets one. */
-const DEFAULT_NICKNAME = "Doctor";
+import { useStoryRun } from "./useStoryRun.js";
 
 /**
  * The page: a black band with the stage centred at the largest 16:9 that fits under the bar. Stacked, it is exactly the screen's height, with
@@ -140,57 +119,6 @@ const COMPACT_TEXT_SX: SxProps<Theme> = {
 	pointerEvents: "none",
 	zIndex: 3
 };
-
-/**
- * Read a stored value, surviving blocked storage.
- *
- * @param key The storage key.
- * @returns The value, or null.
- */
-function readStored(key: string): string | null {
-	try {
-		return localStorage.getItem(key);
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Store a value, ignoring blocked storage.
- *
- * @param key The storage key.
- * @param value The value.
- */
-function writeStored(key: string, value: string) {
-	try {
-		localStorage.setItem(key, value);
-	} catch {
-		// Storage can be blocked, such as in a private window. The name then lasts for this visit only.
-	}
-}
-
-/**
- * A line or caption as a Log entry.
- *
- * @param line The speaker, or null for narration, and the text.
- * @returns The entry.
- */
-function lineEntry(line: { name: string | null; text: string }): LogEntry {
-	return { kind: "line", name: line.name, text: line.text };
-}
-
-/**
- * The Log entries a walk adds: the line or caption it stopped at, if any.
- *
- * @param result The walk.
- * @returns The new entries.
- */
-function stopEntries(result: Advance): LogEntry[] {
-	if (result.stop.kind === "line") {
-		return [lineEntry(result.stop.line)];
-	}
-	return result.stop.kind === "caption" ? [lineEntry({ name: null, text: result.stop.text })] : [];
-}
 
 /**
  * A story's title with its stage code, such as `0-1 Collapse`.
@@ -322,194 +250,37 @@ interface StoryPlayerProps {
  * @returns The player.
  */
 function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
-	const steps = story.steps;
-	const [run, setRun] = useState<Advance>(() => advance(steps, START, emptyStage()));
-	const [log, setLog] = useState<LogEntry[]>(() => stopEntries(run));
-	const [typed, setTyped] = useState(0);
-	const [auto, setAuto] = useState(() => readStored(AUTO_KEY) === "1");
-	const [hideUi, setHideUi] = useState(false);
-	const [logOpen, setLogOpen] = useState(false);
-	const [muted, setMuted] = useState(() => readStored(MUTED_KEY) === "1");
-	const [nickname, setNickname] = useState(() => readStored(NICKNAME_KEY) || DEFAULT_NICKNAME);
-	const [shakeKey, setShakeKey] = useState(0);
-
-	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
-	const { resume: resumeAudio, blocked } = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, urlOf });
-	const preloaded = useRef(new Set<string>());
-
-	const line: LineStep | null = run.stop.kind === "line" ? run.stop.line : null;
-	const caption = run.stop.kind === "caption" ? fillNickname(run.stop.text, nickname) : null;
-	const decision = run.stop.kind === "decision" ? run.stop.decision : null;
-	const shown = useMemo(() => (line ? fillNickname(line, nickname) : null), [line, nickname]);
-	const length = shown?.text.length ?? 0;
-	// A line or a caption waits for the reader, and SKIP and AUTO move past either.
-	const reading = line !== null || caption !== null;
-	const index = group.stories.findIndex((entry) => entry.id === story.id);
-	const next = index >= 0 ? group.stories[index + 1] : undefined;
+	const {
+		run,
+		log,
+		typed,
+		shown,
+		caption,
+		decision,
+		reading,
+		next,
+		auto,
+		hideUi,
+		logOpen,
+		muted,
+		blocked,
+		nickname,
+		shakeKey,
+		pick,
+		skip,
+		onStage,
+		openLog,
+		closeLog,
+		hide,
+		toggleAuto,
+		toggleSound,
+		setNickname,
+		interact
+	} = useStoryRun(story, group, title, presence);
 	const stacked = useMediaQuery(STACKED_QUERY);
 	const compact = useMediaQuery(COMPACT_QUERY);
 	const player = useRef<HTMLDivElement>(null);
 	const fullscreen = useFullscreen(player);
-	const art = run.stage.image ?? run.stage.background;
-	const artUrl = art ? storyAssetUrl(art.kind, art.name, presence) : null;
-
-	// Every stop the reader has left, with the Log's length there, so the left arrow can step back to it.
-	const history = useRef<{ run: Advance; logLength: number }[]>([]);
-	const logLength = log.length;
-
-	const land = useCallback(
-		(result: Advance, passed: LogEntry[]) => {
-			history.current.push({ run, logLength });
-			setRun(result);
-			setTyped(0);
-			setLog((entries) => [...entries, ...passed, ...stopEntries(result)]);
-			if (result.effects.shake > 0) {
-				setShakeKey((key) => key + 1);
-			}
-		},
-		[run, logLength]
-	);
-
-	// Step back to the previous stop with its line shown in full. Its sounds and shake do not play again, and the Log forgets what came after.
-	const back = useCallback(() => {
-		const previous = history.current.pop();
-		if (!previous) {
-			return;
-		}
-		setRun({ ...previous.run, effects: emptyEffects() });
-		setTyped(Number.MAX_SAFE_INTEGER);
-		setLog((entries) => entries.slice(0, previous.logLength));
-	}, []);
-
-	const step = useCallback(() => {
-		if (run.stop.kind !== "line" && run.stop.kind !== "caption") {
-			return;
-		}
-		if (typed < length) {
-			setTyped(length);
-			return;
-		}
-		land(advance(steps, run.cursor, run.stage), []);
-	}, [run, typed, length, steps, land]);
-
-	const pick = useCallback(
-		(option: string, value: string) => {
-			land(advance(steps, choose(run.cursor, value), run.stage), [{ kind: "pick", text: option }]);
-		},
-		[run, steps, land]
-	);
-
-	const skip = useCallback(() => {
-		if (run.stop.kind !== "line" && run.stop.kind !== "caption") {
-			return;
-		}
-		const { result, lines } = skipToStop(steps, run.cursor, run.stage);
-		land(result, lines.map(lineEntry));
-	}, [run, steps, land]);
-
-	// Typewriter: reveal the line a character at a time.
-	useEffect(() => {
-		if (typed >= length) {
-			return;
-		}
-		const timer = window.setTimeout(() => setTyped((count) => count + 1), TYPE_MS);
-		return () => window.clearTimeout(timer);
-	}, [typed, length]);
-
-	// AUTO: once a line has typed out, wait in proportion to its length plus any pause the script asked for, then move on.
-	useEffect(() => {
-		if (!auto || logOpen || !reading || typed < length) {
-			return;
-		}
-		const timer = window.setTimeout(step, AUTO_BASE_MS + AUTO_PER_CHAR_MS * (caption?.length ?? length) + run.effects.delay * 1000);
-		return () => window.clearTimeout(timer);
-	}, [auto, logOpen, reading, caption, run, typed, length, step]);
-
-	// Preload the art of the next few stops, so a new scene does not appear half-loaded.
-	useEffect(() => {
-		for (const { kind, name } of upcomingArt(steps, run.cursor, run.stage, PRELOAD_STOPS)) {
-			const url = storyAssetUrl(kind, name, presence);
-			if (url && !preloaded.current.has(url)) {
-				preloaded.current.add(url);
-				new Image().src = url;
-			}
-		}
-	}, [steps, run, presence]);
-
-	// The key listener reads `step` and `back` through a ref, so the typewriter's ticks do not re-attach it.
-	const stepRef = useRef(step);
-	const backRef = useRef(back);
-	useEffect(() => {
-		stepRef.current = step;
-		backRef.current = back;
-	}, [step, back]);
-
-	useEffect(() => {
-		const onKey = (event: KeyboardEvent) => {
-			// Space and Enter keep their own meaning in a field, a button or a link, and the arrows in a field. None of them act behind the open Log.
-			const forward = (event.code === "Space" || event.code === "Enter") && !isControlTarget(event.target);
-			const arrow = (event.code === "ArrowRight" || event.code === "ArrowLeft") && !isTextTarget(event.target);
-			if ((forward || arrow) && !logOpen) {
-				event.preventDefault();
-				resumeAudio();
-				if (event.code === "ArrowLeft") {
-					backRef.current();
-				} else {
-					stepRef.current();
-				}
-			} else if (event.code === "Escape") {
-				setLogOpen(false);
-				setHideUi(false);
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [resumeAudio, logOpen]);
-
-	const onStage = useCallback(() => {
-		if (hideUi) {
-			setHideUi(false);
-			return;
-		}
-		if (!logOpen) {
-			step();
-		}
-	}, [hideUi, logOpen, step]);
-
-	const onNickname = useCallback((value: string) => {
-		setNickname(value);
-		writeStored(NICKNAME_KEY, value);
-	}, []);
-
-	// Every click in the player lets blocked sound start. It notes first whether the sound was blocked, since the resume clears `blocked` before
-	// the SOUND button's own handler runs.
-	const blockedAtClick = useRef(false);
-	const onPlayerClick = useCallback(() => {
-		blockedAtClick.current = blocked;
-		resumeAudio();
-	}, [blocked, resumeAudio]);
-
-	// While the browser holds the sound back, SOUND shows OFF and a click on it only lets the sound start.
-	const toggleSound = useCallback(() => {
-		if (blockedAtClick.current && !muted) {
-			return;
-		}
-		setMuted((value) => {
-			writeStored(MUTED_KEY, value ? "0" : "1");
-			return !value;
-		});
-	}, [muted]);
-
-	// The phone's media controls show the story and the scene on screen, rather than the site's icon and address.
-	useEffect(() => {
-		if (!("mediaSession" in navigator)) {
-			return;
-		}
-		navigator.mediaSession.metadata = new MediaMetadata({ title, artist: group.name, album: "Arknights Archive", artwork: artUrl ? [{ src: artUrl, type: "image/webp" }] : [] });
-		return () => {
-			navigator.mediaSession.metadata = null;
-		};
-	}, [title, group.name, artUrl]);
 
 	const toggleFullscreen = useCallback(() => {
 		if (document.fullscreenElement) {
@@ -517,16 +288,6 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 		} else {
 			void player.current?.requestFullscreen().catch(() => {});
 		}
-	}, []);
-
-	const openLog = useCallback(() => setLogOpen(true), []);
-	const closeLog = useCallback(() => setLogOpen(false), []);
-	const hide = useCallback(() => setHideUi(true), []);
-	const toggleAuto = useCallback(() => {
-		setAuto((value) => {
-			writeStored(AUTO_KEY, value ? "0" : "1");
-			return !value;
-		});
 	}, []);
 
 	const backLink = useMemo(() => (compact ? { to: storyGroupPath(group.id), label: group.name } : null), [compact, group]);
@@ -552,7 +313,7 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 		: null;
 
 	return (
-		<Box ref={player} sx={PLAYER_SX} onClickCapture={onPlayerClick} data-region="story-player">
+		<Box ref={player} sx={PLAYER_SX} onClickCapture={interact} data-region="story-player">
 			<StoryStage
 				stage={run.stage}
 				name={shown?.name ?? null}
@@ -612,7 +373,7 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 					)}
 				</Box>
 			) : null}
-			{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={onNickname} onClose={closeLog} /> : null}
+			{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={setNickname} onClose={closeLog} /> : null}
 		</Box>
 	);
 }
