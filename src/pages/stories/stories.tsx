@@ -4,9 +4,8 @@ import { Box, Button, ButtonBase, Typography, useMediaQuery } from "@mui/materia
 import type { SxProps, Theme } from "@mui/material";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { LoadError, ScrollToTop } from "archive-kit";
+import { LoadError, ScrollToTop, isControlTarget } from "archive-kit";
 
-import { isControlTarget } from "../../lib/keys.js";
 import { fillBelowNavbar } from "../../lib/layout.js";
 import { storyGroupPath } from "../../lib/routes.js";
 import { loadStoryIndex, loadStoryPresence, storyAssetUrl } from "../../lib/story.js";

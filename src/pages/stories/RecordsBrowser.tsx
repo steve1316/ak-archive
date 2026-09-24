@@ -6,11 +6,10 @@ import type { SxProps, Theme } from "@mui/material";
 import { Link } from "react-router-dom";
 import presence from "virtual:asset-presence";
 
-import { LoadError } from "archive-kit";
+import { LoadError, isTextTarget } from "archive-kit";
 
 import { hasIllustration, hasPortrait, illustrationUrl, portraitUrl } from "../../lib/assets.js";
 import { searchIndex } from "../../lib/data.js";
-import { isTextTarget } from "../../lib/keys.js";
 import { CHIP_SELECTED_SX, CHIP_UNSELECTED_SX } from "../../lib/layout.js";
 import { storyPath } from "../../lib/routes.js";
 import { loadStoryGroup } from "../../lib/story.js";
