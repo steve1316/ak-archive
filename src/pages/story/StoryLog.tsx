@@ -6,16 +6,12 @@ import CloseIcon from "@mui/icons-material/Close";
 
 import { useCloseOnOutsideClick } from "../../lib/dismiss.js";
 import { fillNickname } from "./engine.js";
-import { COMPACT, STACKED } from "./layouts.js";
 
-/** The pinned header's background, and the sheet's, solid so nothing behind them bleeds through the text. */
+/** The pinned header's background, solid so the lines scrolling under it do not bleed through. */
 const LOG_SOLID_BG = "#08090d";
 
-/**
- * A drawer over the right of the stage, which lets the stage show faintly through. A phone on its side has a short, narrow stage, so the drawer
- * takes more of it. Held upright the stage is too small to hold the Log, so it becomes a sheet over the whole screen, navbar included.
- */
-const LOG_SX: SxProps<Theme> = (theme) => ({
+/** A drawer over the right of the stage, which lets the stage show faintly through. */
+const LOG_SX: SxProps<Theme> = {
 	position: "absolute",
 	top: 0,
 	bottom: 0,
@@ -28,10 +24,8 @@ const LOG_SX: SxProps<Theme> = (theme) => ({
 	overflowY: "auto",
 	cursor: "default",
 	// Above the choices and the end card, which sit at 6.
-	zIndex: 7,
-	[COMPACT]: { width: "60%" },
-	[STACKED]: { position: "fixed", left: 0, width: "100%", background: LOG_SOLID_BG, borderLeft: "none", zIndex: theme.zIndex.appBar + 1 }
-});
+	zIndex: 7
+};
 
 /**
  * Whether a click outside the Log is spent on closing it alone: any click on the player, so closing the Log never also advances the story.
@@ -57,9 +51,9 @@ interface StoryLogProps {
 }
 
 /**
- * The backlog: a drawer over the right of the stage, or a sheet over the whole screen, listing every line and choice so far, with the reader's
- * name field pinned at the top. It sits beside the stage rather than in it, so a grey or shaking scene leaves it alone. It opens scrolled to the
- * newest line, and a click anywhere outside it closes it.
+ * The desktop backlog: a drawer over the right of the stage listing every line and choice so far, with the reader's name field pinned at the
+ * top. It sits beside the stage rather than in it, so a grey or shaking scene leaves it alone. It opens scrolled to the newest line, and a click
+ * anywhere outside it closes it.
  *
  * @param props Component props.
  * @returns The drawer.

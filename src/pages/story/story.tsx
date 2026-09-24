@@ -14,15 +14,10 @@ import type { StoryPresence } from "../../lib/story.js";
 import { fillBelowNavbar } from "../../lib/layout.js";
 import type { StoryFile, StoryGroup } from "../../types/story.js";
 import DesktopPlayer from "./DesktopPlayer.js";
-import { COMPACT, COMPACT_QUERY, STACKED, STACKED_QUERY } from "./layouts.js";
 import MobilePlayer from "./MobilePlayer.js";
 import { useStoryRun } from "./useStoryRun.js";
 
-/**
- * The page: a black band with the stage centred at the largest 16:9 that fits under the bar. Stacked, it is exactly the screen's height, with
- * the stage at the top and the text panel taking the rest, so nothing moves as lines and choices come and go. Compact, it is a size container
- * the stage fills the height of.
- */
+/** The page on a desktop: a black band with the stage centred at the largest 16:9 that fits under the bar. */
 const PAGE_SX: SxProps<Theme> = (theme) => ({
 	background: "#000",
 	...fillBelowNavbar(theme.mixins.toolbar, "minHeight"),
@@ -30,10 +25,7 @@ const PAGE_SX: SxProps<Theme> = (theme) => ({
 	flexDirection: "column",
 	alignItems: "center",
 	justifyContent: "center",
-	py: 1,
-	[`@media ${STACKED_QUERY}, ${COMPACT_QUERY}`]: { ...fillBelowNavbar(theme.mixins.toolbar, "height"), py: 0 },
-	[STACKED]: { justifyContent: "flex-start" },
-	[COMPACT]: { containerType: "size" }
+	py: 1
 });
 
 /** The page on a phone: exactly the screen under the navbar, or the whole screen on its side, where the reader hides the navbar. The reader fills it. */
