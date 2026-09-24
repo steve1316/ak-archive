@@ -1,7 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
-import { Box } from "@mui/material";
+import { Box, GlobalStyles } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 
 import { storyAssetUrl } from "../../lib/story.js";
@@ -15,6 +15,22 @@ const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: {
 
 /** The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. */
 const TEXT_BOX = { nameRight: 26.1, nameTop: 86.9, nameFont: 3.6, lineLeft: 29.9, lineTop: 86.8, lineWidth: 55, lineFont: 2.65, lineHeight: 1.4 };
+
+/** One camera shake. */
+const SHAKE_FRAMES = {
+	"0%, 100%": { transform: "translate(0, 0)" },
+	"20%": { transform: "translate(-0.6%, 0.4%)" },
+	"40%": { transform: "translate(0.6%, -0.4%)" },
+	"60%": { transform: "translate(-0.4%, -0.3%)" },
+	"80%": { transform: "translate(0.4%, 0.3%)" }
+};
+
+/** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
+const KEYFRAMES = {
+	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
+	"@keyframes storyShake0": SHAKE_FRAMES,
+	"@keyframes storyShake1": SHAKE_FRAMES
+};
 
 /** How a sprite that is not speaking is drawn. */
 const DIMMED = "brightness(0.45)";
@@ -201,6 +217,7 @@ function StoryStage({ stage, name, line, typed, nickname, presence, hideText, sh
 			onClick={onClick}
 			data-region="story-stage"
 		>
+			<GlobalStyles styles={KEYFRAMES} />
 			<StageArt stage={stage} nickname={nickname} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
 			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />

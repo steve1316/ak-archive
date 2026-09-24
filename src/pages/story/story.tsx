@@ -4,7 +4,7 @@ import "@fontsource/noto-sans/500.css";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 
-import { Box, Button, GlobalStyles, Typography, useMediaQuery } from "@mui/material";
+import { Box, Button, Typography, useMediaQuery } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { Link, useParams } from "react-router-dom";
 
@@ -139,22 +139,6 @@ const COMPACT_TEXT_SX: SxProps<Theme> = {
 	lineHeight: 1.45,
 	pointerEvents: "none",
 	zIndex: 3
-};
-
-/** One camera shake. */
-const SHAKE_FRAMES = {
-	"0%, 100%": { transform: "translate(0, 0)" },
-	"20%": { transform: "translate(-0.6%, 0.4%)" },
-	"40%": { transform: "translate(0.6%, -0.4%)" },
-	"60%": { transform: "translate(-0.4%, -0.3%)" },
-	"80%": { transform: "translate(0.4%, 0.3%)" }
-};
-
-/** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
-const KEYFRAMES = {
-	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
-	"@keyframes storyShake0": SHAKE_FRAMES,
-	"@keyframes storyShake1": SHAKE_FRAMES
 };
 
 /**
@@ -569,7 +553,6 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 
 	return (
 		<Box ref={player} sx={PLAYER_SX} onClickCapture={onPlayerClick} data-region="story-player">
-			<GlobalStyles styles={KEYFRAMES} />
 			<StoryStage
 				stage={run.stage}
 				name={shown?.name ?? null}
