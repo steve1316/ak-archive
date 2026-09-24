@@ -54,6 +54,18 @@ interface PlayingSound {
 }
 
 /**
+ * Set an element's level and write it, times the reader's volume, to the element.
+ *
+ * @param audio The element.
+ * @param level The level, 0 to 1.
+ * @param apply Writes the element's level, times the reader's volume, to the element.
+ */
+function setLevel(audio: HTMLAudioElement, level: number, apply: (audio: HTMLAudioElement) => void) {
+	LEVELS.set(audio, level);
+	apply(audio);
+}
+
+/**
  * Ramp an element's level over time, replacing any fade already running on it. A fade of 0 seconds jumps straight to the end.
  *
  * @param audio The element.
@@ -65,8 +77,7 @@ interface PlayingSound {
 function fadeVolume(audio: HTMLAudioElement, to: number, seconds: number, apply: (audio: HTMLAudioElement) => void, done?: () => void) {
 	window.clearInterval(FADES.get(audio));
 	if (seconds <= 0) {
-		LEVELS.set(audio, to);
-		apply(audio);
+		setLevel(audio, to, apply);
 		done?.();
 		return;
 	}
@@ -75,8 +86,7 @@ function fadeVolume(audio: HTMLAudioElement, to: number, seconds: number, apply:
 	let step = 0;
 	const timer = window.setInterval(() => {
 		step++;
-		LEVELS.set(audio, from + ((to - from) * step) / steps);
-		apply(audio);
+		setLevel(audio, from + ((to - from) * step) / steps, apply);
 		if (step >= steps) {
 			window.clearInterval(timer);
 			FADES.delete(audio);
@@ -195,8 +205,7 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 		const makeTrack = (url: string) => {
 			const audio = new Audio(url);
 			MUSIC_TRACKS.add(audio);
-			LEVELS.set(audio, target);
-			apply(audio);
+			setLevel(audio, target, apply);
 			audio.muted = mutedRef.current;
 			return audio;
 		};
@@ -236,8 +245,7 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 				stopChannel(cue.channel, 0);
 			}
 			const audio = new Audio(url);
-			LEVELS.set(audio, Math.min(1, EFFECT_VOLUME * cue.volume));
-			apply(audio);
+			setLevel(audio, Math.min(1, EFFECT_VOLUME * cue.volume), apply);
 			audio.loop = cue.loop;
 			audio.muted = mutedRef.current;
 			const sound = { audio, channel: cue.channel };
