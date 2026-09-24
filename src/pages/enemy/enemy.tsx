@@ -7,7 +7,6 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { ArtPlaceholder, ENEMY_CARD_ASPECT, LoadError, PageBackdrop, ScrollToTop } from "archive-kit";
 
 import AnimationsCard from "../../components/AnimationsCard.js";
-import type { StageRequest } from "../../components/AnimationsCard.js";
 import RecordBlock from "../../components/RecordBlock.js";
 import { enemyIconUrl, hasEnemyIcon } from "../../lib/assets.js";
 import { loadEnemyGroup } from "../../lib/data.js";
@@ -137,11 +136,7 @@ export default function EnemyPage() {
 	);
 
 	// Draws the Animations card's stage: the selected variant's chibi. Keyed by the variant inside the stage, so a switch loads its own rig.
-	const renderStage = useCallback(
-		({ onStatus, sx }: StageRequest) =>
-			variant ? <EnemySpineStage enemyId={variant.id} iconUrl={hasEnemyIcon(variant.id) ? enemyIconUrl(variant.id) : null} onStatus={onStatus} sx={sx} /> : null,
-		[variant]
-	);
+	const renderStage = useCallback(() => (variant ? <EnemySpineStage enemyId={variant.id} iconUrl={hasEnemyIcon(variant.id) ? enemyIconUrl(variant.id) : null} /> : null), [variant]);
 
 	if (missing) {
 		return <NotFound404 />;

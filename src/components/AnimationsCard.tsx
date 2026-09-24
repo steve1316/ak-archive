@@ -12,29 +12,21 @@ export type RigKind = "battle" | "dorm";
 /** Which way the battle chibi faces: `front` plays the index's `battle` rig, `back` its `back` rig. */
 export type RigFacing = "front" | "back";
 
-/** What the stage reports back to the card, for the Front/Back switch. */
-export interface StageStatus {
-	/** Whether the selected form has a back-facing battle rig, which enables the Back toggle. */
-	hasBack: boolean;
-}
-
 /** What the card asks its stage to draw. */
 export interface StageRequest {
 	/** The selected rig kind. */
 	kind: RigKind;
 	/** The reader's chosen facing. The stage falls back to the battle rig itself when the current form has no back rig. */
 	facing: RigFacing;
-	/** Stable callback the stage calls whenever its status changes. */
-	onStatus: (status: StageStatus) => void;
-	/** The stage box's style, for the stage to hand to `AnimationStage`. It fills the card's remaining height. */
-	sx: SxProps<Theme>;
+	/** Stable callback the stage calls with whether the selected form has a back-facing battle rig, which enables the Back toggle. */
+	onHasBack: (hasBack: boolean) => void;
 }
 
 /**
- * The stage box. Takes every pixel the card has left, which is what lets row 1's slack land here instead of in an empty box. The tight radius
+ * The stage box, which the stage hands to `AnimationStage`. Takes every pixel the card has left, which is what lets row 1's slack land here instead of in an empty box. The tight radius
  * matches the art card beside it in row 1.
  */
-const STAGE_SX: SxProps<Theme> = {
+export const STAGE_SX: SxProps<Theme> = {
 	position: "relative",
 	flex: 1,
 	minHeight: 240,
@@ -51,9 +43,6 @@ const KIND_SX: SxProps<Theme> = { flex: "none", mb: SECTION_HEADING_GAP };
 
 /** The Front/Back switch under the Battle tab. */
 const FACING_SX: SxProps<Theme> = { flex: "none", alignSelf: "center", mb: SECTION_HEADING_GAP };
-
-/** The status the card starts with, and the one the stage reports on its way out, so no Back toggle outlives the rig it described. */
-export const INITIAL_STATUS: StageStatus = { hasBack: false };
 
 /** The placeholder's stand-in icon, such as an operator's class icon or an enemy's icon, greyed so it reads as absent rather than as content. */
 const PLACEHOLDER_ICON_SX: SxProps<Theme> = { width: 70, display: "block", mx: "auto", mb: 1.125, opacity: 0.45, filter: "grayscale(1)" };
@@ -102,10 +91,10 @@ export function StagePlaceholder({ iconUrl, message }: StagePlaceholderProps) {
 export default function AnimationsCard({ renderStage, battleOnly = false }: AnimationsCardProps) {
 	const [kind, setKind] = useState<RigKind>("battle");
 	const [chosenFacing, setChosenFacing] = useState<RigFacing>("front");
-	const [status, setStatus] = useState<StageStatus>(INITIAL_STATUS);
+	const [hasBack, setHasBack] = useState(false);
 	// The toggle shows Front whenever the current form has no back rig, without forgetting the reader's choice for forms that do. The stage
 	// itself gets the raw choice below, so a form switch never loads the front rig first only to abort it for the back rig a moment later.
-	const displayFacing: RigFacing = status.hasBack ? chosenFacing : "front";
+	const displayFacing: RigFacing = hasBack ? chosenFacing : "front";
 
 	const handleKindChange = useCallback((_event: MouseEvent<HTMLElement>, value: RigKind | null) => {
 		if (value !== null) {
@@ -133,13 +122,13 @@ export default function AnimationsCard({ renderStage, battleOnly = false }: Anim
 			{kind === "battle" && !battleOnly ? (
 				<ToggleButtonGroup value={displayFacing} exclusive size="small" onChange={handleFacingChange} aria-label="Battle chibi facing" sx={FACING_SX}>
 					<ToggleButton value="front">Front</ToggleButton>
-					<ToggleButton value="back" disabled={!status.hasBack}>
+					<ToggleButton value="back" disabled={!hasBack}>
 						Back
 					</ToggleButton>
 				</ToggleButtonGroup>
 			) : null}
 			{/* The stage draws its own box and the caption under it. Before the subject loads, an empty box holds the card's shape. */}
-			{renderStage({ kind, facing: chosenFacing, onStatus: setStatus, sx: STAGE_SX }) ?? <Box sx={STAGE_SX} />}
+			{renderStage({ kind, facing: chosenFacing, onHasBack: setHasBack }) ?? <Box sx={STAGE_SX} />}
 		</Paper>
 	);
 }

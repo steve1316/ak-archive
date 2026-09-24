@@ -11,8 +11,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { SxProps, Theme } from "@mui/material";
-
 import { AnimationStage } from "archive-kit";
 import type { StageEntry } from "archive-kit";
 
@@ -22,8 +20,7 @@ import type { RigUrls } from "../spine/player.js";
 import { createSpineRuntime, UNSUPPORTED_MESSAGE } from "../spine/stageRuntime.js";
 import type { SpineSource } from "../spine/stageRuntime.js";
 import type { SpineRig } from "../types/spine.js";
-import { INITIAL_STATUS } from "./AnimationsCard.js";
-import type { StageStatus } from "./AnimationsCard.js";
+import { STAGE_SX } from "./AnimationsCard.js";
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -55,12 +52,6 @@ export interface SpineStageProps {
 	renderPlaceholder: (message: string) => ReactNode;
 	/** The animation's accessible name. */
 	canvasLabel: string;
-	/** Whether the selection has a back-facing rig, reported to the card for its Back toggle. */
-	hasBack: boolean;
-	/** Reports the stage's status to the card. */
-	onStatus: (status: StageStatus) => void;
-	/** The stage box's style, handed down by the card. */
-	sx: SxProps<Theme>;
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -115,7 +106,7 @@ export function useRigIndex<T>(load: (file: string) => Promise<T>, file: string,
  * @param props Component props.
  * @returns The stage and its caption.
  */
-export default function SpineStage({ rigKey, rig, urls, indexState, missingMessage, renderPlaceholder, canvasLabel, hasBack, onStatus, sx }: SpineStageProps) {
+export default function SpineStage({ rigKey, rig, urls, indexState, missingMessage, renderPlaceholder, canvasLabel }: SpineStageProps) {
 	const drawable = rig !== null && rig.stage <= SUPPORTED_STAGE;
 	// What a tap steps through: Defaults dropped, each wind-up, middle and wind-down merged into one move, Idle first. See `animationEntries`.
 	const animations = useMemo(() => (rig ? animationEntries(rig.anims) : []), [rig]);
@@ -132,10 +123,6 @@ export default function SpineStage({ rigKey, rig, urls, indexState, missingMessa
 		notice = UNSUPPORTED_MESSAGE;
 	}
 
-	// Tells the card whether the Back toggle applies, and clears that when the stage goes away.
-	useEffect(() => onStatus({ hasBack }), [onStatus, hasBack]);
-	useEffect(() => () => onStatus(INITIAL_STATUS), [onStatus]);
-
 	return (
 		<AnimationStage
 			runtime={createSpineRuntime}
@@ -145,7 +132,7 @@ export default function SpineStage({ rigKey, rig, urls, indexState, missingMessa
 			notice={notice}
 			label={canvasLabel}
 			renderMessage={renderPlaceholder}
-			sx={sx}
+			sx={STAGE_SX}
 		/>
 	);
 }

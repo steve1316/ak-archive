@@ -163,8 +163,8 @@ export default function Operator() {
 	 * @returns The stage, or nothing before the operator loads.
 	 */
 	const renderStage = useCallback(
-		({ kind, facing, onStatus, sx }: StageRequest) =>
-			operator ? <SpineStage operatorId={operator.id} formKey={formKey} kind={kind} facing={facing} profession={operator.profession} onStatus={onStatus} sx={sx} /> : null,
+		({ kind, facing, onHasBack }: StageRequest) =>
+			operator ? <SpineStage operatorId={operator.id} formKey={formKey} kind={kind} facing={facing} profession={operator.profession} onHasBack={onHasBack} /> : null,
 		[operator, formKey]
 	);
 

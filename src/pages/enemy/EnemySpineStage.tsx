@@ -1,10 +1,7 @@
 import { useCallback, useMemo } from "react";
 
-import type { SxProps, Theme } from "@mui/material";
-
 import GenericSpineStage, { useRigIndex } from "../../components/SpineStage.js";
 import { StagePlaceholder } from "../../components/AnimationsCard.js";
-import type { StageStatus } from "../../components/AnimationsCard.js";
 import { enemyRigUrls, enemySpineIndexFile, enemySpineRoot, loadEnemySpineIndexFile } from "../../lib/spine.js";
 
 /** Props for EnemySpineStage. */
@@ -13,10 +10,6 @@ interface EnemySpineStageProps {
 	enemyId: string;
 	/** The variant's icon, which the placeholder shows, or null when none is hosted. */
 	iconUrl: string | null;
-	/** Reports the stage's status to the card. */
-	onStatus: (status: StageStatus) => void;
-	/** The stage box's style, handed down by the card. */
-	sx: SxProps<Theme>;
 }
 
 /**
@@ -25,7 +18,7 @@ interface EnemySpineStageProps {
  * @param props Component props.
  * @returns The stage.
  */
-export default function EnemySpineStage({ enemyId, iconUrl, onStatus, sx }: EnemySpineStageProps) {
+export default function EnemySpineStage({ enemyId, iconUrl }: EnemySpineStageProps) {
 	const { index, state } = useRigIndex(loadEnemySpineIndexFile, enemySpineIndexFile(enemyId), enemyId);
 	const rig = index?.[enemyId] ?? null;
 	const urls = useMemo(() => (rig ? enemyRigUrls(enemySpineRoot(), enemyId, rig) : null), [rig, enemyId]);
@@ -40,9 +33,6 @@ export default function EnemySpineStage({ enemyId, iconUrl, onStatus, sx }: Enem
 			missingMessage="No animation for this enemy."
 			renderPlaceholder={renderPlaceholder}
 			canvasLabel="Enemy animation"
-			hasBack={false}
-			onStatus={onStatus}
-			sx={sx}
 		/>
 	);
 }

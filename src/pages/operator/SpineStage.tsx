@@ -1,10 +1,8 @@
-import { useCallback, useMemo } from "react";
-
-import type { SxProps, Theme } from "@mui/material";
+import { useCallback, useEffect, useMemo } from "react";
 
 import GenericSpineStage, { useRigIndex } from "../../components/SpineStage.js";
 import { StagePlaceholder } from "../../components/AnimationsCard.js";
-import type { RigFacing, RigKind, StageStatus } from "../../components/AnimationsCard.js";
+import type { RigFacing, RigKind } from "../../components/AnimationsCard.js";
 import { classIconUrl } from "../../lib/assets.js";
 import { loadSpineIndexFile, spineFormKey, spineIndexFile, spineRigUrls, spineRoot } from "../../lib/spine.js";
 
@@ -20,10 +18,8 @@ interface SpineStageProps {
 	facing: RigFacing;
 	/** The operator's class, whose icon the placeholder shows. */
 	profession: string;
-	/** Reports the stage's status to the card. */
-	onStatus: (status: StageStatus) => void;
-	/** The stage box's style, handed down by the card. */
-	sx: SxProps<Theme>;
+	/** Tells the card whether the selected form has a back-facing battle rig, for its Back toggle. */
+	onHasBack: (hasBack: boolean) => void;
 }
 
 /**
@@ -32,7 +28,7 @@ interface SpineStageProps {
  * @param props Component props.
  * @returns The stage.
  */
-export default function SpineStage({ operatorId, formKey, kind, facing, profession, onStatus, sx }: SpineStageProps) {
+export default function SpineStage({ operatorId, formKey, kind, facing, profession, onHasBack }: SpineStageProps) {
 	const { index, state } = useRigIndex(loadSpineIndexFile, spineIndexFile(operatorId), `${operatorId}/${formKey}/${kind}/${facing}`);
 	const entry = index?.[operatorId];
 	const spineKey = entry && formKey !== null ? spineFormKey(formKey, entry) : null;
@@ -42,6 +38,13 @@ export default function SpineStage({ operatorId, formKey, kind, facing, professi
 	const rigKey = rig && spineKey !== null ? `${operatorId}/${spineKey}/${rigKind}` : null;
 	const urls = useMemo(() => (rig && spineKey !== null ? spineRigUrls(spineRoot(), operatorId, spineKey, rigKind, rig) : null), [rig, spineKey, operatorId, rigKind]);
 	const renderPlaceholder = useCallback((message: string) => <StagePlaceholder iconUrl={classIconUrl(profession)} message={message} />, [profession]);
+	const hasBack = form?.back !== undefined;
+
+	// Tells the card whether the Back toggle applies, and turns it off again when the stage goes away.
+	useEffect(() => {
+		onHasBack(hasBack);
+		return () => onHasBack(false);
+	}, [onHasBack, hasBack]);
 
 	return (
 		<GenericSpineStage
@@ -52,9 +55,6 @@ export default function SpineStage({ operatorId, formKey, kind, facing, professi
 			missingMessage={kind === "dorm" ? "No dorm chibi for this outfit." : "No battle chibi for this outfit."}
 			renderPlaceholder={renderPlaceholder}
 			canvasLabel="Operator chibi animation"
-			hasBack={form?.back !== undefined}
-			onStatus={onStatus}
-			sx={sx}
 		/>
 	);
 }
