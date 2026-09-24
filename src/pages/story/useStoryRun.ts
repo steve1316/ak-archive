@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaSession, useStoryKeys, useStorySettings } from "archive-kit";
-import type { StoryCornerProps, StoryLine, StorySettingsState } from "archive-kit";
+import type { StoryCornerProps, StoryEndLink, StoryLine, StorySettingsState } from "archive-kit";
 
-import { musicTitle, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
+import { storyGroupPath, storyPath } from "../../lib/routes.js";
+import { musicTitle, storyAssetUrl, storyAudioUrl, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { DecisionStep, LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
 import { START, advance, choose, emptyEffects, emptyStage, fillNickname, lineNumber, lineOrder, skipToStop, upcomingArt } from "./engine.js";
@@ -67,6 +68,8 @@ export interface StoryRun {
 	canBack: boolean;
 	/** The next story in the group, or undefined at its end. */
 	next: StoryGroupEntry | undefined;
+	/** The end card's ways on: the next story, left out at the group's end, and the way back to the group. */
+	ending: { next?: StoryEndLink; back: StoryEndLink };
 	/** Whether AUTO is on. */
 	auto: boolean;
 	/** Whether the text and chrome are hidden. */
@@ -83,6 +86,8 @@ export interface StoryRun {
 	shakeKey: number;
 	/** Steps back to the previous stop. */
 	back: () => void;
+	/** Starts the story again from its first stop, with the Log, the history and the picks cleared. */
+	restart: () => void;
 	/** Picks a choice. */
 	pick: (option: string, value: string) => void;
 	/** Skips to the next choice or the end. */
@@ -230,6 +235,14 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		return trackTitle ? { title: trackTitle } : null;
 	}, [music, titles]);
 	const corner = useMemo<StoryCornerProps>(() => ({ progress, track }), [progress, track]);
+	// The end card's ways on, the same in both views.
+	const ending = useMemo(
+		() => ({
+			next: next ? { label: `Next: ${storyTitle(next)}`, to: storyPath(group.id, next.id) } : undefined,
+			back: { label: `Back to ${group.name}`, to: storyGroupPath(group.id) }
+		}),
+		[next, group]
+	);
 
 	// Every stop the reader has left, with the Log's length there, so the left arrow can step back to it.
 	const history = useRef<{ run: Advance; logLength: number }[]>([]);
@@ -258,6 +271,16 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		setTyped(Number.MAX_SAFE_INTEGER);
 		setLog((entries) => entries.slice(0, previous.logLength));
 	}, []);
+
+	// Read again: the story from its first stop, as if newly opened. The picks live in the run's cursor, so a fresh walk forgets them too.
+	const restart = useCallback(() => {
+		const first = advance(steps, START, emptyStage());
+		history.current = [];
+		setRun(first);
+		setLog(stopEntries(first, null));
+		setTyped(0);
+		setShakeKey(0);
+	}, [steps]);
 
 	const step = useCallback(() => {
 		if (run.stop.kind !== "line" && run.stop.kind !== "caption") {
@@ -381,6 +404,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		reading,
 		canBack: history.current.length > 0,
 		next,
+		ending,
 		auto,
 		hideUi,
 		logOpen,
@@ -389,6 +413,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		settings,
 		shakeKey,
 		back,
+		restart,
 		pick,
 		skip,
 		onStage,

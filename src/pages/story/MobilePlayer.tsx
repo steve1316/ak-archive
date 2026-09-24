@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 
-import { Box, Button, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
@@ -9,14 +8,12 @@ import HistoryIcon from "@mui/icons-material/History";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
-import { Link } from "react-router-dom";
 
-import { MobileStoryReader, StorySkipIcon } from "archive-kit";
+import { MobileStoryReader, StoryEndCard, StorySkipIcon } from "archive-kit";
 import type { StoryChoice, StoryControl, StoryCurrentLine } from "archive-kit";
 
-import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import { storyGroupPath, storyPath } from "../../lib/routes.js";
+import { storyGroupPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
 import StorySettings from "./StorySettings.js";
@@ -26,15 +23,14 @@ import type { StoryRun } from "./useStoryRun.js";
 /** The reader in the story's own font. */
 const READER_SX: SxProps<Theme> = { fontFamily: '"Noto Sans", sans-serif' };
 
-/** The end of a story: a note and the links on, under the last line. */
-const END_SX: SxProps<Theme> = { display: "grid", gap: 1, mt: 1 };
-
 /** Props for MobilePlayer. */
 interface MobilePlayerProps {
 	/** The story's reading state and controls. */
 	reader: StoryRun;
-	/** The group the story belongs to, for the way back and the end card. */
+	/** The group the story belongs to, for the way back. */
 	group: StoryGroup;
+	/** The story's title, such as `0-1 Collapse`, for the end card. */
+	title: string;
 	/** Which story assets are published. */
 	presence: StoryPresence;
 }
@@ -46,9 +42,9 @@ interface MobilePlayerProps {
  * @param props Component props.
  * @returns The player.
  */
-export default function MobilePlayer({ reader, group, presence }: MobilePlayerProps) {
-	const { run, lines, corner, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, settings, shakeKey } = reader;
-	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact, setCovered } = reader;
+export default function MobilePlayer({ reader, group, title, presence }: MobilePlayerProps) {
+	const { run, lines, corner, typed, shown, caption, decision, length, reading, canBack, ending, auto, logOpen, soundOn, nickname, settings, shakeKey } = reader;
+	const { back, restart, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact, setCovered } = reader;
 
 	// Built once per change rather than per render, since the reader re-renders on every typed character.
 	const controls = useMemo<StoryControl[]>(
@@ -70,20 +66,7 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 		[decision, nickname, pick]
 	);
 
-	const end =
-		run.stop.kind === "end" ? (
-			<Box sx={END_SX}>
-				<Typography sx={{ color: "text.secondary" }}>End of story</Typography>
-				{next ? (
-					<Button component={Link} to={storyPath(group.id, next.id)} variant="contained">
-						Next: {storyTitle(next)}
-					</Button>
-				) : null}
-				<Button component={Link} to={storyGroupPath(group.id)} variant="outlined">
-					Back to {group.name}
-				</Button>
-			</Box>
-		) : null;
+	const end = run.stop.kind === "end" ? <StoryEndCard variant="inline" title={title} next={ending.next} back={ending.back} onRestart={restart} /> : null;
 
 	return (
 		<MobileStoryReader

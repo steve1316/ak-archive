@@ -63,7 +63,7 @@ interface StoryPlayerProps {
  */
 function StoryPlayer({ story, group, title, tag, presence, mobile }: StoryPlayerProps) {
 	const reader = useStoryRun(story, group, title, presence);
-	return mobile ? <MobilePlayer reader={reader} group={group} presence={presence} /> : <DesktopPlayer reader={reader} group={group} title={title} tag={tag} presence={presence} />;
+	return mobile ? <MobilePlayer reader={reader} group={group} title={title} presence={presence} /> : <DesktopPlayer reader={reader} group={group} title={title} tag={tag} presence={presence} />;
 }
 
 /**

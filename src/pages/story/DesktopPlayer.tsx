@@ -7,11 +7,10 @@ import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { Link } from "react-router-dom";
 
-import { StoryCorner, StoryLogPanel, StorySettingsCard, useFullscreen } from "archive-kit";
+import { StoryCorner, StoryEndCard, StoryLogPanel, StorySettingsCard, useFullscreen } from "archive-kit";
 
-import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import { storyGroupPath, storyPath } from "../../lib/routes.js";
+import { storyGroupPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
 import StorySettings from "./StorySettings.js";
@@ -51,12 +50,6 @@ const ICON_BUTTON_SX: SxProps<Theme> = {
 
 /** The Settings card, dropped under the chrome's left end. It scrolls on a short stage rather than running off it. */
 const SETTINGS_CARD_SX: SxProps<Theme> = { top: "10cqh", left: "4%", maxHeight: "86cqh" };
-
-/**
- * The end of a story: the stage dimmed behind a note and the links on. It sits under the chrome, which stays at 4, so LOG, HIDE, SOUND, AUTO
- * and fullscreen still work once the story is over.
- */
-const END_SX: SxProps<Theme> = { position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(0,0,0,0.6)", zIndex: 3 };
 
 /** The choice list, centred on the stage. */
 const CHOICES_SX: SxProps<Theme> = {
@@ -211,7 +204,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		shown,
 		decision,
 		reading,
-		next,
+		ending,
 		auto,
 		hideUi,
 		logOpen,
@@ -220,6 +213,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		settings,
 		shakeKey,
 		pick,
+		restart,
 		skip,
 		onStage,
 		openLog,
@@ -294,21 +288,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							{choices}
 						</Box>
 					) : null}
-					{run.stop.kind === "end" ? (
-						<Box sx={END_SX} onClick={(event) => event.stopPropagation()}>
-							<Box sx={{ textAlign: "center", display: "grid", gap: 2 }}>
-								<Typography sx={{ fontSize: "3cqh" }}>End of story</Typography>
-								{next ? (
-									<Button component={Link} to={storyPath(group.id, next.id)} variant="contained">
-										Next: {storyTitle(next)}
-									</Button>
-								) : null}
-								<Button component={Link} to={storyGroupPath(group.id)} variant="outlined">
-									Back to {group.name}
-								</Button>
-							</Box>
-						</Box>
-					) : null}
+					{run.stop.kind === "end" ? <StoryEndCard variant="stage" title={title} next={ending.next} back={ending.back} onRestart={restart} /> : null}
 				</StoryStage>
 				{logOpen ? <StoryLogPanel title="Log" lines={lines} onClose={closeLog} container={player} /> : null}
 			</Box>
