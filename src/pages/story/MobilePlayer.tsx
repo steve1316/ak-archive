@@ -12,16 +12,14 @@ import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import { Link } from "react-router-dom";
 
 import { MobileStoryReader, StorySkipIcon } from "archive-kit";
-import type { StoryChoice, StoryControl, StoryCurrentLine, StoryLine } from "archive-kit";
+import type { StoryChoice, StoryControl, StoryCurrentLine } from "archive-kit";
 
-import { musicTitle, storyTitle } from "../../lib/story.js";
+import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
-import NowPlaying from "./NowPlaying.js";
 import StorySettings from "./StorySettings.js";
-import { useMusicTitles } from "./useMusicTitles.js";
 import StoryStage, { typedRuns } from "./StoryStage.js";
 import type { StoryRun } from "./useStoryRun.js";
 
@@ -30,9 +28,6 @@ const READER_SX: SxProps<Theme> = { fontFamily: '"Noto Sans", sans-serif' };
 
 /** The end of a story: a note and the links on, under the last line. */
 const END_SX: SxProps<Theme> = { display: "grid", gap: 1, mt: 1 };
-
-/** Where a track starts in the transcript and the Log: quieter than the lines around it. */
-const MUSIC_LINE_SX: SxProps<Theme> = { fontStyle: "italic", opacity: 0.8 };
 
 /** Props for MobilePlayer. */
 interface MobilePlayerProps {
@@ -52,7 +47,7 @@ interface MobilePlayerProps {
  * @returns The player.
  */
 export default function MobilePlayer({ reader, group, presence }: MobilePlayerProps) {
-	const { run, log, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, settings, shakeKey } = reader;
+	const { run, lines, corner, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, settings, shakeKey } = reader;
 	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact } = reader;
 
 	// Built once per change rather than per render, since the reader re-renders on every typed character.
@@ -66,34 +61,6 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 			{ key: "skip", label: "Skip", ariaLabel: "Skip to the next choice", icon: <StorySkipIcon />, onClick: skip, disabled: !reading }
 		],
 		[group, back, canBack, openLog, auto, toggleAuto, soundOn, toggleSound, skip, reading]
-	);
-
-	// Built once per track rather than per render, so the memoised stage holds still while a line types.
-	const nowPlaying = useMemo(() => <NowPlaying music={run.stage.music} />, [run.stage.music]);
-
-	const titles = useMusicTitles();
-	// A track that starts shows as a line of its own, where it starts. One with no title, such as a sound effect, is left out.
-	const lines = useMemo<StoryLine[]>(
-		() =>
-			log.flatMap((entry): StoryLine[] => {
-				if (entry.kind === "music") {
-					const title = musicTitle(titles, entry.ref);
-					return title
-						? [
-								{
-									speaker: null,
-									text: (
-										<Box component="span" sx={MUSIC_LINE_SX}>
-											&#9834; Now Playing: {title}
-										</Box>
-									)
-								}
-							]
-						: [];
-				}
-				return entry.kind === "pick" ? [{ speaker: null, text: fillNickname(entry.text, nickname), kind: "choice" }] : [{ speaker: entry.name, text: fillNickname(entry.text, nickname) }];
-			}),
-		[log, nickname, titles]
 	);
 
 	const current: StoryCurrentLine | null = shown ? { speaker: shown.name, text: typedRuns(shown, typed), typing: typed < length } : caption ? { speaker: null, text: caption } : null;
@@ -120,11 +87,8 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 
 	return (
 		<MobileStoryReader
-			scene={
-				<StoryStage stage={run.stage} nickname={nickname} presence={presence} hideText shakeKey={shakeKey}>
-					{nowPlaying}
-				</StoryStage>
-			}
+			scene={<StoryStage stage={run.stage} nickname={nickname} presence={presence} hideText shakeKey={shakeKey} />}
+			corner={corner}
 			controls={controls}
 			lines={lines}
 			current={current}

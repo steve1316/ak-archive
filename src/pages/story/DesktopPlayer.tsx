@@ -7,15 +7,13 @@ import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { Link } from "react-router-dom";
 
-import { StorySettingsCard, useFullscreen } from "archive-kit";
+import { StoryCorner, StoryLogPanel, StorySettingsCard, useFullscreen } from "archive-kit";
 
 import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
-import NowPlaying from "./NowPlaying.js";
-import StoryLog from "./StoryLog.js";
 import StorySettings from "./StorySettings.js";
 import StoryStage from "./StoryStage.js";
 import type { StoryRun } from "./useStoryRun.js";
@@ -207,7 +205,8 @@ interface DesktopPlayerProps {
 export default function DesktopPlayer({ reader, group, title, tag, presence }: DesktopPlayerProps) {
 	const {
 		run,
-		log,
+		lines,
+		corner,
 		typed,
 		shown,
 		decision,
@@ -277,7 +276,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							onSettings={openSettings}
 						/>
 					) : null}
-					{!hideUi ? <NowPlaying music={run.stage.music} /> : null}
+					{!hideUi ? <StoryCorner progress={corner.progress} track={corner.track} /> : null}
 					<StorySettingsCard open={settingsOpen && !hideUi} onClose={closeSettings} sx={SETTINGS_CARD_SX}>
 						<StorySettings settings={settings} nickname={nickname} onNickname={setNickname} />
 					</StorySettingsCard>
@@ -302,7 +301,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 						</Box>
 					) : null}
 				</StoryStage>
-				{logOpen ? <StoryLog entries={log} nickname={nickname} onClose={closeLog} /> : null}
+				{logOpen ? <StoryLogPanel title="Log" lines={lines} onClose={closeLog} container={player} /> : null}
 			</Box>
 		</>
 	);

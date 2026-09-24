@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaSession, useStorySettings } from "archive-kit";
-import type { StorySettingsState } from "archive-kit";
+import type { StoryCornerProps, StoryLine, StorySettingsState } from "archive-kit";
 
-import { storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
+import { musicTitle, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { isControlTarget, isTextTarget } from "../../lib/keys.js";
 import type { DecisionStep, LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
-import { START, advance, choose, emptyEffects, emptyStage, fillNickname, skipToStop, upcomingArt } from "./engine.js";
+import { START, advance, choose, emptyEffects, emptyStage, fillNickname, lineNumber, lineOrder, skipToStop, upcomingArt } from "./engine.js";
 import type { Advance } from "./engine.js";
-import type { LogEntry } from "./StoryLog.js";
+import { useMusicTitles } from "./useMusicTitles.js";
 import { useStoryAudio } from "./useStoryAudio.js";
 
 /** How long one character takes to type at 1x, in milliseconds. */
@@ -33,12 +33,20 @@ const SETTINGS_KEY = "ak.storySettings";
 /** The name used until the reader sets one. */
 const DEFAULT_NICKNAME = "Doctor";
 
+/** One entry in the Log: a line, a choice the reader picked, or a track that started, by the reference the script played. */
+type LogEntry = { kind: "line"; name: string | null; text: string } | { kind: "pick"; text: string } | { kind: "music"; ref: string };
+
 /** Everything a view needs to draw one story and drive it, from `useStoryRun`. */
 export interface StoryRun {
 	/** Where the story stands: the stage, the stop it waits at and the last walk's effects. */
 	run: Advance;
-	/** Every line, choice and track start so far, oldest first, ending with the line on screen. */
-	log: LogEntry[];
+	/**
+	 * Every line, pick and track start so far, oldest first, ending with the line on screen, with the reader's name filled in. A track with no
+	 * title is left out. Both views' Logs and the phone's transcript read it.
+	 */
+	lines: StoryLine[];
+	/** The corner's line count and the track that started. It keeps its identity between the typewriter's ticks. */
+	corner: StoryCornerProps;
 	/** How many characters of the line have typed out. */
 	typed: number;
 	/** The line on screen with the reader's name filled in, or null when the stop is not a line. */
@@ -173,6 +181,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const settings = useStorySettings(SETTINGS_KEY);
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
 	const { resume: resumeAudio, blocked } = useStoryAudio({ music: run.stage.music, effects: run.effects, muted, bgm: settings.bgm, sfx: settings.sfx, urlOf });
+	const titles = useMusicTitles();
 	const preloaded = useRef(new Set<string>());
 
 	const line: LineStep | null = run.stop.kind === "line" ? run.stop.line : null;
@@ -186,6 +195,30 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const next = index >= 0 ? group.stories[index + 1] : undefined;
 	const art = run.stage.image ?? run.stage.background;
 	const artUrl = art ? storyAssetUrl(art.kind, art.name, presence) : null;
+
+	// Built once per change and shared by both views. A track with no title, such as one the titles do not know, is left out.
+	const lines = useMemo<StoryLine[]>(
+		() =>
+			log.flatMap((entry): StoryLine[] => {
+				if (entry.kind === "music") {
+					const trackTitle = musicTitle(titles, entry.ref);
+					return trackTitle ? [{ speaker: null, text: trackTitle, kind: "track" }] : [];
+				}
+				return entry.kind === "pick" ? [{ speaker: null, text: fillNickname(entry.text, nickname), kind: "choice" }] : [{ speaker: entry.name, text: fillNickname(entry.text, nickname) }];
+			}),
+		[log, nickname, titles]
+	);
+
+	// Counted once per story: every line and caption in script order, both sides of each branch.
+	const order = useMemo(() => lineOrder(steps), [steps]);
+	const progress = useMemo(() => ({ at: lineNumber(order, run.cursor), total: order.total }), [order, run.cursor]);
+	// A new object each time a track starts, so the corner shows its title again even for the same track.
+	const music = run.stage.music;
+	const track = useMemo(() => {
+		const trackTitle = music ? musicTitle(titles, music.loop) : null;
+		return trackTitle ? { title: trackTitle } : null;
+	}, [music, titles]);
+	const corner = useMemo<StoryCornerProps>(() => ({ progress, track }), [progress, track]);
 
 	// Every stop the reader has left, with the Log's length there, so the left arrow can step back to it.
 	const history = useRef<{ run: Advance; logLength: number }[]>([]);
@@ -237,8 +270,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		if (run.stop.kind !== "line" && run.stop.kind !== "caption") {
 			return;
 		}
-		const { result, lines } = skipToStop(steps, run.cursor, run.stage);
-		land(result, lines.map(lineEntry));
+		const { result, lines: passed } = skipToStop(steps, run.cursor, run.stage);
+		land(result, passed.map(lineEntry));
 	}, [run, steps, land]);
 
 	// Typewriter: reveal the line a character at a time.
@@ -350,7 +383,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 
 	return {
 		run,
-		log,
+		lines,
+		corner,
 		typed,
 		shown,
 		caption,
