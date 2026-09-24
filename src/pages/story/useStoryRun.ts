@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useMediaSession, useStorySettings } from "archive-kit";
+import { useMediaSession, useStoryKeys, useStorySettings } from "archive-kit";
 import type { StoryCornerProps, StoryLine, StorySettingsState } from "archive-kit";
 
 import { musicTitle, storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import { isControlTarget, isTextTarget } from "../../lib/keys.js";
 import type { DecisionStep, LineStep, StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
 import { START, advance, choose, emptyEffects, emptyStage, fillNickname, lineNumber, lineOrder, skipToStop, upcomingArt } from "./engine.js";
 import type { Advance } from "./engine.js";
@@ -104,6 +103,8 @@ export interface StoryRun {
 	setNickname: (value: string) => void;
 	/** Runs first on any click in the player, letting blocked sound start. */
 	interact: () => void;
+	/** Tells the run whether a panel other than the Log covers the story, such as Settings. Keys and AUTO wait while one does. */
+	setCovered: (covered: boolean) => void;
 }
 
 /**
@@ -178,6 +179,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const [typed, setTyped] = useState(0);
 	const [hideUi, setHideUi] = useState(false);
 	const [logOpen, setLogOpen] = useState(false);
+	// Whether a panel other than the Log covers the story, such as Settings. The views report it.
+	const [covered, setCovered] = useState(false);
 	const [nickname, setNicknameState] = useState(() => readStored(NICKNAME_KEY) || DEFAULT_NICKNAME);
 	const [shakeKey, setShakeKey] = useState(0);
 
@@ -197,6 +200,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const length = shown?.text.length ?? 0;
 	// A line or a caption waits for the reader, and SKIP and AUTO move past either.
 	const reading = line !== null || caption !== null;
+	// Keys and AUTO wait while a panel covers the story.
+	const paused = logOpen || covered;
 	const index = group.stories.findIndex((entry) => entry.id === story.id);
 	const next = index >= 0 ? group.stories[index + 1] : undefined;
 	const art = run.stage.image ?? run.stage.background;
@@ -292,12 +297,12 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	// AUTO: once a line has typed out, wait in proportion to its length plus any pause the script asked for, then move on. The per-character
 	// share follows the text speed, while the base and the script's own pauses do not.
 	useEffect(() => {
-		if (!auto || logOpen || !reading || typed < length) {
+		if (!auto || paused || !reading || typed < length) {
 			return;
 		}
 		const timer = window.setTimeout(step, AUTO_BASE_MS + (AUTO_PER_CHAR_MS / settings.speed) * (caption?.length ?? length) + run.effects.delay * 1000);
 		return () => window.clearTimeout(timer);
-	}, [auto, logOpen, reading, caption, run, typed, length, step, settings.speed]);
+	}, [auto, paused, reading, caption, run, typed, length, step, settings.speed]);
 
 	// Preload the art of the next few stops, so a new scene does not appear half-loaded.
 	useEffect(() => {
@@ -310,35 +315,20 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		}
 	}, [steps, run, presence]);
 
-	// The key listener reads `step` and `back` through a ref, so the typewriter's ticks do not re-attach it.
-	const stepRef = useRef(step);
-	const backRef = useRef(back);
-	useEffect(() => {
-		stepRef.current = step;
-		backRef.current = back;
-	}, [step, back]);
-
-	useEffect(() => {
-		const onKey = (event: KeyboardEvent) => {
-			// Space and Enter keep their own meaning in a field, a button or a link, and the arrows in a field. None of them act behind the open Log.
-			const forward = (event.code === "Space" || event.code === "Enter") && !isControlTarget(event.target);
-			const arrow = (event.code === "ArrowRight" || event.code === "ArrowLeft") && !isTextTarget(event.target);
-			if ((forward || arrow) && !logOpen) {
-				event.preventDefault();
-				resumeAudio();
-				if (event.code === "ArrowLeft") {
-					backRef.current();
-				} else {
-					stepRef.current();
-				}
-			} else if (event.code === "Escape") {
-				setLogOpen(false);
-				setHideUi(false);
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [resumeAudio, logOpen]);
+	// A key reads on or steps back, and lets blocked sound start as a click does. Escape shows hidden text again. The Log and the Settings card
+	// take their own Escape first. Nothing acts while a panel covers the story, and the kit reads these through a ref.
+	useStoryKeys({
+		next: () => {
+			resumeAudio();
+			step();
+		},
+		back: () => {
+			resumeAudio();
+			back();
+		},
+		paused,
+		extra: { Escape: () => setHideUi(false) }
+	});
 
 	const onStage = useCallback(() => {
 		if (hideUi) {
@@ -408,6 +398,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		toggleAuto,
 		toggleSound,
 		setNickname,
-		interact
+		interact,
+		setCovered
 	};
 }

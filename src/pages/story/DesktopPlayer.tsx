@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { Box, Button, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
@@ -228,13 +228,22 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		toggleAuto,
 		toggleSound,
 		setNickname,
-		interact
+		interact,
+		setCovered
 	} = reader;
 	const player = useRef<HTMLDivElement>(null);
 	const fullscreen = useFullscreen(player);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const openSettings = useCallback(() => setSettingsOpen(true), []);
 	const closeSettings = useCallback(() => setSettingsOpen(false), []);
+	// The card covers the story while it is open, so the run's keys and AUTO wait. Closing it, or leaving this view with it open, ends that.
+	useEffect(() => {
+		if (!settingsOpen) {
+			return;
+		}
+		setCovered(true);
+		return () => setCovered(false);
+	}, [settingsOpen, setCovered]);
 
 	const choices = decision
 		? decision.options.map((option, choice) => (

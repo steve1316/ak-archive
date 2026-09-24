@@ -48,7 +48,7 @@ interface MobilePlayerProps {
  */
 export default function MobilePlayer({ reader, group, presence }: MobilePlayerProps) {
 	const { run, lines, corner, typed, shown, caption, decision, length, reading, canBack, next, auto, logOpen, soundOn, nickname, settings, shakeKey } = reader;
-	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact } = reader;
+	const { back, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact, setCovered } = reader;
 
 	// Built once per change rather than per render, since the reader re-renders on every typed character.
 	const controls = useMemo<StoryControl[]>(
@@ -99,6 +99,7 @@ export default function MobilePlayer({ reader, group, presence }: MobilePlayerPr
 			logOpen={logOpen}
 			onCloseLog={closeLog}
 			settings={<StorySettings settings={settings} nickname={nickname} onNickname={setNickname} sceneSize />}
+			onPanelChange={setCovered}
 			sceneSize={settings.sceneSize}
 			sx={READER_SX}
 		/>
