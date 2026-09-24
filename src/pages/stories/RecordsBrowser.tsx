@@ -120,6 +120,9 @@ const SKIN_SX: SxProps<Theme> = {
 	objectFit: "cover",
 	objectPosition: "center 20%",
 	filter: "brightness(0.55)",
+	// Soft left, top and bottom edges, so the art melts into the page rather than ending in a hard line. The right edge is cut off by the pane.
+	maskImage: "linear-gradient(to right, transparent, #000 18%), linear-gradient(to bottom, transparent, #000 8%, #000 86%, transparent)",
+	maskComposite: "intersect",
 	animation: "recordSkinIn 0.5s ease-out",
 	"@keyframes recordSkinIn": { from: { opacity: 0 }, to: { opacity: 1 } }
 };
