@@ -30,6 +30,9 @@ const CHROME_SX: SxProps<Theme> = { position: "absolute", top: "4%", display: "f
 /** One chrome button: plain text on the stage. */
 const CHROME_BUTTON_SX: SxProps<Theme> = { color: "#fff", minWidth: 0, p: "0.4cqh 0.8cqh", fontSize: "inherit", fontFamily: "inherit", letterSpacing: "0.04em" };
 
+/** The chrome at the end of a story, which always fades to black: a white hover tint, since the theme's faint blue one all but vanishes there. */
+const CHROME_END_SX = { "& .MuiButton-root:hover, & .MuiButton-root.Mui-focusVisible": { bgcolor: "rgba(255, 255, 255, 0.16)" } } as const;
+
 /**
  * The fullscreen control: a chrome button like LOG and HIDE, so it highlights the same way, holding the icon the phone reader uses. The icon is
  * outlined, so it reads on a white scene, and grows a little on hover or focus. Only the icon scales, so the row never shifts.
@@ -122,6 +125,8 @@ interface PlayerChromeProps {
 	full: boolean | null;
 	/** Enters or leaves fullscreen. */
 	onFull: () => void;
+	/** Whether the story has ended, when the stage is black and the hover tint turns white. */
+	ended: boolean;
 }
 
 /**
@@ -130,10 +135,10 @@ interface PlayerChromeProps {
  * @param props Component props.
  * @returns The chrome.
  */
-const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog, onHide, onSound, onAuto, onSkip, full, onFull }: PlayerChromeProps) {
+const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog, onHide, onSound, onAuto, onSkip, full, onFull, ended }: PlayerChromeProps) {
 	return (
 		<>
-			<Box sx={{ ...CHROME_SX, left: "4%" }}>
+			<Box sx={{ ...CHROME_SX, ...(ended ? CHROME_END_SX : null), left: "4%" }}>
 				{full !== null ? (
 					<Button sx={FULLSCREEN_SX} aria-label={full ? "Leave fullscreen" : "Fill the screen"} onClick={stopClick(onFull)}>
 						{full ? <FullscreenExitIcon /> : <FullscreenIcon />}
@@ -146,7 +151,7 @@ const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog,
 					HIDE
 				</Button>
 			</Box>
-			<Box sx={{ ...CHROME_SX, right: "4%" }}>
+			<Box sx={{ ...CHROME_SX, ...(ended ? CHROME_END_SX : null), right: "4%" }}>
 				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onSound)}>
 					{soundOn ? "SOUND ON" : "SOUND OFF"}
 				</Button>
@@ -249,6 +254,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							onSkip={skip}
 							full={fullscreen.supported ? fullscreen.active : null}
 							onFull={fullscreen.toggle}
+							ended={run.stop.kind === "end"}
 						/>
 					) : null}
 					{!hideUi ? <NowPlaying music={run.stage.music} /> : null}
