@@ -13,7 +13,7 @@ import storyData from "virtual:story-data";
 
 import { spriteKey } from "../../tools/story/keys.mjs";
 import { storyAssets } from "./assets.js";
-import type { StoryAssets, StoryFile, StoryGroup, StoryIndex } from "../types/story.js";
+import type { StoryAssets, StoryFile, StoryGroup, StoryGroupEntry, StoryIndex } from "../types/story.js";
 
 /** The kinds of story image: art the manifest records by sprite key, plus covers and map art recorded by group id. */
 type StoryAssetKind = "backgrounds" | "images" | "sprites" | "covers" | "maps";
@@ -144,4 +144,14 @@ export function storyAssetUrl(kind: StoryAssetKind, name: string, presence: Stor
  */
 export function storyAudioUrl(ref: string, presence: StoryPresence): string | null {
 	return presence.hasAudio(ref) ? storyAssets.url(`audio/${ref.toLowerCase()}.mp3`) : null;
+}
+
+/**
+ * A story's title with its stage code, such as `0-1 Collapse`.
+ *
+ * @param entry The story.
+ * @returns The title.
+ */
+export function storyTitle(entry: StoryGroupEntry): string {
+	return `${entry.code ? `${entry.code} ` : ""}${entry.name}`;
 }
