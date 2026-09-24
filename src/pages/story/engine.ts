@@ -508,8 +508,7 @@ export function lineOrder(steps: Step[]): LineOrder {
 }
 
 /**
- * The line a stop is on, by `lineOrder`'s count. A line or caption is its own place in the count, a choice takes the count so far, and the
- * end is the total.
+ * The line a stop is on, by `lineOrder`'s count. A line or caption is its own place in the count, a choice takes the count so far, and the end is the total.
  *
  * @param order The story's count.
  * @param cursor The cursor after the stop, as `advance` returns it.
