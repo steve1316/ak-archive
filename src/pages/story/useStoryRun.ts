@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useMediaSession } from "archive-kit";
+
 import { storyAssetUrl, storyAudioUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { isControlTarget, isTextTarget } from "../../lib/keys.js";
@@ -326,15 +328,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	}, [muted]);
 
 	// The phone's media controls show the story and the scene on screen, rather than the site's icon and address.
-	useEffect(() => {
-		if (!("mediaSession" in navigator)) {
-			return;
-		}
-		navigator.mediaSession.metadata = new MediaMetadata({ title, artist: group.name, album: "Arknights Archive", artwork: artUrl ? [{ src: artUrl, type: "image/webp" }] : [] });
-		return () => {
-			navigator.mediaSession.metadata = null;
-		};
-	}, [title, group.name, artUrl]);
+	useMediaSession({ title, artist: group.name, album: "Arknights Archive", artwork: artUrl });
 
 	const openLog = useCallback(() => setLogOpen(true), []);
 	const closeLog = useCallback(() => setLogOpen(false), []);

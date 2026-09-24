@@ -1,9 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RefObject } from "react";
+import { memo, useMemo, useRef } from "react";
 
 import { Box, Button, Typography, useMediaQuery } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { Link } from "react-router-dom";
+
+import { useFullscreen } from "archive-kit";
 
 import { storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
@@ -107,22 +108,6 @@ function stopClick(handler: () => void) {
 		event.stopPropagation();
 		handler();
 	};
-}
-
-/**
- * Whether an element is the one the browser shows fullscreen, following the browser, since the back gesture or `Esc` also leaves fullscreen.
- *
- * @param ref The element the Full button puts fullscreen.
- * @returns Whether it is fullscreen now.
- */
-function useFullscreen(ref: RefObject<HTMLElement | null>): boolean {
-	const [full, setFull] = useState(false);
-	useEffect(() => {
-		const sync = () => setFull(document.fullscreenElement !== null && document.fullscreenElement === ref.current);
-		document.addEventListener("fullscreenchange", sync);
-		return () => document.removeEventListener("fullscreenchange", sync);
-	}, [ref]);
-	return full;
 }
 
 /** Props for PlayerChrome. */
@@ -250,14 +235,6 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 	const player = useRef<HTMLDivElement>(null);
 	const fullscreen = useFullscreen(player);
 
-	const toggleFullscreen = useCallback(() => {
-		if (document.fullscreenElement) {
-			void document.exitFullscreen().catch(() => {});
-		} else {
-			void player.current?.requestFullscreen().catch(() => {});
-		}
-	}, []);
-
 	const backLink = useMemo(() => (compact ? { to: storyGroupPath(group.id), label: group.name } : null), [compact, group]);
 	const lineText =
 		!hideUi && (shown || caption) ? (
@@ -315,8 +292,8 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							onSound={toggleSound}
 							onAuto={toggleAuto}
 							onSkip={skip}
-							full={document.fullscreenEnabled && !stacked ? fullscreen : null}
-							onFull={toggleFullscreen}
+							full={fullscreen.supported && !stacked ? fullscreen.active : null}
+							onFull={fullscreen.toggle}
 							back={backLink}
 						/>
 					) : null}
