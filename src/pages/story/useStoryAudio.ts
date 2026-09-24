@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
+
+import { useAudioGate } from "archive-kit";
 
 import type { Effects, StageState } from "./engine.js";
 
@@ -114,7 +116,8 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 	const mutedRef = useRef(muted);
 	const gains = useRef({ bgm, sfx });
 	const fades = useRef({ crossfade: 0, stop: 0 });
-	const [blocked, setBlocked] = useState(false);
+	// Starts every sound, and holds the track and looping sounds the browser refused until the reader's next click.
+	const { blocked, play, resume, forget } = useAudioGate();
 	const loopKey = music?.loop ?? null;
 	const introKey = music?.intro ?? null;
 	const volume = music?.volume ?? 1;
@@ -132,30 +135,17 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 		audio.volume = Math.min(1, Math.max(0, (LEVELS.get(audio) ?? 0) * gain));
 	}, []);
 
-	const play = useCallback((audio: HTMLAudioElement) => {
-		audio.play().then(
-			() => setBlocked(false),
-			(error: unknown) => {
-				if (error instanceof DOMException && error.name === "NotAllowedError") {
-					setBlocked(true);
-				}
-				// A one-shot that could not start is stale by the time it could, so it is dropped rather than resumed later.
-				if (!audio.loop) {
-					playing.current = playing.current.filter((sound) => sound.audio !== audio);
-				}
-			}
-		);
-	}, []);
-
+	// A sound fading out is no longer wanted, so a click must not start it again.
 	const fadeOut = useCallback(
 		(audio: HTMLAudioElement, seconds: number) => {
+			forget(audio);
 			fadingOut.current.add(audio);
 			fadeVolume(audio, 0, seconds, apply, () => {
 				audio.pause();
 				fadingOut.current.delete(audio);
 			});
 		},
-		[apply]
+		[apply, forget]
 	);
 
 	const stopChannel = useCallback(
@@ -219,7 +209,7 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 					track.current = loop;
 					apply(loop);
 					loop.muted = mutedRef.current;
-					play(loop);
+					void play(loop);
 				}
 			});
 		}
@@ -228,7 +218,8 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 			setLevel(first, 0, apply);
 			fadeVolume(first, target, fadeIn, apply);
 		}
-		play(first);
+		// Kept when refused, so an intro, which does not loop, still waits for the reader's click.
+		void play(first, { keep: true });
 	}, [loopKey, introKey, volume, urlOf, play, fadeOut, apply]);
 
 	useEffect(() => {
@@ -253,7 +244,12 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 			audio.addEventListener("ended", () => {
 				playing.current = playing.current.filter((entry) => entry !== sound);
 			});
-			play(audio);
+			// A one-shot that could not start is stale by the time it could, so it is dropped rather than resumed later.
+			void play(audio).then((started) => {
+				if (!started && !audio.loop) {
+					playing.current = playing.current.filter((entry) => entry !== sound);
+				}
+			});
 		}
 	}, [effects, urlOf, play, stopChannel, apply]);
 
@@ -267,16 +263,6 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 		},
 		[allAudio]
 	);
-
-	const resume = useCallback(() => {
-		// The reader's click lets audio play from here on. Anything that is refused again sets `blocked` back.
-		setBlocked(false);
-		for (const audio of allAudio()) {
-			if (audio.paused && (audio === track.current || audio.loop) && !fadingOut.current.has(audio)) {
-				play(audio);
-			}
-		}
-	}, [allAudio, play]);
 
 	return { resume, blocked };
 }
