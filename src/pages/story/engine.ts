@@ -109,6 +109,14 @@ export interface Advance {
 	effects: Effects;
 }
 
+/** Where a story's stops fall among its lines, from `lineOrder`. */
+export interface LineOrder {
+	/** Every line and caption in the script, both sides of each branch included. */
+	total: number;
+	/** How many lines and captions sit before each step index: entry `i` counts steps 0 to i - 1. It runs one past the last step. */
+	before: number[];
+}
+
 /** A layer that has not moved. */
 const PLACEMENT: Placement = { x: 0, y: 0, xScale: 1, yScale: 1 };
 
@@ -474,4 +482,39 @@ export function skipToStop(steps: Step[], cursor: Cursor, stage: StageState): { 
 		result = advance(steps, result.cursor, result.stage);
 	}
 	return { result, lines };
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////////////////////////
+// Counting
+
+/**
+ * Count a story's lines in script order: its line steps and the captions the reader clicks past, both sides of every branch included. So the
+ * total is fixed from the start, and the count jumps forward past a branch not taken.
+ *
+ * @param steps The story's steps.
+ * @returns The total and the running count before each step.
+ */
+export function lineOrder(steps: Step[]): LineOrder {
+	const before = [0];
+	let seen = 0;
+	for (const step of steps) {
+		if (step.t === "line" || (step.t !== "decision" && step.t !== "predicate" && captionOf(step) !== null)) {
+			seen++;
+		}
+		before.push(seen);
+	}
+	return { total: seen, before };
+}
+
+/**
+ * The line a stop is on, by `lineOrder`'s count. A line or caption is its own place in the count, a choice takes the count so far, and the
+ * end is the total.
+ *
+ * @param order The story's count.
+ * @param cursor The cursor after the stop, as `advance` returns it.
+ * @returns The line number, from 1.
+ */
+export function lineNumber(order: LineOrder, cursor: Cursor): number {
+	return order.before[cursor.index] ?? order.total;
 }

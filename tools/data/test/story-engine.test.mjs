@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
+import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, lineNumber, lineOrder, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
 
 /**
  * A line step.
@@ -223,4 +223,39 @@ test("upcomingArt lists the art the next few stops show, once each, and stops lo
 test("fillNickname drops the Dr. before a reader named Doctor, so no line reads Dr. Doctor", () => {
 	assert.equal(fillNickname("Hello, Dr. {@nickname}. Dr.{@nickname}? {@nickname}!", "Doctor"), "Hello, Doctor. Doctor? Doctor!");
 	assert.equal(fillNickname("Hello, Dr. {@nickname}.", "Kal"), "Hello, Dr. Kal.");
+});
+
+test("lineOrder counts lines and captions in script order, both sides of a branch, and lineNumber reads the count at each stop", () => {
+	const steps = [
+		cmd("playmusic", { key: "m_l" }),
+		line("Amiya", "One."),
+		cmd("subtitle", { text: "Two." }),
+		cmd("sticker", { id: "s", text: "Not a stop.", block: false }),
+		{ t: "decision", options: ["A", "B"], values: ["1", "2"] },
+		{ t: "predicate", refs: ["1"] },
+		line(null, "Three, on A."),
+		{ t: "predicate", refs: ["2"] },
+		line(null, "Four, on B."),
+		{ t: "predicate", refs: null },
+		line(null, "Five.")
+	];
+	const order = lineOrder(steps);
+	assert.equal(order.total, 5);
+	const first = advance(steps, START, emptyStage());
+	assert.equal(lineNumber(order, first.cursor), 1);
+	const caption = advance(steps, first.cursor, first.stage);
+	assert.equal(caption.stop.kind, "caption");
+	assert.equal(lineNumber(order, caption.cursor), 2);
+	const decision = advance(steps, caption.cursor, caption.stage);
+	assert.equal(decision.stop.kind, "decision");
+	assert.equal(lineNumber(order, decision.cursor), 2);
+	// Picking A leaves B's line unread, so the count jumps from 3 to 5.
+	const onA = advance(steps, choose(decision.cursor, "1"), decision.stage);
+	assert.equal(lineNumber(order, onA.cursor), 3);
+	const rejoined = advance(steps, onA.cursor, onA.stage);
+	assert.equal(rejoined.stop.line.text, "Five.");
+	assert.equal(lineNumber(order, rejoined.cursor), 5);
+	const end = advance(steps, rejoined.cursor, rejoined.stage);
+	assert.equal(end.stop.kind, "end");
+	assert.equal(lineNumber(order, end.cursor), 5);
 });
