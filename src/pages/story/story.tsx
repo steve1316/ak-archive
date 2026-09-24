@@ -252,6 +252,8 @@ interface StoryPlayerProps {
 	story: StoryFile;
 	/** The group it belongs to, for its title and the next story. */
 	group: StoryGroup;
+	/** The story's title, such as `0-1 Collapse`, for the phone's media controls. */
+	title: string;
 	/** Which story assets are published. */
 	presence: StoryPresence;
 }
@@ -263,7 +265,7 @@ interface StoryPlayerProps {
  * @param props Component props.
  * @returns The player.
  */
-function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
+function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 	const steps = story.steps;
 	const [run, setRun] = useState<Advance>(() => advance(steps, START, emptyStage()));
 	const [log, setLog] = useState<LogEntry[]>(() => stopEntries(run));
@@ -288,6 +290,8 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 	const reading = line !== null || caption !== null;
 	const index = group.stories.findIndex((entry) => entry.id === story.id);
 	const next = index >= 0 ? group.stories[index + 1] : undefined;
+	const art = run.stage.image ?? run.stage.background;
+	const artUrl = art ? storyAssetUrl(art.kind, art.name, presence) : null;
 
 	// Every stop the reader has left, with the Log's length there, so the left arrow can step back to it.
 	const history = useRef<{ run: Advance; logLength: number }[]>([]);
@@ -436,6 +440,17 @@ function StoryPlayer({ story, group, presence }: StoryPlayerProps) {
 		});
 	}, [muted]);
 
+	// The phone's media controls show the story and the scene on screen, rather than the site's icon and address.
+	useEffect(() => {
+		if (!("mediaSession" in navigator)) {
+			return;
+		}
+		navigator.mediaSession.metadata = new MediaMetadata({ title, artist: group.name, album: "Arknights Archive", artwork: artUrl ? [{ src: artUrl, type: "image/webp" }] : [] });
+		return () => {
+			navigator.mediaSession.metadata = null;
+		};
+	}, [title, group.name, artUrl]);
+
 	const openLog = useCallback(() => setLogOpen(true), []);
 	const closeLog = useCallback(() => setLogOpen(false), []);
 	const hide = useCallback(() => setHideUi(true), []);
@@ -524,11 +539,12 @@ export default function Story() {
 	}, [groupId, storyId, attempt]);
 
 	const entry = data?.group.stories.find((item) => item.id === storyId);
+	const title = entry ? storyTitle(entry) : storyId;
 	useEffect(() => {
 		if (data && entry) {
-			document.title = `${storyTitle(entry)} - ${data.group.name} - Arknights Archive`;
+			document.title = `${title} - ${data.group.name} - Arknights Archive`;
 		}
-	}, [data, entry]);
+	}, [data, entry, title]);
 
 	return (
 		<Box component="main" sx={PAGE_SX}>
@@ -542,13 +558,13 @@ export default function Story() {
 							{data.group.name}
 						</Button>
 						<Typography component="h1" variant="body1">
-							{entry ? storyTitle(entry) : data.story.id}
+							{title}
 						</Typography>
 						<Typography variant="body2" color="text.secondary">
 							{entry?.tag}
 						</Typography>
 					</Box>
-					<StoryPlayer key={data.story.id} story={data.story} group={data.group} presence={data.presence} />
+					<StoryPlayer key={data.story.id} story={data.story} group={data.group} title={title} presence={data.presence} />
 				</>
 			) : (
 				<Typography color="text.secondary" role="status">
