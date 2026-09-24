@@ -2,8 +2,9 @@ import "@fontsource/noto-sans/400.css";
 import "@fontsource/noto-sans/500.css";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 
-import { Box, Button, GlobalStyles, Typography } from "@mui/material";
+import { Box, Button, GlobalStyles, Typography, useMediaQuery } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { Link, useParams } from "react-router-dom";
 
@@ -19,7 +20,8 @@ import { START, advance, choose, emptyEffects, emptyStage, fillNickname, skipToS
 import type { Advance } from "./engine.js";
 import StoryLog from "./StoryLog.js";
 import type { LogEntry } from "./StoryLog.js";
-import StoryStage, { NARROW_STAGE, typedRuns } from "./StoryStage.js";
+import { COMPACT, COMPACT_QUERY, STACKED, STACKED_QUERY } from "./layouts.js";
+import StoryStage, { typedRuns } from "./StoryStage.js";
 import { useStoryAudio } from "./useStoryAudio.js";
 
 /** How long one character takes to type, in milliseconds. */
@@ -40,7 +42,11 @@ const AUTO_KEY = "storyAuto";
 /** The name used until the reader sets one. */
 const DEFAULT_NICKNAME = "Doctor";
 
-/** The page: a black band with the stage centred at the largest 16:9 that fits under the bar. */
+/**
+ * The page: a black band with the stage centred at the largest 16:9 that fits under the bar. Stacked, it is exactly the screen's height, with
+ * the stage at the top and the text panel taking the rest, so nothing moves as lines and choices come and go. Compact, it is a size container
+ * the stage fills the height of.
+ */
 const PAGE_SX: SxProps<Theme> = (theme) => ({
 	background: "#000",
 	...fillBelowNavbar(theme.mixins.toolbar, "minHeight"),
@@ -48,11 +54,29 @@ const PAGE_SX: SxProps<Theme> = (theme) => ({
 	flexDirection: "column",
 	alignItems: "center",
 	justifyContent: "center",
-	py: 1
+	py: 1,
+	[`@media ${STACKED_QUERY}, ${COMPACT_QUERY}`]: { ...fillBelowNavbar(theme.mixins.toolbar, "height"), py: 0 },
+	[STACKED]: { justifyContent: "flex-start" },
+	[COMPACT]: { containerType: "size" }
 });
 
 /** The stage's box: as wide as the page allows while still fitting the viewport's height. */
-const STAGE_BOX_SX: SxProps<Theme> = { width: "min(100%, calc((100vh - 120px) * 16 / 9))" };
+const STAGE_BOX_SX = {
+	width: "min(100%, calc((100dvh - 120px) * 16 / 9))",
+	[COMPACT]: { width: "min(100cqw, calc(100cqh * 16 / 9))" }
+} as const satisfies SxProps<Theme>;
+
+/** The group link and title over the stage. A phone on its side has no room for it, so the chrome carries a back link instead. */
+const TITLE_SX: SxProps<Theme> = {
+	...STAGE_BOX_SX,
+	display: "flex",
+	alignItems: "baseline",
+	gap: 1.5,
+	mb: 1,
+	color: "#cfd3da",
+	[STACKED]: { width: "100%", p: "8px 8px 0" },
+	[COMPACT]: { display: "none" }
+};
 
 /** The top-right and top-left chrome. */
 const CHROME_SX: SxProps<Theme> = { position: "absolute", top: "4%", display: "flex", gap: "2cqh", zIndex: 4, fontSize: "max(11px, 2.2cqh)" };
@@ -69,8 +93,7 @@ const CHOICES_SX: SxProps<Theme> = {
 	width: "58%",
 	display: "grid",
 	gap: "1.8cqh",
-	zIndex: 6,
-	[NARROW_STAGE]: { width: "90%" }
+	zIndex: 6
 };
 
 /** One choice bar. */
@@ -86,19 +109,36 @@ const CHOICE_SX: SxProps<Theme> = {
 	"&:hover": { background: "rgba(60,60,64,0.95)" }
 };
 
-/** The player column, a container so the line under the stage follows the same width rule as the stage itself. */
-const PLAYER_SX: SxProps<Theme> = { ...STAGE_BOX_SX, containerType: "inline-size" };
+/** One choice in the stacked panel, sized for a finger rather than for the stage. */
+const PANEL_CHOICE_SX: SxProps<Theme> = { ...CHOICE_SX, fontSize: 15, p: "12px 14px" };
 
-/** The line under the stage when the stage is too narrow for its own text to be readable. */
-const NARROW_TEXT_SX: SxProps<Theme> = {
-	display: "none",
-	[NARROW_STAGE]: { display: "block" },
-	mt: 1.5,
-	px: 1,
-	minHeight: "5.5em",
+/**
+ * The player column: the stage's width, or stacked, the stage over the text panel down to the bottom of the screen. Fullscreen, it is the whole
+ * screen with the stage centred at the largest 16:9 that fits. The Log's drawer is placed against it.
+ */
+const PLAYER_SX: SxProps<Theme> = {
+	...STAGE_BOX_SX,
+	position: "relative",
+	[STACKED]: { width: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" },
+	"&:fullscreen": { width: "100%", height: "100%", display: "grid", placeItems: "center", background: "#000" },
+	"&:fullscreen [data-region='story-stage']": { width: "min(100vw, calc(100vh * 16 / 9))" }
+};
+
+/** The stacked panel under the stage, holding the line or the choices. Always there, so the stage never moves. */
+const PANEL_SX: SxProps<Theme> = { flex: 1, minHeight: 0, overflowY: "auto", p: "12px 16px", fontFamily: '"Noto Sans", sans-serif', color: "#eef0f4", lineHeight: 1.5 };
+
+/** The compact layout's text box: the full width of the stage along its bottom, at a size a phone can read. Taps pass through to the stage. */
+const COMPACT_TEXT_SX: SxProps<Theme> = {
+	position: "absolute",
+	left: 0,
+	right: 0,
+	bottom: 0,
+	p: "32px 5% 12px",
+	background: "linear-gradient(transparent, rgba(0,0,0,0.78) 35%, rgba(0,0,0,0.9))",
 	fontFamily: '"Noto Sans", sans-serif',
-	color: "#eef0f4",
-	lineHeight: 1.5
+	lineHeight: 1.45,
+	pointerEvents: "none",
+	zIndex: 3
 };
 
 /** One camera shake. */
@@ -191,6 +231,22 @@ function stopClick(handler: () => void) {
 	};
 }
 
+/**
+ * Whether an element is the one the browser shows fullscreen, following the browser, since the back gesture or `Esc` also leaves fullscreen.
+ *
+ * @param ref The element the Full button puts fullscreen.
+ * @returns Whether it is fullscreen now.
+ */
+function useFullscreen(ref: RefObject<HTMLElement | null>): boolean {
+	const [full, setFull] = useState(false);
+	useEffect(() => {
+		const sync = () => setFull(document.fullscreenElement !== null && document.fullscreenElement === ref.current);
+		document.addEventListener("fullscreenchange", sync);
+		return () => document.removeEventListener("fullscreenchange", sync);
+	}, [ref]);
+	return full;
+}
+
 /** Props for PlayerChrome. */
 interface PlayerChromeProps {
 	/** Whether sound is heard: not muted, and not held back by the browser. */
@@ -209,18 +265,29 @@ interface PlayerChromeProps {
 	onAuto: () => void;
 	/** Skips to the next choice or the end. */
 	onSkip: () => void;
+	/** Whether the player is fullscreen, or null to leave out the Full button where the browser cannot go fullscreen. */
+	full: boolean | null;
+	/** Enters or leaves fullscreen. */
+	onFull: () => void;
+	/** Where the back link goes and what it says, or null for no back link. Only the compact layout, which hides the title, has one. */
+	back: { to: string; label: string } | null;
 }
 
 /**
- * LOG and HIDE at the top left, and SOUND, AUTO and SKIP at the top right. Memoised, so the typewriter's ticks leave it alone.
+ * LOG and HIDE at the top left, and SOUND, AUTO, SKIP and FULL at the top right. Memoised, so the typewriter's ticks leave it alone.
  *
  * @param props Component props.
  * @returns The chrome.
  */
-const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog, onHide, onSound, onAuto, onSkip }: PlayerChromeProps) {
+const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog, onHide, onSound, onAuto, onSkip, full, onFull, back }: PlayerChromeProps) {
 	return (
 		<>
 			<Box sx={{ ...CHROME_SX, left: "4%" }}>
+				{back ? (
+					<Button component={Link} to={back.to} sx={CHROME_BUTTON_SX} onClick={(event) => event.stopPropagation()}>
+						&#8249; {back.label}
+					</Button>
+				) : null}
 				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onLog)}>
 					LOG
 				</Button>
@@ -241,6 +308,11 @@ const PlayerChrome = memo(function PlayerChrome({ soundOn, auto, canSkip, onLog,
 				<Button sx={CHROME_BUTTON_SX} onClick={stopClick(onSkip)} disabled={!canSkip}>
 					SKIP
 				</Button>
+				{full !== null ? (
+					<Button sx={CHROME_BUTTON_SX} aria-label={full ? "Leave fullscreen" : "Fill the screen"} onClick={stopClick(onFull)}>
+						{full ? "EXIT" : "FULL"}
+					</Button>
+				) : null}
 			</Box>
 		</>
 	);
@@ -290,6 +362,10 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 	const reading = line !== null || caption !== null;
 	const index = group.stories.findIndex((entry) => entry.id === story.id);
 	const next = index >= 0 ? group.stories[index + 1] : undefined;
+	const stacked = useMediaQuery(STACKED_QUERY);
+	const compact = useMediaQuery(COMPACT_QUERY);
+	const player = useRef<HTMLDivElement>(null);
+	const fullscreen = useFullscreen(player);
 	const art = run.stage.image ?? run.stage.background;
 	const artUrl = art ? storyAssetUrl(art.kind, art.name, presence) : null;
 
@@ -451,6 +527,14 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 		};
 	}, [title, group.name, artUrl]);
 
+	const toggleFullscreen = useCallback(() => {
+		if (document.fullscreenElement) {
+			void document.exitFullscreen().catch(() => {});
+		} else {
+			void player.current?.requestFullscreen().catch(() => {});
+		}
+	}, []);
+
 	const openLog = useCallback(() => setLogOpen(true), []);
 	const closeLog = useCallback(() => setLogOpen(false), []);
 	const hide = useCallback(() => setHideUi(true), []);
@@ -461,18 +545,60 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 		});
 	}, []);
 
+	const backLink = useMemo(() => (compact ? { to: storyGroupPath(group.id), label: group.name } : null), [compact, group]);
+	const lineText =
+		!hideUi && (shown || caption) ? (
+			<>
+				{shown?.name ? (
+					<Typography variant="subtitle2" sx={{ color: "primary.main", fontFamily: "inherit" }}>
+						{shown.name}
+					</Typography>
+				) : null}
+				<Typography sx={{ fontFamily: "inherit" }} aria-live="polite">
+					{shown ? typedRuns(shown, typed) : caption}
+				</Typography>
+			</>
+		) : null;
+	const choices = decision
+		? decision.options.map((option, choice) => (
+				<Button key={choice} sx={stacked ? PANEL_CHOICE_SX : CHOICE_SX} onClick={() => pick(option, decision.values[choice] ?? "")}>
+					{fillNickname(option, nickname)}
+				</Button>
+			))
+		: null;
+
 	return (
-		<Box sx={PLAYER_SX} onClickCapture={onPlayerClick} data-region="story-player">
+		<Box ref={player} sx={PLAYER_SX} onClickCapture={onPlayerClick} data-region="story-player">
 			<GlobalStyles styles={KEYFRAMES} />
-			<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} nickname={nickname} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
-				{!hideUi ? <PlayerChrome soundOn={!muted && !blocked} auto={auto} canSkip={reading} onLog={openLog} onHide={hide} onSound={toggleSound} onAuto={toggleAuto} onSkip={skip} /> : null}
-				{decision ? (
+			<StoryStage
+				stage={run.stage}
+				name={shown?.name ?? null}
+				line={shown}
+				typed={typed}
+				nickname={nickname}
+				presence={presence}
+				hideText={hideUi || stacked || compact}
+				shakeKey={shakeKey}
+				onClick={onStage}
+			>
+				{!hideUi ? (
+					<PlayerChrome
+						soundOn={!muted && !blocked}
+						auto={auto}
+						canSkip={reading}
+						onLog={openLog}
+						onHide={hide}
+						onSound={toggleSound}
+						onAuto={toggleAuto}
+						onSkip={skip}
+						full={document.fullscreenEnabled && !stacked ? fullscreen : null}
+						onFull={toggleFullscreen}
+						back={backLink}
+					/>
+				) : null}
+				{choices && !stacked ? (
 					<Box sx={CHOICES_SX} onClick={(event) => event.stopPropagation()}>
-						{decision.options.map((option, choice) => (
-							<Button key={choice} sx={CHOICE_SX} onClick={() => pick(option, decision.values[choice] ?? "")}>
-								{fillNickname(option, nickname)}
-							</Button>
-						))}
+						{choices}
 					</Box>
 				) : null}
 				{run.stop.kind === "end" ? (
@@ -490,18 +616,20 @@ function StoryPlayer({ story, group, title, presence }: StoryPlayerProps) {
 						</Box>
 					</Box>
 				) : null}
-				{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={onNickname} onClose={closeLog} /> : null}
+				{compact && lineText ? <Box sx={COMPACT_TEXT_SX}>{lineText}</Box> : null}
 			</StoryStage>
-			{!hideUi && (shown || caption) ? (
-				<Box sx={NARROW_TEXT_SX} onClick={onStage}>
-					{shown?.name ? (
-						<Typography variant="subtitle2" sx={{ color: "primary.main", fontFamily: "inherit" }}>
-							{shown.name}
-						</Typography>
-					) : null}
-					<Typography sx={{ fontFamily: "inherit" }}>{shown ? typedRuns(shown, typed) : caption}</Typography>
+			{stacked ? (
+				<Box sx={PANEL_SX} onClick={onStage}>
+					{choices ? (
+						<Box sx={{ display: "grid", gap: 1.25 }} onClick={(event) => event.stopPropagation()}>
+							{choices}
+						</Box>
+					) : (
+						lineText
+					)}
 				</Box>
 			) : null}
+			{logOpen ? <StoryLog entries={log} nickname={nickname} onNickname={onNickname} onClose={closeLog} /> : null}
 		</Box>
 	);
 }
@@ -553,7 +681,7 @@ export default function Story() {
 				<LoadError what="this story" onRetry={() => setAttempt((value) => value + 1)} titleComponent="h1" />
 			) : data ? (
 				<>
-					<Box sx={{ ...STAGE_BOX_SX, display: "flex", alignItems: "baseline", gap: 1.5, mb: 1, color: "#cfd3da" }}>
+					<Box sx={TITLE_SX}>
 						<Button component={Link} to={storyGroupPath(data.group.id)} size="small">
 							{data.group.name}
 						</Button>

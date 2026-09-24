@@ -1,13 +1,37 @@
 import { memo, useLayoutEffect, useRef } from "react";
 
 import { Box, IconButton, TextField, Typography } from "@mui/material";
+import type { SxProps, Theme } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 
 import { useCloseOnOutsideClick } from "../../lib/dismiss.js";
 import { fillNickname } from "./engine.js";
+import { COMPACT, STACKED } from "./layouts.js";
 
-/** The Log's background, shared by the drawer and its pinned header. */
-const LOG_BG = "rgba(8,10,14,0.95)";
+/** The pinned header's background, and the sheet's, solid so nothing behind them bleeds through the text. */
+const LOG_SOLID_BG = "#08090d";
+
+/**
+ * A drawer over the right of the stage, which lets the stage show faintly through. A phone on its side has a short, narrow stage, so the drawer
+ * takes more of it. Held upright the stage is too small to hold the Log, so it becomes a sheet over the whole screen, navbar included.
+ */
+const LOG_SX: SxProps<Theme> = (theme) => ({
+	position: "absolute",
+	top: 0,
+	bottom: 0,
+	right: 0,
+	width: { xs: "100%", md: "40%" },
+	background: "rgba(8,10,14,0.95)",
+	borderLeft: "1px solid #2a303c",
+	px: 2,
+	pb: 2,
+	overflowY: "auto",
+	cursor: "default",
+	// Above the choices and the end card, which sit at 6.
+	zIndex: 7,
+	[COMPACT]: { width: "60%" },
+	[STACKED]: { position: "fixed", left: 0, width: "100%", background: LOG_SOLID_BG, borderLeft: "none", zIndex: theme.zIndex.appBar + 1 }
+});
 
 /**
  * Whether a click outside the Log is spent on closing it alone: any click on the player, so closing the Log never also advances the story.
@@ -33,8 +57,9 @@ interface StoryLogProps {
 }
 
 /**
- * The backlog: a drawer over the right of the stage listing every line and choice so far, with the reader's name field pinned at the top. It
- * opens scrolled to the newest line, and a click anywhere outside it closes it.
+ * The backlog: a drawer over the right of the stage, or a sheet over the whole screen, listing every line and choice so far, with the reader's
+ * name field pinned at the top. It sits beside the stage rather than in it, so a grey or shaking scene leaves it alone. It opens scrolled to the
+ * newest line, and a click anywhere outside it closes it.
  *
  * @param props Component props.
  * @returns The drawer.
@@ -52,26 +77,8 @@ function StoryLog({ entries, nickname, onNickname, onClose }: StoryLogProps) {
 	useCloseOnOutsideClick(drawer, onClose, onPlayer);
 
 	return (
-		<Box
-			ref={drawer}
-			onClick={(event) => event.stopPropagation()}
-			sx={{
-				position: "absolute",
-				top: 0,
-				bottom: 0,
-				right: 0,
-				width: { xs: "100%", md: "40%" },
-				background: LOG_BG,
-				borderLeft: "1px solid #2a303c",
-				px: 2,
-				pb: 2,
-				overflowY: "auto",
-				cursor: "default",
-				// Above the choices and the end card, which sit at 6.
-				zIndex: 7
-			}}
-		>
-			<Box sx={{ position: "sticky", top: 0, zIndex: 1, background: LOG_BG, pt: 2, pb: 2, mb: 0.5 }}>
+		<Box ref={drawer} onClick={(event) => event.stopPropagation()} sx={LOG_SX}>
+			<Box sx={{ position: "sticky", top: 0, zIndex: 1, background: LOG_SOLID_BG, pt: 2, pb: 2, mb: 0.5 }}>
 				<Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
 					<Typography component="h2" variant="h6" sx={{ flex: 1 }}>
 						Log

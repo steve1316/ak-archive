@@ -16,12 +16,6 @@ const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: {
 /** The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. */
 const TEXT_BOX = { nameRight: 26.1, nameTop: 86.9, nameFont: 3.6, lineLeft: 29.9, lineTop: 86.8, lineWidth: 55, lineFont: 2.65, lineHeight: 1.4 };
 
-/** Below this stage width the in-stage text would be a few pixels tall, so the player shows the line under the stage instead. */
-export const NARROW_STAGE = "@container (max-width: 600px)";
-
-/** The in-stage text and its vignette, hidden on a narrow stage. */
-const TEXT_LAYER_SX: SxProps<Theme> = { [NARROW_STAGE]: { display: "none" } };
-
 /** How a sprite that is not speaking is drawn. */
 const DIMMED = "brightness(0.45)";
 
@@ -71,11 +65,11 @@ interface StoryStageProps {
 	nickname: string;
 	/** Which story assets are published. */
 	presence: StoryPresence;
-	/** Whether the text and chrome are hidden. */
+	/** Whether the game's in-stage text is hidden, by HIDE or by a layout that draws the line somewhere readable instead. */
 	hideText: boolean;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
-	/** Anything drawn over the stage, such as the controls, choices and Log. */
+	/** Anything drawn over the stage, such as the controls and choices. */
 	children?: ReactNode;
 	/** Called when the stage is clicked. */
 	onClick: () => void;
@@ -211,7 +205,7 @@ function StoryStage({ stage, name, line, typed, nickname, presence, hideText, sh
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
 			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
 			{!hideText && line ? (
-				<Box sx={TEXT_LAYER_SX}>
+				<>
 					<Box sx={VIGNETTE_SX} />
 					{name ? (
 						<Box
@@ -233,7 +227,7 @@ function StoryStage({ stage, name, line, typed, nickname, presence, hideText, sh
 					>
 						{typedRuns(line, typed)}
 					</Box>
-				</Box>
+				</>
 			) : null}
 			{children}
 		</Box>
