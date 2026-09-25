@@ -7,7 +7,7 @@ import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import { musicTitle, storyAssetUrl, storyAudioUrl, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { DecisionStep, LineStep, StoryFile, StoryGroup } from "../../types/story.js";
-import { START, advance, choose, emptyEffects, emptyStage, fillNickname, lineNumber, lineOrder, skipToStop, upcomingArt } from "./engine.js";
+import { START, advance, choose, emptyEffects, emptyStage, fillNickname, linesAhead, skipToStop, upcomingArt } from "./engine.js";
 import type { Advance } from "./engine.js";
 import { useMusicTitles } from "./useMusicTitles.js";
 import { useStoryAudio } from "./useStoryAudio.js";
@@ -223,10 +223,13 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		[log, nickname, titles]
 	);
 
-	// Counted once per story: every line and caption in script order, both sides of each branch.
-	const order = useMemo(() => lineOrder(steps), [steps]);
+	// The lines and captions read so far are the ones in the Log, so the count goes up by one per click, and Back and SKIP keep it true.
+	const read = useMemo(() => log.filter((entry) => entry.kind === "line").length, [log]);
+	// The total is what has been read plus what lies ahead on the path being read, a choice not yet made counting its longest answer.
+	const ahead = useMemo(() => linesAhead(steps, run.cursor, decision), [steps, run.cursor, decision]);
+	const total = read + ahead;
 	// No count for a story with no lines. Floored at 1, so a story that opens on a choice reads "Line 1".
-	const progress = useMemo(() => (order.total > 0 ? { at: Math.max(1, lineNumber(order, run.cursor)), total: order.total } : null), [order, run.cursor]);
+	const progress = useMemo(() => (total > 0 ? { at: Math.max(1, read), total } : null), [total, read]);
 	// A new object each time a track starts, so the corner shows its title again even for the same track.
 	const music = run.stage.music;
 	const track = useMemo(() => {

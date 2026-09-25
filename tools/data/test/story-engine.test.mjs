@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, lineNumber, lineOrder, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
+import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, linesAhead, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
 
 /**
  * A line step.
@@ -225,7 +225,8 @@ test("fillNickname drops the Dr. before a reader named Doctor, so no line reads 
 	assert.equal(fillNickname("Hello, Dr. {@nickname}.", "Kal"), "Hello, Dr. Kal.");
 });
 
-test("lineOrder counts lines and captions in script order, both sides of a branch, and lineNumber reads the count at each stop", () => {
+test("linesAhead counts the lines and captions still to come on the path being read, the longest answer at a choice not yet made", () => {
+	// Answer A runs two lines to B's one, so until the reader picks, the count takes A.
 	const steps = [
 		cmd("playmusic", { key: "m_l" }),
 		line("Amiya", "One."),
@@ -234,28 +235,40 @@ test("lineOrder counts lines and captions in script order, both sides of a branc
 		{ t: "decision", options: ["A", "B"], values: ["1", "2"] },
 		{ t: "predicate", refs: ["1"] },
 		line(null, "Three, on A."),
+		line(null, "Four, on A."),
 		{ t: "predicate", refs: ["2"] },
-		line(null, "Four, on B."),
+		line(null, "Three, on B."),
 		{ t: "predicate", refs: null },
-		line(null, "Five.")
+		line(null, "Last.")
 	];
-	const order = lineOrder(steps);
-	assert.equal(order.total, 5);
 	const first = advance(steps, START, emptyStage());
-	assert.equal(lineNumber(order, first.cursor), 1);
+	// "Two.", A's two lines and "Last." lie ahead of the first line.
+	assert.equal(linesAhead(steps, first.cursor), 4);
 	const caption = advance(steps, first.cursor, first.stage);
-	assert.equal(caption.stop.kind, "caption");
-	assert.equal(lineNumber(order, caption.cursor), 2);
+	assert.equal(linesAhead(steps, caption.cursor), 3);
 	const decision = advance(steps, caption.cursor, caption.stage);
 	assert.equal(decision.stop.kind, "decision");
-	assert.equal(lineNumber(order, decision.cursor), 2);
-	// Picking A leaves B's line unread, so the count jumps from 3 to 5.
+	assert.equal(linesAhead(steps, decision.cursor, decision.stop.decision), 3);
+	// Picking the shorter answer drops the total by one, and nothing ahead is skipped.
+	const onB = advance(steps, choose(decision.cursor, "2"), decision.stage);
+	assert.equal(onB.stop.line.text, "Three, on B.");
+	assert.equal(linesAhead(steps, onB.cursor), 1);
 	const onA = advance(steps, choose(decision.cursor, "1"), decision.stage);
-	assert.equal(lineNumber(order, onA.cursor), 3);
-	const rejoined = advance(steps, onA.cursor, onA.stage);
-	assert.equal(rejoined.stop.line.text, "Five.");
-	assert.equal(lineNumber(order, rejoined.cursor), 5);
-	const end = advance(steps, rejoined.cursor, rejoined.stage);
+	assert.equal(linesAhead(steps, onA.cursor), 2);
+	const end = advance(steps, advance(steps, onB.cursor, onB.stage).cursor, onB.stage);
 	assert.equal(end.stop.kind, "end");
-	assert.equal(lineNumber(order, end.cursor), 5);
+	assert.equal(linesAhead(steps, end.cursor), 0);
+});
+
+test("linesAhead walks each later choice once, taking its longest answer, so a long run of choices stays cheap", () => {
+	const steps = [];
+	for (let round = 0; round < 40; round++) {
+		steps.push({ t: "decision", options: ["A", "B", "C"], values: ["1", "2", "3"] });
+		steps.push({ t: "predicate", refs: ["1"] }, line(null, "a"));
+		steps.push({ t: "predicate", refs: ["2"] }, line(null, "b"), line(null, "b"));
+		steps.push({ t: "predicate", refs: ["3"] }, line(null, "c"));
+		steps.push({ t: "predicate", refs: null });
+	}
+	const decision = advance(steps, START, emptyStage());
+	assert.equal(linesAhead(steps, decision.cursor, decision.stop.decision), 80);
 });

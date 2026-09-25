@@ -109,12 +109,14 @@ export interface Advance {
 	effects: Effects;
 }
 
-/** Where a story's stops fall among its lines, from `lineOrder`. */
-export interface LineOrder {
-	/** Every line and caption in the script, both sides of each branch included. */
-	total: number;
-	/** How many lines and captions sit before each step index: entry `i` counts steps 0 to i - 1. It runs one past the last step. */
-	before: number[];
+/** One stretch of a path, from `walkLines`: the lines and captions on it, and the choice it stops at. */
+interface LineWalk {
+	/** How many lines and captions the stretch holds. */
+	lines: number;
+	/** Where the stretch stopped: past the choice it met, or at the end. */
+	cursor: Cursor;
+	/** The choice it stopped at, or null at the end. */
+	decision: DecisionStep | null;
 }
 
 /** A layer that has not moved. */
@@ -489,31 +491,69 @@ export function skipToStop(steps: Step[], cursor: Cursor, stage: StageState): { 
 // Counting
 
 /**
- * Count a story's lines in script order: its line steps and the captions the reader clicks past, both sides of every branch included. So the
- * total is fixed from the start, and the count jumps forward past a branch not taken.
+ * Walk from the cursor to the next choice or the end, counting the lines and captions on the way, as `advance` would stop at them.
  *
  * @param steps The story's steps.
- * @returns The total and the running count before each step.
+ * @param cursor Where to start.
+ * @returns The count, and where and at what choice the walk stopped.
  */
-export function lineOrder(steps: Step[]): LineOrder {
-	const before = [0];
-	let seen = 0;
-	for (const step of steps) {
-		if (step.t === "line" || (step.t !== "decision" && step.t !== "predicate" && captionOf(step) !== null)) {
-			seen++;
+function walkLines(steps: Step[], cursor: Cursor): LineWalk {
+	let { index, hidden } = cursor;
+	const { pick } = cursor;
+	let lines = 0;
+	while (index < steps.length) {
+		const step = steps[index];
+		index++;
+		if (!step) {
+			break;
 		}
-		before.push(seen);
+		if (step.t === "predicate") {
+			hidden = pick !== null && step.refs !== null && !step.refs.includes(pick);
+			continue;
+		}
+		if (hidden) {
+			continue;
+		}
+		if (step.t === "decision") {
+			return { lines, cursor: { index, pick, hidden }, decision: step };
+		}
+		if (step.t === "line" || captionOf(step) !== null) {
+			lines++;
+		}
 	}
-	return { total: seen, before };
+	return { lines, cursor: { index, pick, hidden }, decision: null };
 }
 
 /**
- * The line a stop is on, by `lineOrder`'s count. A line or caption is its own place in the count, a choice takes the count so far, and the end is the total.
+ * How many lines and captions lie ahead of the cursor on the path being read. A choice not yet made counts its longest answer, walked up to the
+ * choice after it, so the total can only drop once the reader picks. Each choice is walked once per answer, so a long run of them stays cheap.
  *
- * @param order The story's count.
- * @param cursor The cursor after the stop, as `advance` returns it.
- * @returns The line number, from 1.
+ * @param steps The story's steps.
+ * @param cursor Where the reader is, as `advance` returns it.
+ * @param decision The choice waiting at the cursor, or null when the reader is not at one.
+ * @returns The count.
  */
-export function lineNumber(order: LineOrder, cursor: Cursor): number {
-	return order.before[cursor.index] ?? order.total;
+export function linesAhead(steps: Step[], cursor: Cursor, decision: DecisionStep | null = null): number {
+	let ahead = 0;
+	let at = cursor;
+	let waiting = decision;
+	for (;;) {
+		const starts = waiting ? waiting.values.map((value) => choose(at, value)) : [at];
+		let longest: LineWalk | null = null;
+		for (const start of starts) {
+			const walk = walkLines(steps, start);
+			if (longest === null || walk.lines > longest.lines) {
+				longest = walk;
+			}
+		}
+		if (longest === null) {
+			return ahead;
+		}
+		ahead += longest.lines;
+		if (longest.decision === null) {
+			return ahead;
+		}
+		at = longest.cursor;
+		waiting = longest.decision;
+	}
 }
