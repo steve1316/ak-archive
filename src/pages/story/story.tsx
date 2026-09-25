@@ -7,11 +7,10 @@ import { Box, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
 import { useParams } from "react-router-dom";
 
-import { LoadError, MOBILE_LANDSCAPE_QUERY, ScrollToTop, useIsMobile } from "archive-kit";
+import { LoadError, MOBILE_LANDSCAPE_QUERY, ScrollToTop, fillBelowNavbar, useIsMobile } from "archive-kit";
 
 import { loadStory, loadStoryGroup, loadStoryPresence, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import { fillBelowNavbar } from "../../lib/layout.js";
 import type { StoryFile, StoryGroup } from "../../types/story.js";
 import DesktopPlayer from "./DesktopPlayer.js";
 import MobilePlayer from "./MobilePlayer.js";

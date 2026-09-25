@@ -14,23 +14,6 @@ import type { SxProps, Theme } from "@mui/material";
 export const NAVBAR_HEIGHT = 64;
 
 /**
- * A size that fills the screen under the kit's navbar at every breakpoint. The navbar's spacer is MUI's `Toolbar`, so each `minHeight` in the
- * toolbar mixin, whatever breakpoint or orientation it sits under, becomes the same rule on `prop` with that height taken off `100dvh`.
- * `dvh` follows a phone's address bar, so nothing below the fold hides behind it.
- *
- * @param toolbar The theme's toolbar mixin, `theme.mixins.toolbar`.
- * @param prop The property to set.
- * @returns The style rules, to spread into an `sx` object.
- */
-export function fillBelowNavbar(toolbar: object, prop: "height" | "minHeight"): Record<string, unknown> {
-	return Object.fromEntries(
-		Object.entries(toolbar).map(([key, value]) =>
-			key === "minHeight" ? [prop, `calc(100dvh - ${value}px)`] : [key, typeof value === "object" && value !== null ? fillBelowNavbar(value, prop) : value]
-		)
-	);
-}
-
-/**
  * A section card: translucent so the backdrop reads through, and a flex column so a child can take the remaining height with `flex: 1`.
  *
  * Deliberately not `height: 100%` on children. A child below the card's heading at 100% resolves to the whole content box, so the card
