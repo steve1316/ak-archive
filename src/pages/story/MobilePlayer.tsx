@@ -84,6 +84,7 @@ export default function MobilePlayer({ reader, group, title, presence }: MobileP
 			settings={<StorySettings settings={settings} nickname={nickname} onNickname={setNickname} sceneSize />}
 			onPanelChange={setCovered}
 			sceneSize={settings.sceneSize}
+			textSize={settings.textSize}
 			sx={READER_SX}
 		/>
 	);

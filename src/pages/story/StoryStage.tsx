@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { Box, GlobalStyles } from "@mui/material";
@@ -13,8 +13,11 @@ import type { LayerState, Slot, StageState } from "./engine.js";
 /** Where a sprite stands, as % of the stage: height, bottom edge and centre. Tuned against the in-game capture `9.png`. */
 const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: { height: 139, bottom: -44, centre: 65.5 }, one: { height: 144, bottom: -45.5, centre: 50 } };
 
-/** The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. */
-const TEXT_BOX = { nameRight: 26.1, nameTop: 86.9, nameFont: 3.6, lineLeft: 29.9, lineTop: 86.8, lineWidth: 55, lineFont: 2.65, lineHeight: 1.4 };
+/**
+ * The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. The floor is not the game's: it is how low a
+ * line may run before it rises instead.
+ */
+const TEXT_BOX = { nameRight: 26.1, nameTop: 86.9, nameFont: 3.6, lineLeft: 29.9, lineTop: 86.8, lineWidth: 55, lineFont: 2.65, lineHeight: 1.4, lineFloor: 98 };
 
 /** One camera shake. */
 const SHAKE_FRAMES = {
@@ -53,6 +56,40 @@ const STAGE_SX: SxProps<Theme> = {
 	cursor: "pointer"
 };
 
+/**
+ * The name and line, pinned by their bottom to the text box's floor. The block is at least as tall as the box from its top to the floor, so a
+ * line that fits starts at the box's top. A longer one makes it taller, which lifts it and the name upward rather than running off the stage.
+ * Sizes read `--text-size`, the reader's text size, which scales the line but not the name.
+ */
+const TEXT_BLOCK_SX: SxProps<Theme> = {
+	position: "absolute",
+	left: 0,
+	right: 0,
+	bottom: `${100 - TEXT_BOX.lineFloor}%`,
+	minHeight: `${TEXT_BOX.lineFloor - TEXT_BOX.lineTop}cqh`,
+	fontSize: `calc(${TEXT_BOX.lineFont}cqh * var(--text-size, 1))`,
+	lineHeight: TEXT_BOX.lineHeight,
+	pointerEvents: "none"
+};
+
+/** The speaker's name, right-aligned against the line's left. One row of the line tall, so it sits level with the line's first row at any text size. */
+const NAME_SX: SxProps<Theme> = {
+	position: "absolute",
+	right: `${100 - TEXT_BOX.nameRight}%`,
+	top: `${TEXT_BOX.nameTop - TEXT_BOX.lineTop}cqh`,
+	fontSize: `${TEXT_BOX.nameFont}cqh`,
+	lineHeight: `calc(${(TEXT_BOX.lineFont * TEXT_BOX.lineHeight) / TEXT_BOX.nameFont} * var(--text-size, 1))`,
+	textAlign: "right",
+	whiteSpace: "nowrap",
+	color: "#cfd3da"
+};
+
+/** The whole line, unseen. It sizes the block from the first character, so a long line does not climb as it types. */
+const LINE_SPACE_SX: SxProps<Theme> = { visibility: "hidden", ml: `${TEXT_BOX.lineLeft}%`, width: `${TEXT_BOX.lineWidth}%` };
+
+/** The line as typed so far, over the space kept for it. */
+const LINE_SX: SxProps<Theme> = { position: "absolute", top: 0, left: `${TEXT_BOX.lineLeft}%`, width: `${TEXT_BOX.lineWidth}%` };
+
 /** A full-stage layer. */
 const FILL_SX: SxProps<Theme> = { position: "absolute", inset: 0 };
 
@@ -77,6 +114,8 @@ interface StoryStageProps {
 	line?: { text: string; spans?: Span[] } | null;
 	/** How many characters of the line have typed out. */
 	typed?: number;
+	/** The reader's text size, which scales the line but not the name. Defaults to 1. */
+	textSize?: number;
 	/** The reader's name, which fills `{@nickname}` in subtitles and stickers. */
 	nickname: string;
 	/** Which story assets are published. */
@@ -90,6 +129,9 @@ interface StoryStageProps {
 	/** Called when the stage is clicked. The phone reader handles taps around the stage itself, so it passes none. */
 	onClick?: () => void;
 }
+
+/** The text block's inline style: the text size as a custom property, so moving the slider never adds a new class. */
+type TextSizeStyle = CSSProperties & { "--text-size": number };
 
 /**
  * The CSS transform for a layer's placement.
@@ -209,7 +251,10 @@ const StageArt = memo(function StageArt({ stage, nickname, presence }: { stage: 
  * @param props Component props.
  * @returns The stage.
  */
-function StoryStage({ stage, name = null, line = null, typed = 0, nickname, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, nickname, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+	const textStyle = useMemo<TextSizeStyle>(() => ({ "--text-size": textSize }), [textSize]);
+	// The whole line for the unseen copy. It changes with the line, not with each character the typewriter adds.
+	const fullLine = useMemo(() => (line ? typedRuns(line, Number.MAX_SAFE_INTEGER) : null), [line]);
 	return (
 		<Box
 			sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }}
@@ -224,25 +269,14 @@ function StoryStage({ stage, name = null, line = null, typed = 0, nickname, pres
 			{!hideText && line ? (
 				<>
 					<Box sx={VIGNETTE_SX} />
-					{name ? (
-						<Box
-							sx={{ position: "absolute", textAlign: "right", whiteSpace: "nowrap", color: "#cfd3da" }}
-							style={{
-								right: `${100 - TEXT_BOX.nameRight}%`,
-								top: `${TEXT_BOX.nameTop}%`,
-								fontSize: `${TEXT_BOX.nameFont}cqh`,
-								lineHeight: `${(TEXT_BOX.lineFont * TEXT_BOX.lineHeight) / TEXT_BOX.nameFont}`
-							}}
-						>
-							{name}
+					<Box sx={TEXT_BLOCK_SX} style={textStyle}>
+						{name ? <Box sx={NAME_SX}>{name}</Box> : null}
+						<Box sx={LINE_SPACE_SX} aria-hidden>
+							{fullLine}
 						</Box>
-					) : null}
-					<Box
-						sx={{ position: "absolute" }}
-						style={{ left: `${TEXT_BOX.lineLeft}%`, top: `${TEXT_BOX.lineTop}%`, width: `${TEXT_BOX.lineWidth}%`, fontSize: `${TEXT_BOX.lineFont}cqh`, lineHeight: TEXT_BOX.lineHeight }}
-						aria-live="polite"
-					>
-						{typedRuns(line, typed)}
+						<Box sx={LINE_SX} aria-live="polite">
+							{typedRuns(line, typed)}
+						</Box>
 					</Box>
 				</>
 			) : null}

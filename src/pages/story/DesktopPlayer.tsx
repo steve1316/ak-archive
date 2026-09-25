@@ -267,6 +267,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 					name={(shown ?? said)?.name ?? null}
 					line={shown ?? said}
 					typed={shown ? typed : Number.MAX_SAFE_INTEGER}
+					textSize={settings.textSize}
 					nickname={nickname}
 					presence={presence}
 					hideText={hideUi}
