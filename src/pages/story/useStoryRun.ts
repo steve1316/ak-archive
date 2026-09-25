@@ -56,6 +56,8 @@ export interface StoryRun {
 	typed: number;
 	/** The line on screen with the reader's name filled in, or null when the stop is not a line. */
 	shown: LineStep | null;
+	/** At a choice, the line said just before it with the reader's name filled in, which the desktop keeps on screen under the options. */
+	said: LineStep | null;
 	/** The caption on screen with the reader's name filled in, or null. */
 	caption: string | null;
 	/** The choice on screen, or null. */
@@ -200,6 +202,9 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const caption = run.stop.kind === "caption" ? fillNickname(run.stop.text, nickname) : null;
 	const decision = run.stop.kind === "decision" ? run.stop.decision : null;
 	const shown = useMemo(() => (line ? fillNickname(line, nickname) : null), [line, nickname]);
+	// The line said before the choice on screen, kept with each stop in the history so Back brings it back too.
+	const [lastSaid, setLastSaid] = useState<LineStep | null>(null);
+	const said = useMemo(() => (decision && lastSaid ? fillNickname(lastSaid, nickname) : null), [decision, lastSaid, nickname]);
 	const length = shown?.text.length ?? 0;
 	// A line or a caption waits for the reader, and SKIP and AUTO move past either.
 	const reading = line !== null || caption !== null;
@@ -247,20 +252,24 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	);
 
 	// Every stop the reader has left, with the Log's length there, so the left arrow can step back to it.
-	const history = useRef<{ run: Advance; logLength: number }[]>([]);
+	const history = useRef<{ run: Advance; logLength: number; said: LineStep | null }[]>([]);
 	const logLength = log.length;
 
 	const land = useCallback(
-		(result: Advance, passed: LogEntry[]) => {
-			history.current.push({ run, logLength });
+		(result: Advance, passed: LogEntry[], lastPassed: LineStep | null = null) => {
+			history.current.push({ run, logLength, said: lastSaid });
 			setRun(result);
+			// At a choice the text keeps the line said before it: the last line a SKIP passed, else the line being left. A choice straight after
+			// another keeps the line the first one kept.
+			const before = run.stop.kind === "line" ? run.stop.line : run.stop.kind === "decision" ? lastSaid : null;
+			setLastSaid(result.stop.kind === "decision" ? (lastPassed ?? before) : null);
 			setTyped(0);
 			setLog((entries) => [...entries, ...passed, ...stopEntries(result, run.stage.music)]);
 			if (result.effects.shake > 0) {
 				setShakeKey((key) => key + 1);
 			}
 		},
-		[run, logLength]
+		[run, logLength, lastSaid]
 	);
 
 	// Step back to the previous stop with its line shown in full. Its sounds and shake do not play again, and the Log forgets what came after.
@@ -270,6 +279,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 			return;
 		}
 		setRun({ ...previous.run, effects: emptyEffects() });
+		setLastSaid(previous.said);
 		setTyped(Number.MAX_SAFE_INTEGER);
 		setLog((entries) => entries.slice(0, previous.logLength));
 	}, []);
@@ -280,6 +290,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		const first = advance(steps, START, emptyStage());
 		history.current = [];
 		setRun({ ...first, effects: { ...first.effects, sounds: [{ kind: "stop", channel: null, fade: 0 }, ...first.effects.sounds] } });
+		setLastSaid(null);
 		setLog(stopEntries(first, null));
 		setTyped(0);
 		setShakeKey(0);
@@ -307,8 +318,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		if (run.stop.kind !== "line" && run.stop.kind !== "caption") {
 			return;
 		}
-		const { result, lines: passed } = skipToStop(steps, run.cursor, run.stage);
-		land(result, passed.map(lineEntry));
+		const { result, lines: passed, last } = skipToStop(steps, run.cursor, run.stage);
+		land(result, passed.map(lineEntry), last);
 	}, [run, steps, land]);
 
 	// Typewriter: reveal the line a character at a time.
@@ -401,6 +412,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		corner,
 		typed,
 		shown,
+		said,
 		caption,
 		decision,
 		length,

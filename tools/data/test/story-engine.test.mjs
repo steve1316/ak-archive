@@ -272,3 +272,12 @@ test("linesAhead walks each later choice once, taking its longest answer, so a l
 	const decision = advance(steps, START, emptyStage());
 	assert.equal(linesAhead(steps, decision.cursor, decision.stop.decision), 80);
 });
+
+test("skipToStop reports the last line it passed, or null when a caption came after it", () => {
+	const decision = { t: "decision", options: ["A", "B"], values: ["1", "2"] };
+	const onLine = skipToStop([line("Amiya", "One."), line("Kal'tsit", "Two."), decision], START, emptyStage());
+	assert.equal(onLine.result.stop.kind, "decision");
+	assert.deepEqual(onLine.last, line("Kal'tsit", "Two."));
+	const onCaption = skipToStop([line("Amiya", "One."), line(null, "Two."), cmd("subtitle", { text: "Three." }), decision], START, emptyStage());
+	assert.equal(onCaption.last, null);
+});

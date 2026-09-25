@@ -474,16 +474,19 @@ export function choose(cursor: Cursor, value: string): Cursor {
  * @param steps The story's steps.
  * @param cursor Where to start.
  * @param stage The stage at the start.
- * @returns Where it stopped, and every line and caption passed on the way, for the Log. A caption has no speaker.
+ * @returns Where it stopped, every line and caption passed on the way, for the Log, and the last stop passed when it was a line, so a choice it
+ * lands on can keep that line on screen. A caption has no speaker.
  */
-export function skipToStop(steps: Step[], cursor: Cursor, stage: StageState): { result: Advance; lines: { name: string | null; text: string }[] } {
+export function skipToStop(steps: Step[], cursor: Cursor, stage: StageState): { result: Advance; lines: { name: string | null; text: string }[]; last: LineStep | null } {
 	const lines: { name: string | null; text: string }[] = [];
+	let last: LineStep | null = null;
 	let result = advance(steps, cursor, stage);
 	while (result.stop.kind === "line" || result.stop.kind === "caption") {
 		lines.push(result.stop.kind === "line" ? { name: result.stop.line.name, text: result.stop.line.text } : { name: null, text: result.stop.text });
+		last = result.stop.kind === "line" ? result.stop.line : null;
 		result = advance(steps, result.cursor, result.stage);
 	}
-	return { result, lines };
+	return { result, lines, last };
 }
 
 // //////////////////////////////////////////////////////////////////////////////////////////////////

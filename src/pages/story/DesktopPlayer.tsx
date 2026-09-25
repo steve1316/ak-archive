@@ -202,6 +202,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		corner,
 		typed,
 		shown,
+		said,
 		decision,
 		reading,
 		ending,
@@ -261,7 +262,17 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 				</Typography>
 			</Box>
 			<Box ref={player} sx={PLAYER_SX} onClickCapture={interact} data-region="story-player">
-				<StoryStage stage={run.stage} name={shown?.name ?? null} line={shown} typed={typed} nickname={nickname} presence={presence} hideText={hideUi} shakeKey={shakeKey} onClick={onStage}>
+				<StoryStage
+					stage={run.stage}
+					name={(shown ?? said)?.name ?? null}
+					line={shown ?? said}
+					typed={shown ? typed : Number.MAX_SAFE_INTEGER}
+					nickname={nickname}
+					presence={presence}
+					hideText={hideUi}
+					shakeKey={shakeKey}
+					onClick={onStage}
+				>
 					{!hideUi ? (
 						<PlayerChrome
 							soundOn={soundOn}
