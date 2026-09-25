@@ -31,9 +31,6 @@ __pycache__/
 /build
 .vite
 
-# playwright mcp scratch output
-.playwright-mcp/
-
 # importer's cached upstream checkout
 tools/data/.cache/
 
@@ -48,6 +45,3 @@ tools/assets/.tools/
 # Run logs from the importer and the asset tools, which are written to the repo root on purpose so they can be followed live.
 *.log
 *_publish.json
-
-# superpowers brainstorming session files
-.superpowers/
