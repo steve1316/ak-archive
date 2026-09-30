@@ -15,11 +15,11 @@ const LAST_LAUNCH_CHAPTER = 4;
 /** Operators whose wiki name differs from their EN `name`. Keyed by id so the two patch Amiyas, which share the name `Amiya`, resolve apart. */
 export const ID_ALIASES = {
 	char_4000_jnight: "Justice Knight",
-	char_4182_oblvns: "Togawa Sakiko",
-	char_4183_mortis: "Wakaba Mutsumi",
-	char_4184_dolris: "Misumi Uika",
-	char_4185_amoris: "Yūtenji Nyamu",
-	char_4186_tmoris: "Yahata Umiri",
+	char_4182_oblvns: "Sakiko Togawa",
+	char_4183_mortis: "Mutsumi Wakaba",
+	char_4184_dolris: "Uika Misumi",
+	char_4185_amoris: "Nyamu Yūtenji",
+	char_4186_tmoris: "Umiri Yahata",
 	char_1001_amiya2: "Amiya (Guard)",
 	char_1037_amiya3: "Amiya (Medic)"
 };
