@@ -69,6 +69,18 @@ export interface Sticker extends Caption {
 	id: string;
 }
 
+/** A location stamp from `animtext`: where and when a scene is set. */
+export interface Stamp {
+	/** The place, or null when the stamp shows only a time. */
+	place: string | null;
+	/** The time, or null when the stamp shows only a place. */
+	time: string | null;
+	/** The stamp's left edge, as an offset from the stage's centre in the game's 1280x720 text space. */
+	x: number;
+	/** The stamp's middle, as an offset from the stage's centre, positive upwards. */
+	y: number;
+}
+
 /** Everything the stage shows between stops. */
 export interface StageState {
 	/** The background, or null for black. */
@@ -87,6 +99,8 @@ export interface StageState {
 	subtitle: Caption | null;
 	/** Letter-style text shown over the scene, in the order it appeared. */
 	stickers: Sticker[];
+	/** The location stamp, or null. */
+	stamp: Stamp | null;
 	/** Whether the scene is drawn in grey. */
 	grayscale: boolean;
 }
@@ -164,6 +178,9 @@ const CHARACTER_SLOTS: Record<number, Slot[]> = { 1: ["m"], 2: ["l", "r"], 3: ["
 /** Where a caption sits when the script leaves a field out: the subtitles' usual box. */
 const CAPTION_DEFAULTS = { x: 300, y: 370, width: 700, size: 24 };
 
+/** Where a location stamp sits when the script leaves out `pos`: every stamp in the data but two. */
+const STAMP_POS = { x: -400, y: -200 };
+
 /** Every way the scripts name a slot, lowercased. */
 const SLOT_NAMES: Record<string, Slot> = { l: "l", left: "l", lfte: "l", m: "m", middle: "m", r: "r", right: "r" };
 
@@ -186,7 +203,18 @@ const TITLED_NICKNAME = /Dr\. ?\{@nickname\}/g;
  * @returns The stage.
  */
 export function emptyStage(): StageState {
-	return { background: null, image: null, sprites: {}, focus: "all", blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 }, music: null, subtitle: null, stickers: [], grayscale: false };
+	return {
+		background: null,
+		image: null,
+		sprites: {},
+		focus: "all",
+		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 },
+		music: null,
+		subtitle: null,
+		stickers: [],
+		stamp: null,
+		grayscale: false
+	};
 }
 
 /**
@@ -446,6 +474,18 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		}
 		case "stickerclear":
 			return { ...stage, stickers: [] };
+		case "animtext": {
+			const [x, y] =
+				text(a.pos)
+					?.split(",")
+					.map((part) => (part.trim() ? Number(part) : NaN)) ?? [];
+			const place = text(a.place);
+			const time = text(a.time);
+			const pos = { x: num(x, STAMP_POS.x), y: num(y, STAMP_POS.y) };
+			return { ...stage, stamp: place || time ? { place, time, ...pos } : null };
+		}
+		case "animtextclean":
+			return { ...stage, stamp: null };
 		case "camerashake":
 			effects.shake = Math.max(effects.shake, num(a.duration, 0.5));
 			return stage;

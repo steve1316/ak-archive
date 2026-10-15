@@ -8,7 +8,7 @@ import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
-import type { Caption, LayerState, Slot, StageState, Sticker } from "./engine.js";
+import type { Caption, LayerState, Slot, StageState, Stamp, Sticker } from "./engine.js";
 
 /** Where a sprite stands, as % of the stage: height, bottom edge and centre. Tuned against the in-game capture `9.png`. */
 const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: { height: 139, bottom: -44, centre: 65.5 }, one: { height: 144, bottom: -45.5, centre: 50 } };
@@ -31,6 +31,7 @@ const SHAKE_FRAMES = {
 /** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
 const KEYFRAMES = {
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
+	"@keyframes storyStampIn": { from: { opacity: 0, transform: "translate(-2cqh, -50%)" }, to: { opacity: 1, transform: "translate(0, -50%)" } },
 	"@keyframes storyShake0": SHAKE_FRAMES,
 	"@keyframes storyShake1": SHAKE_FRAMES
 };
@@ -48,6 +49,19 @@ const TEXT_HEIGHT = 720;
 
 /** A subtitle or sticker. Its box and font size come from the script, through `captionStyle`. */
 const CAPTION_SX: SxProps<Theme> = { position: "absolute", lineHeight: 1.4, whiteSpace: "pre-line", pointerEvents: "none" };
+
+/** A location stamp: a bold place over a lighter time, behind a bar, sliding in from the left. Sizes are % of the stage height. */
+const STAMP_SX: SxProps<Theme> = {
+	position: "absolute",
+	transform: "translate(0, -50%)",
+	animation: "storyStampIn 0.6s ease-out",
+	borderLeft: "0.5cqh solid #eef0f4",
+	pl: "1.6cqh",
+	textShadow: "0 0 1cqh rgba(0, 0, 0, 0.8)",
+	pointerEvents: "none",
+	"& .place": { fontSize: "4cqh", fontWeight: 700, lineHeight: 1.25 },
+	"& .time": { fontSize: "2.6cqh", lineHeight: 1.4, color: "#cfd3da" }
+};
 
 /** The stage: 16:9, sized by the page, with text measured against its own height. */
 const STAGE_SX: SxProps<Theme> = {
@@ -257,14 +271,32 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 });
 
 /**
- * The subtitle and stickers, each in the box its script gives it. Drawn over the fade, so narration over a darkened scene stays readable.
+ * The location stamp, at its offset from the stage's centre.
+ *
+ * @param props Component props.
+ * @returns The stamp.
+ */
+function StampView({ stamp }: { stamp: Stamp }) {
+	const style = useMemo(() => ({ left: `${((TEXT_WIDTH / 2 + stamp.x) / TEXT_WIDTH) * 100}%`, top: `${((TEXT_HEIGHT / 2 - stamp.y) / TEXT_HEIGHT) * 100}%` }), [stamp]);
+	return (
+		<Box sx={STAMP_SX} style={style}>
+			{stamp.place ? <div className="place">{stamp.place}</div> : null}
+			{stamp.time ? <div className="time">{stamp.time}</div> : null}
+		</Box>
+	);
+}
+
+/**
+ * The location stamp, subtitle and stickers, each where its script puts it. Drawn over the fade, so narration over a darkened scene stays readable.
  *
  * @param props Component props.
  * @returns The captions.
  */
-const Captions = memo(function Captions({ subtitle, stickers, nickname }: { subtitle: Caption | null; stickers: Sticker[]; nickname: string }) {
+const Captions = memo(function Captions({ subtitle, stickers, stamp, nickname }: { subtitle: Caption | null; stickers: Sticker[]; stamp: Stamp | null; nickname: string }) {
 	return (
 		<>
+			{/* Keyed on the text, so a new stamp slides in again. */}
+			{stamp ? <StampView key={`${stamp.place}|${stamp.time}`} stamp={stamp} /> : null}
 			{subtitle ? (
 				<Box sx={CAPTION_SX} style={captionStyle(subtitle)}>
 					{typedRuns(fillNickname(subtitle, nickname), Number.MAX_SAFE_INTEGER)}
@@ -300,7 +332,7 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
 			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
-			<Captions subtitle={stage.subtitle} stickers={stage.stickers} nickname={nickname} />
+			<Captions subtitle={stage.subtitle} stickers={stage.stickers} stamp={stage.stamp} nickname={nickname} />
 			{!hideText && line ? (
 				<>
 					<Box sx={VIGNETTE_SX} />

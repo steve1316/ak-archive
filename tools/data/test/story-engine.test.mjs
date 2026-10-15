@@ -172,6 +172,14 @@ test("a walk keeps the stage at each wait as a beat, so fades and pauses play in
 	assert.equal(advance([line(null, "a")], START, emptyStage()).beats.length, 1);
 });
 
+test("animtext shows a location stamp at its offset until animtextclean", () => {
+	const effects = emptyEffects();
+	const stage = applyCommand(emptyStage(), cmd("animtext", { id: "at1", style: "avg_both", pos: "-400,-200", place: "Wreck of the Gloriana", time: "1098" }), effects);
+	assert.deepEqual(stage.stamp, { place: "Wreck of the Gloriana", time: "1098", x: -400, y: -200 });
+	assert.deepEqual(applyCommand(emptyStage(), cmd("animtext", { time: "3:17 P.M." }), effects).stamp, { place: null, time: "3:17 P.M.", x: -400, y: -200 });
+	assert.equal(applyCommand(stage, cmd("animtextclean"), effects).stamp, null);
+});
+
 test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {
 	const steps = [cmd("subtitle", { text: "Nightfall." }), cmd("subtitle", { text: "The boilers rumble." }), cmd("subtitle"), line(null, "After.")];
 	const first = advance(steps, START, emptyStage());
