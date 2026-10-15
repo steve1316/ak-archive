@@ -45,6 +45,30 @@ export interface LayerState {
 	fade: number;
 }
 
+/** Text the script places over the scene: a subtitle or a sticker. Positions are in the game's 1280x720 text space, from the top-left. */
+export interface Caption {
+	/** The plain text. `{@nickname}` stands for the reader's name. */
+	text: string;
+	/** Styled runs of `text`, present only when some of it is styled. */
+	spans?: Span[];
+	/** The text box's left edge. */
+	x: number;
+	/** The text box's top edge. */
+	y: number;
+	/** The text box's width. */
+	width: number;
+	/** The font size. */
+	size: number;
+	/** How the text aligns inside its box. */
+	align: "left" | "center" | "right";
+}
+
+/** A sticker: a caption the script names by id, so later stickers can add to it or remove it. */
+export interface Sticker extends Caption {
+	/** The script's sticker id. */
+	id: string;
+}
+
 /** Everything the stage shows between stops. */
 export interface StageState {
 	/** The background, or null for black. */
@@ -59,10 +83,10 @@ export interface StageState {
 	blocker: { color: string; alpha: number; fade: number };
 	/** The playing track, or null for silence. */
 	music: { intro: string | null; loop: string; volume: number; crossfade: number } | null;
-	/** Centred narration, or null. */
-	subtitle: { text: string; spans?: Span[] } | null;
-	/** Letter-style text shown over the scene, in the order it appeared, keyed by the script's sticker id. */
-	stickers: { id: string; text: string }[];
+	/** Narration over the scene, or null. */
+	subtitle: Caption | null;
+	/** Letter-style text shown over the scene, in the order it appeared. */
+	stickers: Sticker[];
 	/** Whether the scene is drawn in grey. */
 	grayscale: boolean;
 }
@@ -124,6 +148,9 @@ const PLACEMENT: Placement = { x: 0, y: 0, xScale: 1, yScale: 1 };
 
 /** Which slots `character` fills for one, two and three names. */
 const CHARACTER_SLOTS: Record<number, Slot[]> = { 1: ["m"], 2: ["l", "r"], 3: ["l", "m", "r"] };
+
+/** Where a caption sits when the script leaves a field out: the subtitles' usual box. */
+const CAPTION_DEFAULTS = { x: 300, y: 370, width: 700, size: 24 };
 
 /** Every way the scripts name a slot, lowercased. */
 const SLOT_NAMES: Record<string, Slot> = { l: "l", left: "l", lfte: "l", m: "m", middle: "m", r: "r", right: "r" };
@@ -256,6 +283,38 @@ function tweenOf(layer: LayerState | null, a: Record<string, unknown>): LayerSta
 	return { ...layer, from, to: { x: num(a.xto, from.x), y: num(a.yto, from.y), xScale: num(a.xscaleto, from.xScale), yScale: num(a.yscaleto, from.yScale) }, duration: num(a.duration, 0) };
 }
 
+/**
+ * A caption from `subtitle` or `sticker` arguments.
+ *
+ * @param a The command's arguments.
+ * @param line The command's text.
+ * @returns The caption.
+ */
+function captionFrom(a: Record<string, unknown>, line: string): Caption {
+	const align = a.alignment === "left" || a.alignment === "right" ? a.alignment : "center";
+	return {
+		text: line,
+		...(Array.isArray(a.spans) ? { spans: a.spans as Span[] } : {}),
+		x: num(a.x, CAPTION_DEFAULTS.x),
+		y: num(a.y, CAPTION_DEFAULTS.y),
+		width: num(a.width, CAPTION_DEFAULTS.width),
+		size: num(a.size, CAPTION_DEFAULTS.size),
+		align
+	};
+}
+
+/**
+ * A sticker with more text added after it, as `multi` writes. It keeps its first placement, and its styled runs when either part has some.
+ *
+ * @param sticker The sticker on stage.
+ * @param added The caption being added.
+ * @returns The longer sticker.
+ */
+function appendSticker(sticker: Sticker, added: Caption): Sticker {
+	const spans = sticker.spans || added.spans ? [...(sticker.spans ?? [{ text: sticker.text }]), ...(added.spans ?? [{ text: added.text }])] : undefined;
+	return { ...sticker, text: sticker.text + added.text, ...(spans ? { spans } : {}) };
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Walking
@@ -341,7 +400,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return stage;
 		case "subtitle": {
 			const line = text(a.text);
-			return { ...stage, subtitle: line ? { text: line, ...(Array.isArray(a.spans) ? { spans: a.spans as Span[] } : {}) } : null };
+			return { ...stage, subtitle: line ? captionFrom(a, line) : null };
 		}
 		case "sticker": {
 			const id = text(a.id) ?? "";
@@ -349,10 +408,11 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			if (line === null) {
 				return { ...stage, stickers: stage.stickers.filter((entry) => entry.id !== id) };
 			}
+			const caption = captionFrom(a, line);
 			if (!stage.stickers.some((entry) => entry.id === id)) {
-				return { ...stage, stickers: [...stage.stickers, { id, text: line }] };
+				return { ...stage, stickers: [...stage.stickers, { id, ...caption }] };
 			}
-			return { ...stage, stickers: stage.stickers.map((entry) => (entry.id === id ? { id, text: a.multi === true ? entry.text + line : line } : entry)) };
+			return { ...stage, stickers: stage.stickers.map((entry) => (entry.id !== id ? entry : a.multi === true ? appendSticker(entry, caption) : { id, ...caption })) };
 		}
 		case "stickerclear":
 			return { ...stage, stickers: [] };

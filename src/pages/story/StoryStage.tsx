@@ -8,7 +8,7 @@ import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
-import type { LayerState, Slot, StageState } from "./engine.js";
+import type { Caption, LayerState, Slot, StageState, Sticker } from "./engine.js";
 
 /** Where a sprite stands, as % of the stage: height, bottom edge and centre. Tuned against the in-game capture `9.png`. */
 const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: { height: 139, bottom: -44, centre: 65.5 }, one: { height: 144, bottom: -45.5, centre: 50 } };
@@ -41,6 +41,13 @@ const DIMMED = "brightness(0.45)";
 /** The game's layout size, which layer offsets are written in. */
 const GAME_WIDTH = 1920;
 const GAME_HEIGHT = 1080;
+
+/** The game's text space, which subtitle and sticker positions are written in. */
+const TEXT_WIDTH = 1280;
+const TEXT_HEIGHT = 720;
+
+/** A subtitle or sticker. Its box and font size come from the script, through `captionStyle`. */
+const CAPTION_SX: SxProps<Theme> = { position: "absolute", lineHeight: 1.4, whiteSpace: "pre-line", pointerEvents: "none" };
 
 /** The stage: 16:9, sized by the page, with text measured against its own height. */
 const STAGE_SX: SxProps<Theme> = {
@@ -150,6 +157,22 @@ function layerStyle(layer: LayerState, moved: boolean): CSSProperties {
 }
 
 /**
+ * Where a caption sits on stage, from its box in the game's text space.
+ *
+ * @param caption The caption.
+ * @returns The style.
+ */
+function captionStyle(caption: Caption): CSSProperties {
+	return {
+		left: `${(caption.x / TEXT_WIDTH) * 100}%`,
+		top: `${(caption.y / TEXT_HEIGHT) * 100}%`,
+		width: `${(caption.width / TEXT_WIDTH) * 100}%`,
+		fontSize: `${(caption.size / TEXT_HEIGHT) * 100}cqh`,
+		textAlign: caption.align
+	};
+}
+
+/**
  * One background or art scene. It starts at its tween's `from` and moves to `to` on the next frame, so the tween plays.
  *
  * @param props Component props.
@@ -196,13 +219,13 @@ export function typedRuns(line: { text: string; spans?: Span[] }, typed: number)
 }
 
 /**
- * The stage's art: background, art scene, sprites, subtitle and sticker. Memoised on the stage, which only changes when the story moves on, so
+ * The stage's art: background, art scene and sprites. Memoised on the stage, which only changes when the story moves on, so
  * the typewriter's ticks leave it alone.
  *
  * @param props Component props.
  * @returns The art.
  */
-const StageArt = memo(function StageArt({ stage, nickname, presence }: { stage: StageState; nickname: string; presence: StoryPresence }) {
+const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState; presence: StoryPresence }) {
 	const slots = (Object.keys(stage.sprites) as Slot[]).filter((slot) => stage.sprites[slot]);
 	const alone = slots.length === 1;
 	return (
@@ -229,18 +252,29 @@ const StageArt = memo(function StageArt({ stage, nickname, presence }: { stage: 
 					/>
 				);
 			})}
-			{stage.subtitle ? (
-				<Box sx={{ position: "absolute", left: "15%", right: "15%", top: "42%", textAlign: "center", fontSize: "2.6cqh", lineHeight: 1.5 }}>
-					{typedRuns(fillNickname(stage.subtitle, nickname), Number.MAX_SAFE_INTEGER)}
+		</>
+	);
+});
+
+/**
+ * The subtitle and stickers, each in the box its script gives it. Drawn over the fade, so narration over a darkened scene stays readable.
+ *
+ * @param props Component props.
+ * @returns The captions.
+ */
+const Captions = memo(function Captions({ subtitle, stickers, nickname }: { subtitle: Caption | null; stickers: Sticker[]; nickname: string }) {
+	return (
+		<>
+			{subtitle ? (
+				<Box sx={CAPTION_SX} style={captionStyle(subtitle)}>
+					{typedRuns(fillNickname(subtitle, nickname), Number.MAX_SAFE_INTEGER)}
 				</Box>
 			) : null}
-			{stage.stickers.length ? (
-				<Box sx={{ position: "absolute", left: "10%", right: "10%", top: "15%", display: "grid", gap: "2cqh", fontSize: "2.4cqh", whiteSpace: "pre-line" }}>
-					{stage.stickers.map((entry) => (
-						<div key={entry.id}>{fillNickname(entry.text, nickname)}</div>
-					))}
+			{stickers.map((entry) => (
+				<Box key={entry.id} sx={CAPTION_SX} style={captionStyle(entry)}>
+					{typedRuns(fillNickname(entry, nickname), Number.MAX_SAFE_INTEGER)}
 				</Box>
-			) : null}
+			))}
 		</>
 	);
 });
@@ -263,9 +297,10 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 			data-region="story-stage"
 		>
 			<GlobalStyles styles={KEYFRAMES} />
-			<StageArt stage={stage} nickname={nickname} presence={presence} />
+			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
 			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
+			<Captions subtitle={stage.subtitle} stickers={stage.stickers} nickname={nickname} />
 			{!hideText && line ? (
 				<>
 					<Box sx={VIGNETTE_SX} />

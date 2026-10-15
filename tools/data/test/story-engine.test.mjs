@@ -131,6 +131,18 @@ test("each layer records the asset kind its art is published under, so a large b
 	assert.equal(applyCommand(emptyStage(), cmd("image", { image: "avg_1" }), effects).image.kind, "images");
 });
 
+test("subtitles and stickers keep their placement, a multi sticker keeps its first placement, and styled runs append", () => {
+	const effects = emptyEffects();
+	const subtitle = applyCommand(emptyStage(), cmd("subtitle", { text: "Hi.", x: 200, y: 360, width: 900, size: 26, alignment: "left" }), effects).subtitle;
+	assert.deepEqual(subtitle, { text: "Hi.", x: 200, y: 360, width: 900, size: 26, align: "left" });
+	assert.deepEqual(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi." }), effects).subtitle, { text: "Hi.", x: 300, y: 370, width: 700, size: 24, align: "center" });
+	let stage = applyCommand(emptyStage(), cmd("sticker", { id: "st1", multi: true, text: "Dear K,", x: 180, y: 170, width: 700, size: 24, alignment: "left" }), effects);
+	stage = applyCommand(stage, cmd("sticker", { id: "st1", multi: true, text: "\n\nRed.", x: 380, spans: [{ text: "\n\n" }, { text: "Red.", color: "#ff0000" }] }), effects);
+	assert.deepEqual(stage.stickers, [
+		{ id: "st1", text: "Dear K,\n\nRed.", spans: [{ text: "Dear K," }, { text: "\n\n" }, { text: "Red.", color: "#ff0000" }], x: 180, y: 170, width: 700, size: 24, align: "left" }
+	]);
+});
+
 test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {
 	const steps = [cmd("subtitle", { text: "Nightfall." }), cmd("subtitle", { text: "The boilers rumble." }), cmd("subtitle"), line(null, "After.")];
 	const first = advance(steps, START, emptyStage());
@@ -153,7 +165,7 @@ test("stickers stack by id, multi appends to its id, block=false does not stop, 
 		line(null, "Cleared.")
 	];
 	const first = advance(steps, START, emptyStage());
-	assert.deepEqual([first.stop.kind, first.stop.text, first.stage.stickers], ["caption", "Dear K,", [{ id: "st1", text: "Dear K," }]]);
+	assert.deepEqual([first.stop.kind, first.stop.text, first.stage.stickers.map((entry) => [entry.id, entry.text])], ["caption", "Dear K,", [["st1", "Dear K,"]]]);
 	const second = advance(steps, first.cursor, first.stage);
 	assert.deepEqual([second.stop.text, second.stage.stickers[0].text], ["I write.", "Dear K,\n\nI write."]);
 	const third = advance(steps, second.cursor, second.stage);
