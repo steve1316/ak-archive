@@ -8,10 +8,8 @@ import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
+import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
 import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
-
-/** Where a sprite stands, as % of the stage: height, bottom edge and centre. Tuned against the in-game capture `9.png`. */
-const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: { height: 139, bottom: -44, centre: 65.5 }, one: { height: 144, bottom: -45.5, centre: 50 } };
 
 /**
  * The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. The floor is not the game's: it is how low a
@@ -368,7 +366,8 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 					if (!url) {
 						return null;
 					}
-					const place = alone || slot === "m" ? SPRITE_PLACEMENT.one : SPRITE_PLACEMENT[slot];
+					const size = spriteSize(spriteName);
+					const centre = alone ? SLOT_CENTRES.m : SLOT_CENTRES[slot];
 					const dimmed = stage.focus !== "all" && stage.focus !== slot;
 					const motion = stage.motion[slot];
 					const scale = motion?.scale ?? 1;
@@ -382,9 +381,9 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 									alt=""
 									sx={SPRITE_SX}
 									style={{
-										height: `${place.height}%`,
-										bottom: `${place.bottom}%`,
-										left: `${place.centre}%`,
+										height: `${size.height}%`,
+										top: `${size.top}%`,
+										left: `${centre}%`,
 										filter: dimmed ? DIMMED : "none",
 										transform: `translateX(-50%) scale(${scale})`,
 										transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`
