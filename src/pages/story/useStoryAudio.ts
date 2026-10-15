@@ -150,15 +150,18 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 		[apply, forget]
 	);
 
+	/** The sounds playing on a channel, or every sound when `channel` is null. */
+	const soundsOn = useCallback((channel: string | null) => playing.current.filter((sound) => channel === null || sound.channel === channel), []);
+
 	const stopChannel = useCallback(
 		(channel: string | null, seconds: number) => {
-			const stopping = playing.current.filter((sound) => channel === null || sound.channel === channel);
+			const stopping = soundsOn(channel);
 			playing.current = playing.current.filter((sound) => !stopping.includes(sound));
 			for (const sound of stopping) {
 				fadeOut(sound.audio, seconds);
 			}
 		},
-		[fadeOut]
+		[fadeOut, soundsOn]
 	);
 
 	// The fade times for the music effect below, which runs only when the track itself changes.
@@ -238,7 +241,7 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 				continue;
 			}
 			if (cue.kind === "volume") {
-				for (const sound of playing.current.filter((entry) => cue.channel === null || entry.channel === cue.channel)) {
+				for (const sound of soundsOn(cue.channel)) {
 					fadeVolume(sound.audio, Math.min(1, EFFECT_VOLUME * cue.volume), cue.fade, apply);
 				}
 				continue;
@@ -266,7 +269,7 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 				}
 			});
 		}
-	}, [effects, urlOf, play, stopChannel, apply]);
+	}, [effects, urlOf, play, stopChannel, soundsOn, apply]);
 
 	// Leaving the story silences everything, including sounds still fading out, and stops their fade timers.
 	useEffect(

@@ -172,8 +172,6 @@ export interface Effects {
 	musicFade: number;
 	/** How long the stage shakes, in seconds, or 0. */
 	shake: number;
-	/** Pauses met, in seconds, which AUTO waits out. */
-	delay: number;
 	/** Whether the text box was cleared. */
 	clearText: boolean;
 }
@@ -295,7 +293,7 @@ export function emptyStage(): StageState {
  * @returns The effects.
  */
 export function emptyEffects(): Effects {
-	return { sounds: [], musicFade: 0, shake: 0, delay: 0, clearText: false };
+	return { sounds: [], musicFade: 0, shake: 0, clearText: false };
 }
 
 /**
@@ -310,7 +308,6 @@ export function mergeEffects(list: Effects[]): Effects {
 		merged.sounds.push(...effects.sounds);
 		merged.musicFade = effects.musicFade || merged.musicFade;
 		merged.shake = Math.max(merged.shake, effects.shake);
-		merged.delay += effects.delay;
 		merged.clearText ||= effects.clearText;
 	}
 	return merged;
@@ -342,6 +339,16 @@ export function fillNickname(value: string | { text: string; spans?: Span[] }, n
  */
 function num(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * How long a command takes: its `fadetime`, or its `duration` when it has none.
+ *
+ * @param a The command's arguments.
+ * @returns The time, in seconds.
+ */
+function timeOf(a: Record<string, unknown>): number {
+	return num(a.fadetime, num(a.duration, 0));
 }
 
 /**
@@ -464,20 +471,21 @@ function characterOf(name: string): string {
  * @returns The new motion.
  */
 function actionOf(motion: Motion, slot: Slot, a: Record<string, unknown>): Motion {
-	const duration = num(a.fadetime, num(a.duration, 0));
-	const moved = { ...motion, x: motion.x + num(a.xpos, 0), y: motion.y + num(a.ypos, 0), duration, jump: null, shake: 0 };
+	// Each action replaces the last one's jump or shake.
+	const next = { ...motion, duration: timeOf(a), jump: null, shake: 0 };
+	const moved = { ...next, x: motion.x + num(a.xpos, 0), y: motion.y + num(a.ypos, 0) };
 	switch (text(a.type)?.toLowerCase()) {
 		case "move":
 			return moved;
 		case "zoom":
-			return { ...motion, scale: num(a.scale, motion.scale), duration, jump: null, shake: 0 };
+			return { ...next, scale: num(a.scale, motion.scale) };
 		case "jump":
-			return { ...moved, jump: { power: num(a.power, 20), times: Math.max(1, num(a.times, 1)), duration: duration || 0.3 }, cue: motion.cue + 1 };
+			return { ...moved, jump: { power: num(a.power, 20), times: Math.max(1, num(a.times, 1)), duration: next.duration || 0.3 }, cue: motion.cue + 1 };
 		case "shake":
-			return { ...motion, jump: null, shake: duration || 0.5, cue: motion.cue + 1 };
+			return { ...next, shake: next.duration || 0.5, cue: motion.cue + 1 };
 		case "exit": {
 			const direction = text(a.direction) ?? (slot === "r" ? "right" : "left");
-			return { ...motion, x: motion.x + (direction === "right" ? EXIT_DISTANCE : -EXIT_DISTANCE), duration, jump: null, shake: 0, gone: true };
+			return { ...next, x: motion.x + (direction === "right" ? EXIT_DISTANCE : -EXIT_DISTANCE), gone: true };
 		}
 		default:
 			return motion;
@@ -541,13 +549,13 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			} else if (slot) {
 				const before = sprites[slot];
 				sprites = { ...sprites };
-				// A new expression keeps the sprite where it moved to. A new character, or an empty slot, starts still.
+				// A new expression keeps the sprite where it moved to. A new character, an empty slot or an exited sprite coming back starts still.
 				if (name) {
 					sprites[slot] = name;
 				} else {
 					delete sprites[slot];
 				}
-				if (motion[slot] && !(name && before && characterOf(name) === characterOf(before))) {
+				if (motion[slot] && (motion[slot].gone || !(name && before && characterOf(name) === characterOf(before)))) {
 					motion = { ...motion };
 					delete motion[slot];
 				}
@@ -561,7 +569,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		}
 		case "focusout": {
 			const target = BLUR_TARGETS[text(a.type)?.toLowerCase() ?? ""];
-			return target ? { ...stage, blur: { ...stage.blur, [target]: { amount: num(a.to, 0), duration: num(a.duration, num(a.fadetime, 0)) } } } : stage;
+			return target ? { ...stage, blur: { ...stage.blur, [target]: { amount: num(a.to, 0), duration: timeOf(a) } } } : stage;
 		}
 		case "curtain": {
 			if (!("direction" in a)) {
@@ -635,9 +643,6 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "camerashake":
 			effects.shake = Math.max(effects.shake, num(a.duration, 0.5));
 			return stage;
-		case "delay":
-			effects.delay += num(a.time, 0);
-			return stage;
 		case "cameraeffect":
 			return text(a.effect)?.toLowerCase() === "grayscale" ? { ...stage, grayscale: num(a.amount, 0) > 0 } : stage;
 		default:
@@ -658,7 +663,7 @@ function waitOf(step: CommandStep): number {
 		return Math.max(0, num(a.time, 0));
 	}
 	const blocks = step.c === "blocker" ? a.block !== false : a.block === true || a.isblock === true;
-	return blocks ? Math.max(0, num(a.fadetime, num(a.duration, 0))) : 0;
+	return blocks ? Math.max(0, timeOf(a)) : 0;
 }
 
 /**
@@ -689,7 +694,8 @@ export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advan
 	let effects = emptyEffects();
 	const finish = (stop: Stop): Advance => {
 		beats.push({ stage: next, effects, wait: 0 });
-		return { cursor: { index, pick, hidden }, stage: next, stop, effects: mergeEffects(beats.map((beat) => beat.effects)), beats };
+		// One beat's effects are already the walk's, so only a walk with waits merges.
+		return { cursor: { index, pick, hidden }, stage: next, stop, effects: beats.length === 1 ? effects : mergeEffects(beats.map((beat) => beat.effects)), beats };
 	};
 	while (index < steps.length) {
 		const step = steps[index];

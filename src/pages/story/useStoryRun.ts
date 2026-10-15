@@ -7,8 +7,8 @@ import { storyGroupPath, storyPath } from "../../lib/routes.js";
 import { musicTitle, storyAssetUrl, storyAudioUrl, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { DecisionStep, LineStep, StoryFile, StoryGroup } from "../../types/story.js";
-import { START, advance, choose, emptyEffects, emptyStage, fillNickname, linesAhead, mergeEffects, skipToStop, upcomingArt } from "./engine.js";
-import type { Advance, Beat, Effects, SoundCue, StageState } from "./engine.js";
+import { START, advance, choose, emptyStage, fillNickname, linesAhead, mergeEffects, skipToStop, upcomingArt } from "./engine.js";
+import type { Advance, Effects, SoundCue, StageState } from "./engine.js";
 import { useMusicTitles } from "./useMusicTitles.js";
 import { useStoryAudio } from "./useStoryAudio.js";
 
@@ -41,28 +41,22 @@ const DEFAULT_NICKNAME = "Doctor";
 /** One entry in the Log: a line, a choice the reader picked, or a track that started, by the reference the script played. */
 type LogEntry = { kind: "line"; name: string | null; text: string } | { kind: "pick"; text: string } | { kind: "music"; ref: string };
 
-/** What the stage shows now: one beat of the last walk, and the beats still to play after it. */
+/** Where the stage stands in the last walk's beats. */
 interface Showing {
-	/** The stage on screen. */
-	stage: StageState;
-	/** The effects to run with it. A new object per beat, so each beat's sounds run once. */
-	effects: Effects;
-	/** How long it holds before the next beat, in seconds. */
-	wait: number;
-	/** The beats still to play. The stop waits until they have. */
-	queue: Beat[];
+	/** The beat on screen, as an index into the walk's beats. The stop waits until the last one shows. */
+	at: number;
+	/** The first beat whose effects have not run. A jump past several beats runs all their effects with the beat it lands on. */
+	from: number;
 	/** How many Log entries at the end belong to the stop, kept out of the Log until the beats have played. */
 	held: number;
+	/** Sound cues to run before the first beat's own, such as a restart's stop on every channel. */
+	lead: SoundCue[];
 }
 
 /** Everything a view needs to draw one story and drive it, from `useStoryRun`. */
 export interface StoryRun {
-	/** Where the story stands: the stop it waits at, the stage there and the last walk's effects. */
-	run: Advance;
 	/** The stage on screen, which plays through the walk's fades and pauses before it reaches the stop's stage. */
 	stage: StageState;
-	/** Whether the walk's fades and pauses are still playing. The stop's line, caption or choice waits for them. */
-	playing: boolean;
 	/** Whether the story has reached its end and the end card shows. */
 	ended: boolean;
 	/**
@@ -188,30 +182,25 @@ function stopEntries(result: Advance, before: Advance["stage"]["music"]): LogEnt
 }
 
 /**
- * Show a walk from its first beat, so its fades and pauses play in order.
+ * Play a walk from its first beat, so its fades and pauses play in order.
  *
- * @param result The walk.
  * @param held How many Log entries the walk's stop added.
  * @param lead Sound cues to run before the walk's own.
- * @returns What to show.
+ * @returns Where the stage stands.
  */
-function playFrom(result: Advance, held: number, lead: SoundCue[] = []): Showing {
-	const [first, ...queue] = result.beats;
-	if (!first) {
-		return showAt(result.stage, result.effects);
-	}
-	return { stage: first.stage, effects: { ...first.effects, sounds: [...lead, ...first.effects.sounds] }, wait: first.wait, queue, held: queue.length ? held : 0 };
+function playFrom(held: number, lead: SoundCue[] = []): Showing {
+	return { at: 0, from: 0, held, lead };
 }
 
 /**
- * Show a stage straight away, with nothing left to play.
+ * Show a walk's stop straight away, running the effects of every beat from `from` on.
  *
- * @param stage The stage.
- * @param effects The effects to run with it.
- * @returns What to show.
+ * @param result The walk.
+ * @param from The first beat whose effects run. Past the last beat, none do.
+ * @returns Where the stage stands.
  */
-function showAt(stage: StageState, effects: Effects): Showing {
-	return { stage, effects, wait: 0, queue: [], held: 0 };
+function showEnd(result: Advance, from: number): Showing {
+	return { at: result.beats.length - 1, from, held: 0, lead: [] };
 }
 
 /**
@@ -228,8 +217,16 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const steps = story.steps;
 	const [run, setRun] = useState<Advance>(() => advance(steps, START, emptyStage()));
 	const [log, setLog] = useState<LogEntry[]>(() => stopEntries(run, null));
-	const [showing, setShowing] = useState<Showing>(() => playFrom(run, log.length));
-	const playing = showing.queue.length > 0;
+	const [showing, setShowing] = useState<Showing>(() => playFrom(log.length));
+	const playing = showing.at < run.beats.length - 1;
+	const stage = run.beats[showing.at]?.stage ?? run.stage;
+	// A new object per beat shown, so each beat's sounds run once.
+	const effects = useMemo<Effects>(() => {
+		const merged = mergeEffects(run.beats.slice(showing.from, showing.at + 1).map((beat) => beat.effects));
+		return showing.lead.length ? { ...merged, sounds: [...showing.lead, ...merged.sounds] } : merged;
+	}, [run, showing]);
+	// The stop's Log entries wait for the beats to play.
+	const visibleLog = useMemo(() => (playing ? log.slice(0, log.length - showing.held) : log), [log, playing, showing.held]);
 	const [typed, setTyped] = useState(0);
 	const [hideUi, setHideUi] = useState(false);
 	const [logOpen, setLogOpen] = useState(false);
@@ -244,9 +241,9 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const { auto, muted, setAuto, setMuted } = settings;
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
 	const { resume: resumeAudio, blocked } = useStoryAudio({
-		music: showing.stage.music,
-		musicVolume: showing.stage.musicVolume,
-		effects: showing.effects,
+		music: stage.music,
+		musicVolume: stage.musicVolume,
+		effects,
 		muted,
 		bgm: settings.bgm,
 		sfx: settings.sfx,
@@ -272,31 +269,31 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const paused = logOpen || covered;
 	const index = group.stories.findIndex((entry) => entry.id === story.id);
 	const next = index >= 0 ? group.stories[index + 1] : undefined;
-	const art = showing.stage.image ?? showing.stage.background;
+	const art = stage.image ?? stage.background;
 	const artUrl = art ? storyAssetUrl(art.kind, art.name, presence) : null;
 
 	// Built once per change and shared by both views. A track with no title, such as one the titles do not know, is left out.
 	const lines = useMemo<StoryLine[]>(
 		() =>
-			log.slice(0, log.length - showing.held).flatMap((entry): StoryLine[] => {
+			visibleLog.flatMap((entry): StoryLine[] => {
 				if (entry.kind === "music") {
 					const trackTitle = musicTitle(titles, entry.ref);
 					return trackTitle ? [{ speaker: null, text: trackTitle, kind: "track" }] : [];
 				}
 				return entry.kind === "pick" ? [{ speaker: null, text: fillNickname(entry.text, nickname), kind: "choice" }] : [{ speaker: entry.name, text: fillNickname(entry.text, nickname) }];
 			}),
-		[log, showing.held, nickname, titles]
+		[visibleLog, nickname, titles]
 	);
 
 	// The lines and captions read so far are the ones in the Log, so the count goes up by one per click, and Back and SKIP keep it true.
-	const read = useMemo(() => log.slice(0, log.length - showing.held).filter((entry) => entry.kind === "line").length, [log, showing.held]);
+	const read = useMemo(() => visibleLog.filter((entry) => entry.kind === "line").length, [visibleLog]);
 	// The total is what has been read plus what lies ahead on the path being read, a choice not yet made counting its longest answer.
 	const ahead = useMemo(() => linesAhead(steps, run.cursor, decision), [steps, run.cursor, decision]);
 	const total = read + ahead;
 	// No count for a story with no lines. Floored at 1, so a story that opens on a choice reads "Line 1".
 	const progress = useMemo(() => (total > 0 ? { at: Math.max(1, read), total } : null), [total, read]);
 	// A new object each time a track starts, so the corner shows its title again even for the same track.
-	const music = showing.stage.music;
+	const music = stage.music;
 	const track = useMemo(() => {
 		const trackTitle = music ? musicTitle(titles, music.loop) : null;
 		return trackTitle ? { title: trackTitle } : null;
@@ -317,10 +314,11 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 
 	const land = useCallback(
 		(result: Advance, passed: LogEntry[], lastPassed: LineStep | null = null, play = true) => {
-			history.current.push({ run, logLength, said: lastSaid });
+			// Only the stop's own beat is kept, since Back never replays the beats on the way to it.
+			history.current.push({ run: { ...run, beats: run.beats.slice(-1) }, logLength, said: lastSaid });
 			setRun(result);
 			const added = stopEntries(result, run.stage.music);
-			setShowing(play ? playFrom(result, added.length) : showAt(result.stage, result.effects));
+			setShowing(play ? playFrom(added.length) : showEnd(result, 0));
 			// At a choice the text keeps the line said before it: the last line a SKIP passed, else the line being left. A choice straight after
 			// another keeps the line the first one kept.
 			const before = run.stop.kind === "line" ? run.stop.line : run.stop.kind === "decision" ? lastSaid : null;
@@ -337,8 +335,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		if (!previous) {
 			return;
 		}
-		setRun({ ...previous.run, effects: emptyEffects() });
-		setShowing(showAt(previous.run.stage, emptyEffects()));
+		setRun(previous.run);
+		setShowing(showEnd(previous.run, previous.run.beats.length));
 		setLastSaid(previous.said);
 		setTyped(Number.MAX_SAFE_INTEGER);
 		setLog((entries) => entries.slice(0, previous.logLength));
@@ -351,7 +349,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		history.current = [];
 		const entries = stopEntries(first, null);
 		setRun(first);
-		setShowing(playFrom(first, entries.length, [{ kind: "stop", channel: null, fade: 0 }]));
+		setShowing(playFrom(entries.length, [{ kind: "stop", channel: null, fade: 0 }]));
 		setLastSaid(null);
 		setLog(entries);
 		setTyped(0);
@@ -359,12 +357,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	}, [steps]);
 
 	// Jump past the beats still playing to the stop, running the sounds they would have started.
-	const finishBeats = useCallback(() => {
-		setShowing((current) => {
-			const last = current.queue.at(-1);
-			return last ? showAt(last.stage, mergeEffects(current.queue.map((beat) => beat.effects))) : current;
-		});
-	}, []);
+	const finishBeats = useCallback(() => setShowing((current) => showEnd(run, current.at + 1)), [run]);
 
 	const step = useCallback(() => {
 		if (playing) {
@@ -397,27 +390,21 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	}, [run, steps, land]);
 
 	// Play the walk's beats: each holds for its wait, then the next shows.
+	const wait = run.beats[showing.at]?.wait ?? 0;
 	useEffect(() => {
-		if (!showing.queue.length) {
+		if (!playing) {
 			return;
 		}
-		const timer = window.setTimeout(
-			() =>
-				setShowing((current) => {
-					const [nextBeat, ...queue] = current.queue;
-					return nextBeat ? { stage: nextBeat.stage, effects: nextBeat.effects, wait: nextBeat.wait, queue, held: queue.length ? current.held : 0 } : current;
-				}),
-			showing.wait * 1000
-		);
+		const timer = window.setTimeout(() => setShowing((current) => ({ ...current, at: current.at + 1, from: current.at + 1, lead: [] })), wait * 1000);
 		return () => window.clearTimeout(timer);
-	}, [showing]);
+	}, [playing, showing, wait]);
 
 	// Each beat that met a shake shakes the stage.
 	useEffect(() => {
-		if (showing.effects.shake > 0) {
+		if (effects.shake > 0) {
 			setShakeKey((key) => key + 1);
 		}
-	}, [showing.effects]);
+	}, [effects]);
 
 	// Typewriter: reveal the line a character at a time.
 	useEffect(() => {
@@ -504,9 +491,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const toggleAuto = useCallback(() => setAuto(!auto), [auto, setAuto]);
 
 	return {
-		run,
-		stage: showing.stage,
-		playing,
+		stage,
 		ended,
 		lines,
 		corner,

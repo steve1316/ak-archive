@@ -88,10 +88,10 @@ test("a predicate listing every value shows its lines whatever was picked", () =
 	assert.equal(advance(steps, choose(atChoice.cursor, "2"), atChoice.stage).stop.line.text, "shared");
 });
 
-test("effects collect sounds, shakes, pauses and a cleared box on the way to a line", () => {
+test("effects collect sounds, shakes and a cleared box on the way to a line, across a pause", () => {
 	const steps = [cmd("playsound", { key: "s_a", volume: 0.5 }), cmd("camerashake", { duration: 1 }), cmd("delay", { time: 0.6 }), cmd("dialog"), line(null, "x")];
 	const { effects } = advance(steps, START, emptyStage());
-	assert.deepEqual(effects, { sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null }], musicFade: 0, shake: 1, delay: 0.6, clearText: true });
+	assert.deepEqual(effects, { sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null }], musicFade: 0, shake: 1, clearText: true });
 });
 
 test("blockers, art scenes with their tween, grayscale and unknown commands fold into the stage", () => {
@@ -211,6 +211,7 @@ test("characteraction moves by deltas, zooms, jumps, shakes and exits a slot's s
 	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_b_1#1$1" }), effects).motion.m, undefined);
 	const gone = act(stage, { name: "middle", type: "exit", direction: "left", fadetime: 0.5 });
 	assert.deepEqual([gone.motion.m.gone, gone.motion.m.x < -1000, gone.sprites.m], [true, true, "avg_a_1#1$1"]);
+	assert.equal(applyCommand(gone, cmd("charslot", { slot: "m", name: "avg_a_1#2$1" }), effects).motion.m, undefined);
 	assert.deepEqual(applyCommand(stage, cmd("charslot"), effects).motion, {});
 	assert.deepEqual(applyCommand(stage, cmd("character", { name: "x" }), effects).motion, {});
 });

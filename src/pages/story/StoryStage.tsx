@@ -83,12 +83,15 @@ type JumpStyle = CSSProperties & { "--jump"?: string };
 /** How strong a full `focusout` blur is, as % of the stage height. */
 const BLUR_MAX = 1.2;
 
+/** A letterbox bar. Where it sits comes from its edge, in `CURTAIN_PLACES`. */
+const CURTAIN_SX = { position: "absolute", pointerEvents: "none" } as const;
+
 /** Where each curtain sits, and which way its gradient fades toward the middle. */
 const CURTAIN_PLACES: Record<Edge, { sx: SxProps<Theme>; inward: string; axis: "V" | "H" }> = {
-	top: { sx: { top: 0, left: 0, right: 0 }, inward: "bottom", axis: "V" },
-	bottom: { sx: { bottom: 0, left: 0, right: 0 }, inward: "top", axis: "V" },
-	left: { sx: { left: 0, top: 0, bottom: 0 }, inward: "right", axis: "H" },
-	right: { sx: { right: 0, top: 0, bottom: 0 }, inward: "left", axis: "H" }
+	top: { sx: { ...CURTAIN_SX, top: 0, left: 0, right: 0 }, inward: "bottom", axis: "V" },
+	bottom: { sx: { ...CURTAIN_SX, bottom: 0, left: 0, right: 0 }, inward: "top", axis: "V" },
+	left: { sx: { ...CURTAIN_SX, left: 0, top: 0, bottom: 0 }, inward: "right", axis: "H" },
+	right: { sx: { ...CURTAIN_SX, right: 0, top: 0, bottom: 0 }, inward: "left", axis: "H" }
 };
 
 /** A curtain's inline style: where its move starts and ends, as custom properties the keyframes read. */
@@ -202,14 +205,13 @@ function layerStyle(layer: LayerState, moved: boolean): CSSProperties {
 }
 
 /**
- * The filter for a blurred layer. A layer the script never blurred has none, and one it did keeps a blur, at 0 once sharp again, so a later
- * blur eases in rather than jumping.
+ * The filter for a blurred layer, easing between sharp and blurred. A sharp layer has no filter, so it costs nothing to draw.
  *
  * @param blur The layer's blur, if it has one.
  * @returns The style.
  */
 function blurStyle(blur: Blur | undefined): CSSProperties {
-	return blur ? { filter: `blur(${blur.amount * BLUR_MAX}cqh)`, transition: `filter ${blur.duration}s ease-in-out` } : {};
+	return blur ? { filter: blur.amount > 0 ? `blur(${blur.amount * BLUR_MAX}cqh)` : "none", transition: `filter ${blur.duration}s ease-in-out` } : {};
 }
 
 /**
@@ -377,7 +379,7 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 			{(Object.keys(stage.curtains) as Edge[]).map((edge) => {
 				const curtain = stage.curtains[edge];
 				// Keyed on the cue, so each new curtain on this edge replays its move.
-				return curtain ? <Box key={`${edge}-${curtain.cue}`} sx={{ position: "absolute", pointerEvents: "none", ...CURTAIN_PLACES[edge].sx }} style={curtainStyle(edge, curtain)} /> : null;
+				return curtain ? <Box key={`${edge}-${curtain.cue}`} sx={CURTAIN_PLACES[edge].sx} style={curtainStyle(edge, curtain)} /> : null;
 			})}
 		</>
 	);
