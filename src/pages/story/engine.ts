@@ -120,9 +120,9 @@ export interface Stamp {
 	place: string | null;
 	/** The time, or null when the stamp shows only a place. */
 	time: string | null;
-	/** The stamp's left edge, as an offset from the stage's centre in the game's 1280x720 text space. */
+	/** The stamp's emblem, as a horizontal offset from the stage's centre, as the script writes it. */
 	x: number;
-	/** The stamp's middle, as an offset from the stage's centre, positive upwards. */
+	/** The stamp's middle, as an offset from the stage's centre in the game's 720-high text space, positive upwards. */
 	y: number;
 }
 

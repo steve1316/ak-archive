@@ -1,5 +1,6 @@
 import "@fontsource/noto-sans/400.css";
 import "@fontsource/noto-sans/500.css";
+import "@fontsource/noto-sans/700.css";
 
 import { useEffect, useState } from "react";
 

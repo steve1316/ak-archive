@@ -31,7 +31,7 @@ const SHAKE_FRAMES = {
 /** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
 const KEYFRAMES = {
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
-	"@keyframes storyStampIn": { from: { opacity: 0, transform: "translate(-2cqh, -50%)" }, to: { opacity: 1, transform: "translate(0, -50%)" } },
+	"@keyframes storyStampIn": { from: { opacity: 0, translate: "-2cqh 0" }, to: { opacity: 1, translate: "0 0" } },
 	"@keyframes storyJump": { "0%, 100%": { translate: "0 0" }, "50%": { translate: "0 calc(var(--jump) * -1)" } },
 	"@keyframes storySpriteShake": {
 		"0%, 100%": { translate: "0 0" },
@@ -58,17 +58,36 @@ const TEXT_HEIGHT = 720;
 /** A subtitle or sticker. Its box and font size come from the script, through `captionStyle`. */
 const CAPTION_SX: SxProps<Theme> = { position: "absolute", lineHeight: 1.4, whiteSpace: "pre-line", pointerEvents: "none" };
 
+/** How far the stamp's text starts from its emblem's centre, as % of the stage height. Measured from a capture of 15-1. */
+const STAMP_TEXT_GAP = 6.9;
+
+/**
+ * How much wider the stamp's horizontal offset reads than the text space: `pos="-400,-200"` puts the emblem's centre at 8.3% of the width in
+ * the game, which is -400 x 4/3 in 1280 units. The vertical offset reads in plain 720 units.
+ */
+const STAMP_X_SCALE = 4 / 3;
+
 /** A location stamp: a bold place over a lighter time, behind a bar, sliding in from the left. Sizes are % of the stage height. */
 const STAMP_SX: SxProps<Theme> = {
 	position: "absolute",
-	transform: "translate(0, -50%)",
+	transform: "translateY(-50%)",
 	animation: "storyStampIn 0.6s ease-out",
-	borderLeft: "0.5cqh solid #eef0f4",
-	pl: "1.6cqh",
 	textShadow: "0 0 1cqh rgba(0, 0, 0, 0.8)",
+	whiteSpace: "nowrap",
 	pointerEvents: "none",
-	"& .place": { fontSize: "4cqh", fontWeight: 700, lineHeight: 1.25 },
-	"& .time": { fontSize: "2.6cqh", lineHeight: 1.4, color: "#cfd3da" }
+	"& .band": {
+		position: "absolute",
+		left: "-14cqh",
+		top: "50%",
+		width: "70cqh",
+		height: "26cqh",
+		transform: "translateY(-50%)",
+		background: "linear-gradient(to right, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.35) 45%, transparent)"
+	},
+	"& .emblem": { position: "absolute", left: 0, top: "50%", width: "25cqh", height: "25cqh", transform: "translate(-50%, -50%)" },
+	"& .lines": { position: "relative", ml: `${STAMP_TEXT_GAP}cqh` },
+	"& .place": { fontSize: "4.25cqh", fontWeight: 700, lineHeight: 1.25, color: "#fff" },
+	"& .time": { fontSize: "2.8cqh", fontWeight: 500, lineHeight: 1.4, color: "#e2e4e8" }
 };
 
 /** A full-stage frame a sprite moves in, so its offsets are % of the stage rather than of the sprite. */
@@ -386,17 +405,46 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 });
 
 /**
- * The location stamp, at its offset from the stage's centre.
+ * The stamp's emblem, drawn after the game's `group_location_stamp` art: a soft outer diamond, a white outlined diamond, a grey diamond and a
+ * compass needle. Its units are tenths of a % of the stage height, so it scales with the stage.
+ *
+ * @returns The emblem.
+ */
+function StampEmblem() {
+	return (
+		<svg className="emblem" viewBox="-125 -125 250 250" aria-hidden>
+			<defs>
+				<filter id="stampSoft">
+					<feGaussianBlur stdDeviation="1.6" />
+				</filter>
+			</defs>
+			<g transform="rotate(45)">
+				<rect x="-84" y="-84" width="168" height="168" fill="rgba(0, 0, 0, 0.35)" stroke="rgba(200, 200, 200, 0.45)" strokeWidth="10" filter="url(#stampSoft)" />
+				<rect x="-34" y="-34" width="68" height="68" fill="none" stroke="#fff" strokeWidth="2.6" />
+				<rect x="-23" y="-23" width="46" height="46" fill="#9f9a99" />
+			</g>
+			<polygon points="0,-26 8,0 -8,0" fill="#fff" />
+			<polygon points="8,0 0,26 -8,0" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+/**
+ * The location stamp: its emblem at the script's offset from the stage's centre, with the place and time to its right.
  *
  * @param props Component props.
  * @returns The stamp.
  */
 function StampView({ stamp }: { stamp: Stamp }) {
-	const style = useMemo(() => ({ left: `${((TEXT_WIDTH / 2 + stamp.x) / TEXT_WIDTH) * 100}%`, top: `${((TEXT_HEIGHT / 2 - stamp.y) / TEXT_HEIGHT) * 100}%` }), [stamp]);
+	const style = useMemo(() => ({ left: `${((TEXT_WIDTH / 2 + stamp.x * STAMP_X_SCALE) / TEXT_WIDTH) * 100}%`, top: `${((TEXT_HEIGHT / 2 - stamp.y) / TEXT_HEIGHT) * 100}%` }), [stamp]);
 	return (
 		<Box sx={STAMP_SX} style={style}>
-			{stamp.place ? <div className="place">{stamp.place}</div> : null}
-			{stamp.time ? <div className="time">{stamp.time}</div> : null}
+			<div className="band" />
+			<StampEmblem />
+			<div className="lines">
+				{stamp.place ? <div className="place">{stamp.place}</div> : null}
+				{stamp.time ? <div className="time">{stamp.time}</div> : null}
+			</div>
 		</Box>
 	);
 }
