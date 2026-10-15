@@ -13,6 +13,10 @@ on:
         description: The most asset files one run may fetch
         type: number
         default: 300
+      max_bytes:
+        description: The most raw bytes one run may fetch for story assets
+        type: number
+        default: 400000000
 
 # One refresh at a time. A second run queues behind the first rather than racing it to master.
 concurrency:
@@ -44,7 +48,8 @@ jobs:
 
   refresh:
     needs: plan
-    if: needs.plan.outputs.work == 'true'
+    # A manual run always goes ahead, so story assets refused by a limit can be fetched again with higher ones.
+    if: needs.plan.outputs.work == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -53,6 +58,7 @@ jobs:
     env:
       DRY_RUN: ${{ inputs.dry_run == true }}
       MAX_FILES: ${{ inputs.max_files || 300 }}
+      MAX_BYTES: ${{ inputs.max_bytes || 400000000 }}
       HEADS: ${{ needs.plan.outputs.heads }}
     # The wiki's Cloudflare can challenge GitHub's runners, so the dates step loads its API pages in this browser.
     services:
@@ -162,7 +168,7 @@ jobs:
           S2: ${{ runner.temp }}/story-staging
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python3 -u tools/assets/story_assets.py plan --staging "$S2" --max-files "$MAX_FILES"
+          python3 -u tools/assets/story_assets.py plan --staging "$S2" --max-files "$MAX_FILES" --max-bytes "$MAX_BYTES"
           python3 -u tools/assets/refresh_assets.py fetch --staging "$S2"
           python3 -u tools/assets/refresh_assets.py build --staging "$S2"
 
