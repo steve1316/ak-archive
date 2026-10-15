@@ -172,12 +172,12 @@ test("a walk keeps the stage at each wait as a beat, so fades and pauses play in
 	assert.equal(advance([line(null, "a")], START, emptyStage()).beats.length, 1);
 });
 
-test("animtext shows a location stamp at its offset until animtextclean", () => {
+test("animtext shows a location stamp at its offset until animtextclean fades it", () => {
 	const effects = emptyEffects();
 	const stage = applyCommand(emptyStage(), cmd("animtext", { id: "at1", style: "avg_both", pos: "-400,-200", place: "Wreck of the Gloriana", time: "1098" }), effects);
 	assert.deepEqual(stage.stamp, { place: "Wreck of the Gloriana", time: "1098", x: -400, y: -200 });
 	assert.deepEqual(applyCommand(emptyStage(), cmd("animtext", { time: "3:17 P.M." }), effects).stamp, { place: null, time: "3:17 P.M.", x: -400, y: -200 });
-	assert.equal(applyCommand(stage, cmd("animtextclean"), effects).stamp, null);
+	assert.equal(applyCommand(stage, cmd("animtextclean"), effects).stamp.leaving, true);
 });
 
 test("musicvolume sets the track's level until the next track, and soundvolume queues a volume cue for its channel", () => {
@@ -231,6 +231,29 @@ test("focusout blurs its layer over its duration, and curtain draws, resizes and
 	});
 	assert.deepEqual(applyCommand(stage, cmd("curtain", { direction: 3, fillto: 0.5 }), effects).curtains, stage.curtains);
 	assert.deepEqual(applyCommand(stage, cmd("curtain"), effects).curtains, {});
+});
+
+test("animtextclean fades the stamp out rather than dropping it", () => {
+	const effects = emptyEffects();
+	const shown = applyCommand(emptyStage(), cmd("animtext", { place: "Wreck" }), effects);
+	assert.equal(applyCommand(shown, cmd("animtextclean"), effects).stamp.leaving, true);
+	assert.equal(applyCommand(emptyStage(), cmd("animtextclean"), effects).stamp, null);
+});
+
+test("charslot and character fade a new character in and a removed one out over their duration", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "left", name: "avg_a_1#1$1", duration: 1 }), effects);
+	assert.deepEqual([stage.fadeIn.l, stage.leaving], [1, {}]);
+	stage = applyCommand(stage, cmd("charslot", { slot: "l", name: "avg_a_1#2$1" }), effects);
+	assert.equal(stage.fadeIn.l, 1);
+	const cleared = applyCommand(stage, cmd("charslot", { slot: "l", duration: 0.5 }), effects);
+	assert.deepEqual([cleared.sprites, cleared.leaving.l], [{}, { name: "avg_a_1#2$1", fade: 0.5 }]);
+	assert.deepEqual(applyCommand(cleared, cmd("charslot", { slot: "l", name: "avg_b_1#1$1" }), effects).leaving, {});
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l" }), effects).leaving, {});
+	const all = applyCommand(applyCommand(stage, cmd("charslot", { slot: "r", name: "avg_c" }), effects), cmd("charslot", { duration: 1 }), effects);
+	assert.deepEqual(all.leaving, { l: { name: "avg_a_1#2$1", fade: 1 }, r: { name: "avg_c", fade: 1 } });
+	const swapped = applyCommand(stage, cmd("character", { name: "avg_d", fadetime: 0.6 }), effects);
+	assert.deepEqual([swapped.fadeIn.m, swapped.leaving.l], [0.6, { name: "avg_a_1#2$1", fade: 0.6 }]);
 });
 
 test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {

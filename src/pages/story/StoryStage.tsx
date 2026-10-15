@@ -7,7 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
-import { fillNickname } from "./engine.js";
+import { characterOf, fillNickname } from "./engine.js";
 import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
 import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
 
@@ -31,6 +31,7 @@ const KEYFRAMES = {
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
 	"@keyframes storyStampIn": { from: { opacity: 0, translate: "-2cqh 0" }, to: { opacity: 1, translate: "0 0" } },
 	"@keyframes storyFadeOnly": { from: { opacity: 0 }, to: { opacity: 1 } },
+	"@keyframes storyFadeOut": { from: { opacity: 1 }, to: { opacity: 0 } },
 	"@keyframes storyStampStar": {
 		"0%": { opacity: 1, transform: "scale(0) rotate(0deg)" },
 		"45%": { opacity: 1, transform: "scale(1.5) rotate(45deg)" },
@@ -64,6 +65,9 @@ const TEXT_HEIGHT = 720;
 
 /** A subtitle or sticker. Its box and font size come from the script, through `captionStyle`. */
 const CAPTION_SX: SxProps<Theme> = { position: "absolute", lineHeight: 1.4, whiteSpace: "pre-line", pointerEvents: "none" };
+
+/** How long a cleared stamp takes to fade out, in seconds. The script waits a second after clearing it, so it is gone before the next beat. */
+const STAMP_FADE_OUT = 0.6;
 
 /** How far the stamp's text starts from its emblem's centre, as % of the stage height. Measured from a capture of 15-1. */
 const STAMP_TEXT_GAP = 6.9;
@@ -386,8 +390,10 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 					const dimmed = stage.focus !== "all" && stage.focus !== slot;
 					const motion = stage.motion[slot];
 					const scale = motion?.scale ?? 1;
+					const fade = stage.fadeIn[slot] ?? 0;
 					return (
-						<Box key={slot} sx={SPRITE_FRAME_SX} style={motionStyle(motion)}>
+						// Keyed on the character, so one arriving fades in while a new expression of the same one changes at once.
+						<Box key={`${slot}:${characterOf(spriteName)}`} sx={SPRITE_FRAME_SX} style={{ ...motionStyle(motion), animation: fade > 0 ? `storyFadeIn ${fade}s ease-out` : undefined }}>
 							{/* Keyed on the cue, so each new jump or shake plays from its start. */}
 							<Box key={motion?.cue ?? 0} sx={SPRITE_FRAME_SX} style={cueStyle(motion)}>
 								<Box
@@ -406,6 +412,31 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 								/>
 							</Box>
 						</Box>
+					);
+				})}
+				{(Object.keys(stage.leaving) as Slot[]).map((slot) => {
+					const leaving = stage.leaving[slot];
+					const url = leaving ? storyAssetUrl("sprites", leaving.name, presence) : null;
+					if (!leaving || !url) {
+						return null;
+					}
+					const size = spriteSize(leaving.name);
+					// Keyed on the sprite, so it fades out once from where it stood and then stays hidden.
+					return (
+						<Box
+							key={`leaving:${slot}:${leaving.name}`}
+							component="img"
+							src={url}
+							alt=""
+							sx={SPRITE_SX}
+							style={{
+								height: `${size.height}%`,
+								top: `${size.top}%`,
+								left: `${SLOT_CENTRES[slot]}%`,
+								transform: "translateX(-50%)",
+								animation: `storyFadeOut ${leaving.fade}s ease-in forwards`
+							}}
+						/>
 					);
 				})}
 			</Box>
@@ -459,7 +490,15 @@ function StampEmblem() {
  * @returns The stamp.
  */
 function StampView({ stamp }: { stamp: Stamp }) {
-	const style = useMemo(() => ({ left: `${((TEXT_WIDTH / 2 + stamp.x * STAMP_X_SCALE) / TEXT_WIDTH) * 100}%`, top: `${((TEXT_HEIGHT / 2 - stamp.y) / TEXT_HEIGHT) * 100}%` }), [stamp]);
+	const style = useMemo(
+		() => ({
+			left: `${((TEXT_WIDTH / 2 + stamp.x * STAMP_X_SCALE) / TEXT_WIDTH) * 100}%`,
+			top: `${((TEXT_HEIGHT / 2 - stamp.y) / TEXT_HEIGHT) * 100}%`,
+			// A cleared stamp fades out rather than vanishing.
+			...(stamp.leaving ? { opacity: 0, transition: `opacity ${STAMP_FADE_OUT}s ease-in` } : {})
+		}),
+		[stamp]
+	);
 	return (
 		<Box sx={STAMP_SX} style={style}>
 			<div className="band" />

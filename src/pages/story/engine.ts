@@ -124,6 +124,16 @@ export interface Stamp {
 	x: number;
 	/** The stamp's middle, as an offset from the stage's centre in the game's 720-high text space, positive upwards. */
 	y: number;
+	/** Present once `animtextclean` has cleared it, while it fades out. */
+	leaving?: true;
+}
+
+/** A sprite fading out of a slot it was removed from. */
+export interface LeavingSprite {
+	/** The sprite's upstream name. */
+	name: string;
+	/** How long it fades out over, in seconds. */
+	fade: number;
 }
 
 /** Everything the stage shows between stops. */
@@ -136,6 +146,10 @@ export interface StageState {
 	sprites: Partial<Record<Slot, string>>;
 	/** How each slot's sprite has moved, for slots whose sprite has. */
 	motion: Partial<Record<Slot, Motion>>;
+	/** How long each slot's sprite fades in over when its character arrives, in seconds. A new expression of the same character does not fade. */
+	fadeIn: Partial<Record<Slot, number>>;
+	/** The sprite fading out of each slot it was removed from. */
+	leaving: Partial<Record<Slot, LeavingSprite>>;
 	/** The lit slot, or `all` when nobody is dimmed. */
 	focus: Slot | "all";
 	/** The full-screen fade. */
@@ -226,6 +240,9 @@ interface LineWalk {
 /** A layer that has not moved. */
 const PLACEMENT: Placement = { x: 0, y: 0, xScale: 1, yScale: 1 };
 
+/** Every slot. */
+const SLOTS: Slot[] = ["l", "m", "r"];
+
 /** Which slots `character` fills for one, two and three names. */
 const CHARACTER_SLOTS: Record<number, Slot[]> = { 1: ["m"], 2: ["l", "r"], 3: ["l", "m", "r"] };
 
@@ -274,6 +291,8 @@ export function emptyStage(): StageState {
 		image: null,
 		sprites: {},
 		motion: {},
+		fadeIn: {},
+		leaving: {},
 		focus: "all",
 		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 },
 		music: null,
@@ -458,8 +477,40 @@ function appendSticker(sticker: Sticker, added: Caption): Sticker {
  * @param name The sprite name.
  * @returns The character.
  */
-function characterOf(name: string): string {
+export function characterOf(name: string): string {
 	return (name.split("#")[0] ?? name).toLowerCase();
+}
+
+/**
+ * The fades a change of sprites starts: a character arriving fades in, and one leaving or being replaced by another character fades out. A new
+ * expression of the same character changes at once.
+ *
+ * @param stage The stage before the change.
+ * @param sprites The sprites after it.
+ * @param fade How long the fades take, in seconds.
+ * @returns The new fades.
+ */
+function recast(stage: StageState, sprites: Partial<Record<Slot, string>>, fade: number): Pick<StageState, "fadeIn" | "leaving"> {
+	const fadeIn = { ...stage.fadeIn };
+	const leaving = { ...stage.leaving };
+	for (const slot of SLOTS) {
+		const before = stage.sprites[slot];
+		const after = sprites[slot];
+		if (before === after || (before && after && characterOf(before) === characterOf(after))) {
+			continue;
+		}
+		if (after) {
+			fadeIn[slot] = fade;
+		} else {
+			delete fadeIn[slot];
+		}
+		if (before && fade > 0) {
+			leaving[slot] = { name: before, fade };
+		} else {
+			delete leaving[slot];
+		}
+	}
+	return { fadeIn, leaving };
 }
 
 /**
@@ -536,7 +587,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			});
 			const focusIndex = num(a.focus, 0);
 			const focus = names.length > 1 && focusIndex >= 1 && focusIndex <= names.length ? (slots[focusIndex - 1] ?? "all") : "all";
-			return { ...stage, sprites, motion: {}, focus };
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, focus };
 		}
 		case "charslot": {
 			const slot = slotOf(a.slot);
@@ -561,7 +612,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 				}
 			}
 			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;
-			return { ...stage, sprites, motion, focus };
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, focus };
 		}
 		case "characteraction": {
 			const slot = slotOf(a.name);
@@ -639,7 +690,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return { ...stage, stamp: place || time ? { place, time, ...pos } : null };
 		}
 		case "animtextclean":
-			return { ...stage, stamp: null };
+			return { ...stage, stamp: stage.stamp ? { ...stage.stamp, leaving: true } : null };
 		case "camerashake":
 			effects.shake = Math.max(effects.shake, num(a.duration, 0.5));
 			return stage;
