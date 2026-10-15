@@ -215,6 +215,23 @@ test("characteraction moves by deltas, zooms, jumps, shakes and exits a slot's s
 	assert.deepEqual(applyCommand(stage, cmd("character", { name: "x" }), effects).motion, {});
 });
 
+test("focusout blurs its layer over its duration, and curtain draws, resizes and clears letterbox bars", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("focusout", { type: "bg", from: 0, to: 1, duration: 1.5 }), effects);
+	stage = applyCommand(stage, cmd("focusout", { type: "char", from: 0, to: 0.5, duration: 1 }), effects);
+	assert.deepEqual(stage.blur, { background: { amount: 1, duration: 1.5 }, sprites: { amount: 0.5, duration: 1 } });
+	assert.deepEqual(applyCommand(stage, cmd("focusout", { type: "cgitem", to: 0.3 }), effects).blur.image, { amount: 0.3, duration: 0 });
+	stage = applyCommand(stage, cmd("curtain", { direction: 0, fillfrom: 0.2, fillto: 0.05, fadetime: 2, grad: true }), effects);
+	stage = applyCommand(stage, cmd("curtain", { direction: 4, fillfrom: 0.2, fillto: 0.05, fadetime: 2 }), effects);
+	stage = applyCommand(stage, cmd("curtain", { direction: 0, fillfrom: 0.05, fillto: 0.1, fadetime: 1 }), effects);
+	assert.deepEqual(stage.curtains, {
+		top: { from: 0.05, to: 0.1, fade: 1, grad: false, cue: 2 },
+		bottom: { from: 0.2, to: 0.05, fade: 2, grad: false, cue: 1 }
+	});
+	assert.deepEqual(applyCommand(stage, cmd("curtain", { direction: 3, fillto: 0.5 }), effects).curtains, stage.curtains);
+	assert.deepEqual(applyCommand(stage, cmd("curtain"), effects).curtains, {});
+});
+
 test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {
 	const steps = [cmd("subtitle", { text: "Nightfall." }), cmd("subtitle", { text: "The boilers rumble." }), cmd("subtitle"), line(null, "After.")];
 	const first = advance(steps, START, emptyStage());

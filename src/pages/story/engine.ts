@@ -37,6 +37,31 @@ export interface Motion {
 	gone: boolean;
 }
 
+/** A blur from `focusout`: how strong, 0 to 1, and how long it takes to get there. */
+export interface Blur {
+	/** The strength, 0 for sharp to 1 for fully out of focus. */
+	amount: number;
+	/** How long it takes to reach that strength, in seconds. */
+	duration: number;
+}
+
+/** A letterbox bar from `curtain`. */
+export interface Curtain {
+	/** How much of the stage it covers as it starts, 0 to 1 of the stage's height or width. */
+	from: number;
+	/** How much it covers once it has moved. */
+	to: number;
+	/** How long the move takes, in seconds. */
+	fade: number;
+	/** Whether its inner edge fades out rather than ending hard. */
+	grad: boolean;
+	/** Counts the curtains on this edge, so the stage replays the move for each new one. */
+	cue: number;
+}
+
+/** An edge of the stage a curtain comes in from. */
+export type Edge = "top" | "right" | "bottom" | "left";
+
 /** Where a layer sits: an offset in the game's 1920x1080 units, and a scale. */
 export interface Placement {
 	/** Horizontal offset, positive to the right. */
@@ -125,6 +150,10 @@ export interface StageState {
 	stickers: Sticker[];
 	/** The location stamp, or null. */
 	stamp: Stamp | null;
+	/** The blur on the background, the art scene and the sprites, for those that have one. */
+	blur: Partial<Record<"background" | "image" | "sprites", Blur>>;
+	/** The letterbox bar on each edge that has one. */
+	curtains: Partial<Record<Edge, Curtain>>;
 	/** Whether the scene is drawn in grey. */
 	grayscale: boolean;
 }
@@ -214,6 +243,12 @@ const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, jump: null, shake: 0,
 /** How far an exiting sprite slides, in text-space units: far enough to leave the stage from any slot. */
 const EXIT_DISTANCE = 1600;
 
+/** Which layer each `focusout` type blurs. */
+const BLUR_TARGETS: Record<string, keyof StageState["blur"]> = { bg: "background", lbg: "background", cg: "image", cgitem: "image", char: "sprites" };
+
+/** Which edge each `curtain` direction comes in from. The odd directions, a few corner curtains, are not drawn. */
+const CURTAIN_EDGES: Record<number, Edge> = { 0: "top", 2: "right", 4: "bottom", 6: "left" };
+
 /** Every way the scripts name a slot, lowercased. */
 const SLOT_NAMES: Record<string, Slot> = { l: "l", left: "l", lfte: "l", m: "m", middle: "m", r: "r", right: "r" };
 
@@ -248,6 +283,8 @@ export function emptyStage(): StageState {
 		subtitle: null,
 		stickers: [],
 		stamp: null,
+		blur: {},
+		curtains: {},
 		grayscale: false
 	};
 }
@@ -521,6 +558,22 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "characteraction": {
 			const slot = slotOf(a.name);
 			return slot ? { ...stage, motion: { ...stage.motion, [slot]: actionOf(stage.motion[slot] ?? STILL, slot, a) } } : stage;
+		}
+		case "focusout": {
+			const target = BLUR_TARGETS[text(a.type)?.toLowerCase() ?? ""];
+			return target ? { ...stage, blur: { ...stage.blur, [target]: { amount: num(a.to, 0), duration: num(a.duration, num(a.fadetime, 0)) } } } : stage;
+		}
+		case "curtain": {
+			if (!("direction" in a)) {
+				return { ...stage, curtains: {} };
+			}
+			const edge = CURTAIN_EDGES[num(a.direction, -1)];
+			if (!edge) {
+				return stage;
+			}
+			const to = num(a.fillto, 0);
+			const curtain = { from: num(a.fillfrom, to), to, fade: num(a.fadetime, 0), grad: a.grad === true, cue: (stage.curtains[edge]?.cue ?? 0) + 1 };
+			return { ...stage, curtains: { ...stage.curtains, [edge]: curtain } };
 		}
 		case "blocker":
 			return { ...stage, blocker: { color: colourOf(a), alpha: num(a.a, 0), fade: num(a.fadetime, 0) } };

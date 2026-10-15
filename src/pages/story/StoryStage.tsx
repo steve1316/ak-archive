@@ -8,7 +8,7 @@ import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
-import type { Caption, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
+import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
 
 /** Where a sprite stands, as % of the stage: height, bottom edge and centre. Tuned against the in-game capture `9.png`. */
 const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: { height: 139, bottom: -44, centre: 65.5 }, one: { height: 144, bottom: -45.5, centre: 50 } };
@@ -38,6 +38,8 @@ const KEYFRAMES = {
 		"10%, 50%, 90%": { translate: "-0.8cqh 0" },
 		"30%, 70%": { translate: "0.8cqh 0" }
 	},
+	"@keyframes storyCurtainV": { from: { height: "var(--from)" }, to: { height: "var(--to)" } },
+	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } },
 	"@keyframes storyShake0": SHAKE_FRAMES,
 	"@keyframes storyShake1": SHAKE_FRAMES
 };
@@ -77,6 +79,20 @@ const SPRITE_SX: SxProps<Theme> = { position: "absolute", transformOrigin: "50% 
 
 /** A sprite jump's inline style: its height as a custom property the keyframes read. */
 type JumpStyle = CSSProperties & { "--jump"?: string };
+
+/** How strong a full `focusout` blur is, as % of the stage height. */
+const BLUR_MAX = 1.2;
+
+/** Where each curtain sits, and which way its gradient fades toward the middle. */
+const CURTAIN_PLACES: Record<Edge, { sx: SxProps<Theme>; inward: string; axis: "V" | "H" }> = {
+	top: { sx: { top: 0, left: 0, right: 0 }, inward: "bottom", axis: "V" },
+	bottom: { sx: { bottom: 0, left: 0, right: 0 }, inward: "top", axis: "V" },
+	left: { sx: { left: 0, top: 0, bottom: 0 }, inward: "right", axis: "H" },
+	right: { sx: { right: 0, top: 0, bottom: 0 }, inward: "left", axis: "H" }
+};
+
+/** A curtain's inline style: where its move starts and ends, as custom properties the keyframes read. */
+type CurtainStyle = CSSProperties & { "--from": string; "--to": string };
 
 /** The stage: 16:9, sized by the page, with text measured against its own height. */
 const STAGE_SX: SxProps<Theme> = {
@@ -186,6 +202,36 @@ function layerStyle(layer: LayerState, moved: boolean): CSSProperties {
 }
 
 /**
+ * The filter for a blurred layer. A layer the script never blurred has none, and one it did keeps a blur, at 0 once sharp again, so a later
+ * blur eases in rather than jumping.
+ *
+ * @param blur The layer's blur, if it has one.
+ * @returns The style.
+ */
+function blurStyle(blur: Blur | undefined): CSSProperties {
+	return blur ? { filter: `blur(${blur.amount * BLUR_MAX}cqh)`, transition: `filter ${blur.duration}s ease-in-out` } : {};
+}
+
+/**
+ * A letterbox bar's style: its size, and the move from its start size to it.
+ *
+ * @param edge The edge it comes in from.
+ * @param curtain The bar.
+ * @returns The style.
+ */
+function curtainStyle(edge: Edge, curtain: Curtain): CurtainStyle {
+	const { inward, axis } = CURTAIN_PLACES[edge];
+	const size = `${curtain.to * 100}%`;
+	return {
+		"--from": `${curtain.from * 100}%`,
+		"--to": size,
+		[axis === "V" ? "height" : "width"]: size,
+		background: curtain.grad ? `linear-gradient(to ${inward}, #000 60%, transparent)` : "#000",
+		animation: curtain.fade > 0 ? `storyCurtain${axis} ${curtain.fade}s ease-in-out` : "none"
+	};
+}
+
+/**
  * Where a caption sits on stage, from its box in the game's text space.
  *
  * @param caption The caption.
@@ -275,7 +321,7 @@ export function typedRuns(line: { text: string; spans?: Span[] }, typed: number)
 }
 
 /**
- * The stage's art: background, art scene and sprites. Memoised on the stage, which only changes when the story moves on, so
+ * The stage's art: background, art scene, sprites, their blurs and the letterbox curtains. Memoised on the stage, which only changes when the story moves on, so
  * the typewriter's ticks leave it alone.
  *
  * @param props Component props.
@@ -288,39 +334,50 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 	return (
 		<>
 			{/* Keyed on the art, so a new scene mounts fresh and plays its own fade even when the fade time matches the last one. */}
-			{stage.background ? <Layer key={stage.background.name} layer={stage.background} presence={presence} /> : null}
-			{stage.image ? <Layer key={stage.image.name} layer={stage.image} presence={presence} /> : null}
-			{slots.map((slot) => {
-				const spriteName = stage.sprites[slot] ?? "";
-				const url = storyAssetUrl("sprites", spriteName, presence);
-				if (!url) {
-					return null;
-				}
-				const place = alone || slot === "m" ? SPRITE_PLACEMENT.one : SPRITE_PLACEMENT[slot];
-				const dimmed = stage.focus !== "all" && stage.focus !== slot;
-				const motion = stage.motion[slot];
-				const scale = motion?.scale ?? 1;
-				return (
-					<Box key={slot} sx={SPRITE_FRAME_SX} style={motionStyle(motion)}>
-						{/* Keyed on the cue, so each new jump or shake plays from its start. */}
-						<Box key={motion?.cue ?? 0} sx={SPRITE_FRAME_SX} style={cueStyle(motion)}>
-							<Box
-								component="img"
-								src={url}
-								alt=""
-								sx={SPRITE_SX}
-								style={{
-									height: `${place.height}%`,
-									bottom: `${place.bottom}%`,
-									left: `${place.centre}%`,
-									filter: dimmed ? DIMMED : "none",
-									transform: `translateX(-50%) scale(${scale})`,
-									transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`
-								}}
-							/>
+			<Box sx={FILL_SX} style={blurStyle(stage.blur.background)}>
+				{stage.background ? <Layer key={stage.background.name} layer={stage.background} presence={presence} /> : null}
+			</Box>
+			<Box sx={FILL_SX} style={blurStyle(stage.blur.image)}>
+				{stage.image ? <Layer key={stage.image.name} layer={stage.image} presence={presence} /> : null}
+			</Box>
+			<Box sx={FILL_SX} style={blurStyle(stage.blur.sprites)}>
+				{slots.map((slot) => {
+					const spriteName = stage.sprites[slot] ?? "";
+					const url = storyAssetUrl("sprites", spriteName, presence);
+					if (!url) {
+						return null;
+					}
+					const place = alone || slot === "m" ? SPRITE_PLACEMENT.one : SPRITE_PLACEMENT[slot];
+					const dimmed = stage.focus !== "all" && stage.focus !== slot;
+					const motion = stage.motion[slot];
+					const scale = motion?.scale ?? 1;
+					return (
+						<Box key={slot} sx={SPRITE_FRAME_SX} style={motionStyle(motion)}>
+							{/* Keyed on the cue, so each new jump or shake plays from its start. */}
+							<Box key={motion?.cue ?? 0} sx={SPRITE_FRAME_SX} style={cueStyle(motion)}>
+								<Box
+									component="img"
+									src={url}
+									alt=""
+									sx={SPRITE_SX}
+									style={{
+										height: `${place.height}%`,
+										bottom: `${place.bottom}%`,
+										left: `${place.centre}%`,
+										filter: dimmed ? DIMMED : "none",
+										transform: `translateX(-50%) scale(${scale})`,
+										transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`
+									}}
+								/>
+							</Box>
 						</Box>
-					</Box>
-				);
+					);
+				})}
+			</Box>
+			{(Object.keys(stage.curtains) as Edge[]).map((edge) => {
+				const curtain = stage.curtains[edge];
+				// Keyed on the cue, so each new curtain on this edge replays its move.
+				return curtain ? <Box key={`${edge}-${curtain.cue}`} sx={{ position: "absolute", pointerEvents: "none", ...CURTAIN_PLACES[edge].sx }} style={curtainStyle(edge, curtain)} /> : null;
 			})}
 		</>
 	);
