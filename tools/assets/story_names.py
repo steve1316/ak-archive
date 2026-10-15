@@ -152,6 +152,10 @@ def layout_candidates(lowered):
         candidates += [f"{base}_{face}.png", f"{lowered}.png"]
         if face == "1":
             candidates.append(f"{base}.png")
+            # A character with one face can be stored without it, such as `avg_npc_423_1#1$1` as `avg_npc_423_1$1.png`.
+            variant = rest.split("$", 1)[1] if "$" in rest else ""
+            if variant:
+                candidates += [f"{base}${variant}.png", f"{base}/{base}${variant}.png"]
         return candidates
     base = lowered.split("$", 1)[0]
     return [f"{base}/{lowered}.png", f"{lowered}/{lowered}.png", f"{lowered}.png"]

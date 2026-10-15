@@ -114,6 +114,14 @@ def test_sprites_drop_leading_zeros_and_fall_back_from_avg_to_the_older_char_lay
     assert resolve("sprites", "avg_1505_frstar_1#3$1", indexes)["path"] == "char_1505_frstar_1/char_1505_frstar_3.png"
 
 
+def test_a_single_face_sprite_is_found_without_its_face_number():
+    characters = index_by_path([entry("avg_npc_423_1$1.png"), entry("avg_npc_500_1/avg_npc_500_1$2.png")])
+    indexes = {"characters": characters}
+    assert resolve("sprites", "avg_npc_423_1#1$1", indexes)["path"] == "avg_npc_423_1$1.png"
+    assert resolve("sprites", "avg_npc_500_1#1$2", indexes)["path"] == "avg_npc_500_1/avg_npc_500_1$2.png"
+    assert resolve("sprites", "avg_npc_423_1#2$1", indexes) is None
+
+
 def test_image_keys_never_carry_url_breaking_characters():
     assert published_path("backgrounds", "avg_003_kalts_1#5$1") == "backgrounds/avg_003_kalts_1-5-1.webp"
     assert manifest_key("images", "38_G20_skyblue_L1") == "38_g20_skyblue_l1"
