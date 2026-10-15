@@ -51,6 +51,15 @@ test("charslot fills a slot, moves the focus, empties one slot, and clears every
 	assert.deepEqual(applyCommand(stage, cmd("charslot"), effects).sprites, {});
 });
 
+test("charslot reads left, right and middle in any case as slots and focus", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "left", name: "a" }), effects);
+	stage = applyCommand(stage, cmd("charslot", { slot: "Right", name: "b", focus: "R" }), effects);
+	stage = applyCommand(stage, cmd("charslot", { slot: "MIDDLE", name: "c" }), effects);
+	assert.deepEqual([stage.sprites, stage.focus], [{ l: "a", r: "b", m: "c" }, "r"]);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "left", focus: "left" }), effects).focus, "l");
+});
+
 test("a choice stops the walk, and predicates show only the picked branch until a bare predicate rejoins", () => {
 	const steps = [
 		cmd("dialog"),

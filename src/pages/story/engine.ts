@@ -125,6 +125,9 @@ const PLACEMENT: Placement = { x: 0, y: 0, xScale: 1, yScale: 1 };
 /** Which slots `character` fills for one, two and three names. */
 const CHARACTER_SLOTS: Record<number, Slot[]> = { 1: ["m"], 2: ["l", "r"], 3: ["l", "m", "r"] };
 
+/** Every way the scripts name a slot, lowercased. */
+const SLOT_NAMES: Record<string, Slot> = { l: "l", left: "l", lfte: "l", m: "m", middle: "m", r: "r", right: "r" };
+
 /** The start of a story. */
 export const START: Cursor = { index: 0, pick: null, hidden: false };
 
@@ -205,13 +208,13 @@ function channelOf(value: unknown): string | null {
 }
 
 /**
- * A slot argument.
+ * A slot argument. Scripts write slots as `l`, `left`, `L` or `Left`, and a few misspell `left` as `lfte`.
  *
  * @param value The raw argument.
  * @returns The slot, or null when it is not one.
  */
 function slotOf(value: unknown): Slot | null {
-	return value === "l" || value === "m" || value === "r" ? value : null;
+	return typeof value === "string" ? (SLOT_NAMES[value.toLowerCase()] ?? null) : null;
 }
 
 /**
