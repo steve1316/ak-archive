@@ -30,6 +30,15 @@ const SHAKE_FRAMES = {
 const KEYFRAMES = {
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
 	"@keyframes storyStampIn": { from: { opacity: 0, translate: "-2cqh 0" }, to: { opacity: 1, translate: "0 0" } },
+	"@keyframes storyFadeOnly": { from: { opacity: 0 }, to: { opacity: 1 } },
+	"@keyframes storyStampStar": {
+		"0%": { opacity: 1, transform: "scale(0) rotate(0deg)" },
+		"45%": { opacity: 1, transform: "scale(1.5) rotate(45deg)" },
+		"100%": { opacity: 0, transform: "scale(0) rotate(90deg)" }
+	},
+	"@keyframes storyStampCore": { "0%, 40%": { opacity: 0, transform: "scale(0) rotate(-90deg)" }, "100%": { opacity: 1, transform: "scale(1) rotate(0deg)" } },
+	"@keyframes storyStampFrame": { "0%, 35%": { opacity: 0, transform: "scale(0.7)" }, "100%": { opacity: 1, transform: "scale(1)" } },
+	"@keyframes storyStampRing": { "0%, 45%": { opacity: 0, transform: "scale(1)" }, "52%": { opacity: 0.9 }, "100%": { opacity: 0, transform: "scale(3.2)" } },
 	"@keyframes storyJump": { "0%, 100%": { translate: "0 0" }, "50%": { translate: "0 calc(var(--jump) * -1)" } },
 	"@keyframes storySpriteShake": {
 		"0%, 100%": { translate: "0 0" },
@@ -69,11 +78,11 @@ const STAMP_X_SCALE = 4 / 3;
 const STAMP_SX: SxProps<Theme> = {
 	position: "absolute",
 	transform: "translateY(-50%)",
-	animation: "storyStampIn 0.6s ease-out",
 	textShadow: "0 0 1cqh rgba(0, 0, 0, 0.8)",
 	whiteSpace: "nowrap",
 	pointerEvents: "none",
 	"& .band": {
+		animation: "storyFadeOnly 0.4s ease-out",
 		position: "absolute",
 		left: "-14cqh",
 		top: "50%",
@@ -83,7 +92,13 @@ const STAMP_SX: SxProps<Theme> = {
 		background: "linear-gradient(to right, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.35) 45%, transparent)"
 	},
 	"& .emblem": { position: "absolute", left: 0, top: "50%", width: "25cqh", height: "25cqh", transform: "translate(-50%, -50%)" },
-	"& .lines": { position: "relative", ml: `${STAMP_TEXT_GAP}cqh` },
+	"& .lines": { position: "relative", ml: `${STAMP_TEXT_GAP}cqh`, animation: "storyStampIn 0.5s ease-out 0.35s backwards" },
+	// The emblem's parts animate about their own centres: a star, which turns into the emblem, then a ring that radiates out of it.
+	"& .emblem g": { transformBox: "fill-box", transformOrigin: "center" },
+	"& .star": { animation: "storyStampStar 0.7s ease-in-out forwards" },
+	"& .core": { animation: "storyStampCore 0.75s ease-out backwards" },
+	"& .frame": { animation: "storyStampFrame 0.9s ease-out backwards" },
+	"& .ring": { animation: "storyStampRing 1.5s ease-out forwards" },
 	"& .place": { fontSize: "4.25cqh", fontWeight: 700, lineHeight: 1.25, color: "#fff" },
 	"& .time": { fontSize: "2.8cqh", fontWeight: 500, lineHeight: 1.4, color: "#e2e4e8" }
 };
@@ -405,7 +420,8 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 
 /**
  * The stamp's emblem, drawn after the game's `group_location_stamp` art: a soft outer diamond, a white outlined diamond, a grey diamond and a
- * compass needle. Its units are tenths of a % of the stage height, so it scales with the stage.
+ * compass needle. It opens as the game's does: a star that turns into the emblem, then a ring that radiates out from it. Its units are tenths
+ * of a % of the stage height, so it scales with the stage.
  *
  * @returns The emblem.
  */
@@ -417,13 +433,21 @@ function StampEmblem() {
 					<feGaussianBlur stdDeviation="1.6" />
 				</filter>
 			</defs>
-			<g transform="rotate(45)">
-				<rect x="-84" y="-84" width="168" height="168" fill="rgba(0, 0, 0, 0.35)" stroke="rgba(200, 200, 200, 0.45)" strokeWidth="10" filter="url(#stampSoft)" />
-				<rect x="-34" y="-34" width="68" height="68" fill="none" stroke="#fff" strokeWidth="2.6" />
-				<rect x="-23" y="-23" width="46" height="46" fill="#9f9a99" />
+			<g className="frame">
+				<rect transform="rotate(45)" x="-84" y="-84" width="168" height="168" fill="rgba(0, 0, 0, 0.35)" stroke="rgba(200, 200, 200, 0.45)" strokeWidth="10" filter="url(#stampSoft)" />
 			</g>
-			<polygon points="0,-26 8,0 -8,0" fill="#fff" />
-			<polygon points="8,0 0,26 -8,0" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinejoin="round" />
+			<g className="ring">
+				<rect transform="rotate(45)" x="-34" y="-34" width="68" height="68" fill="none" stroke="#fff" strokeWidth="2.6" />
+			</g>
+			<g className="core">
+				<rect transform="rotate(45)" x="-34" y="-34" width="68" height="68" fill="none" stroke="#fff" strokeWidth="2.6" />
+				<rect transform="rotate(45)" x="-23" y="-23" width="46" height="46" fill="#9f9a99" />
+				<polygon points="0,-26 8,0 -8,0" fill="#fff" />
+				<polygon points="8,0 0,26 -8,0" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinejoin="round" />
+			</g>
+			<g className="star">
+				<polygon points="0,-30 6,-6 30,0 6,6 0,30 -6,6 -30,0 -6,-6" fill="#fff" />
+			</g>
 		</svg>
 	);
 }
