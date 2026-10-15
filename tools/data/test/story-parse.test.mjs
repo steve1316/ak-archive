@@ -109,3 +109,14 @@ test("gridbg and verticalbg are known commands", () => {
 		["cmd", "cmd"]
 	);
 });
+
+test("animtext keeps its place and time lines, cleaned of markup, and leaves out a missing one", () => {
+	const [both, placeOnly] = parseScript(
+		[
+			'[animtext(id = "at1", name = "group_location_stamp", style="avg_both", pos = "-400,-200", block = false)]<p=1>Ten Pints <i>Pub</i></><p=2>December 21st, 1098</>',
+			'[animtext(id = "at1", style="avg_only_heavy")]<p=1>Wreck of the Gloriana</>'
+		].join("\n")
+	);
+	assert.deepEqual(both.a, { id: "at1", name: "group_location_stamp", style: "avg_both", pos: "-400,-200", block: false, place: "Ten Pints Pub", time: "December 21st, 1098" });
+	assert.deepEqual(placeOnly.a, { id: "at1", style: "avg_only_heavy", place: "Wreck of the Gloriana" });
+});

@@ -67,6 +67,9 @@ export const KNOWN_COMMANDS = new Set([
 	"verticalbg"
 ]);
 
+/** One line of an `animtext` stamp, as `<p=1>place</>` or `<p=2>time</>` after the command. */
+const ANIMTEXT_PART = /<p=([12])>(.*?)<\/>/g;
+
 /** Every step type `parseScript` emits. `check.mjs` rejects any other. */
 export const STEP_TYPES = new Set(["line", "cmd", "unknown", "decision", "predicate"]);
 
@@ -305,6 +308,24 @@ function lineStep(name, raw) {
 }
 
 /**
+ * Read an `animtext` stamp's lines from the text after the command into `place` and `time`, leaving out any it does not have.
+ *
+ * @param {Record<string, unknown>} args The command's arguments.
+ * @param {string} rest The text after the command.
+ * @returns {Record<string, unknown>} The arguments with the stamp's lines added.
+ */
+function animtextArgs(args, rest) {
+	const lines = {};
+	for (const [, part, raw] of rest.matchAll(ANIMTEXT_PART)) {
+		const line = plainText(raw).trim();
+		if (line) {
+			lines[part === "1" ? "place" : "time"] = line;
+		}
+	}
+	return { ...args, ...lines };
+}
+
+/**
  * Split a `;`-separated argument, such as a decision's options, dropping empty parts.
  *
  * @param {unknown} value The argument's value.
@@ -380,6 +401,8 @@ export function parseScript(text, variables = {}) {
 		} else if (command === "predicate") {
 			// A bare `[Predicate]` rejoins every branch after a choice, so it is written as null refs rather than an empty list.
 			steps.push({ t: "predicate", refs: args.references === undefined ? null : splitList(args.references) });
+		} else if (command === "animtext") {
+			steps.push({ t: "cmd", c: command, a: animtextArgs(args, parsed.rest) });
 		} else {
 			steps.push({ t: KNOWN_COMMANDS.has(command) ? "cmd" : "unknown", c: command, a: cleanTextArg(args) });
 		}
