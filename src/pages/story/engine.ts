@@ -95,6 +95,8 @@ export interface StageState {
 	blocker: { color: string; alpha: number; fade: number };
 	/** The playing track, or null for silence. */
 	music: { intro: string | null; loop: string; volume: number; crossfade: number } | null;
+	/** The track's level as `musicvolume` last set it, and how long it fades there, or null for the track's own volume. */
+	musicVolume: { volume: number; fade: number } | null;
 	/** Narration over the scene, or null. */
 	subtitle: Caption | null;
 	/** Letter-style text shown over the scene, in the order it appeared. */
@@ -105,8 +107,11 @@ export interface StageState {
 	grayscale: boolean;
 }
 
-/** One sound cue: play a sound, or stop the sounds on one channel, or on every channel when `channel` is null. */
-export type SoundCue = { kind: "play"; key: string; volume: number; loop: boolean; channel: string | null } | { kind: "stop"; channel: string | null; fade: number };
+/** One sound cue: play a sound, or stop or set the volume of the sounds on one channel, or on every channel when `channel` is null. */
+export type SoundCue =
+	| { kind: "play"; key: string; volume: number; loop: boolean; channel: string | null }
+	| { kind: "stop"; channel: string | null; fade: number }
+	| { kind: "volume"; channel: string | null; volume: number; fade: number };
 
 /** One-off effects met on the way to a stop. */
 export interface Effects {
@@ -210,6 +215,7 @@ export function emptyStage(): StageState {
 		focus: "all",
 		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 },
 		music: null,
+		musicVolume: null,
 		subtitle: null,
 		stickers: [],
 		stamp: null,
@@ -441,11 +447,16 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return stage;
 		case "playmusic": {
 			const loop = text(a.key);
-			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0) } } : stage;
+			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0) }, musicVolume: null } : stage;
 		}
 		case "stopmusic":
 			effects.musicFade = num(a.fadetime, 0);
-			return { ...stage, music: null };
+			return { ...stage, music: null, musicVolume: null };
+		case "musicvolume":
+			return { ...stage, musicVolume: { volume: num(a.volume, 1), fade: num(a.fadetime, 0) } };
+		case "soundvolume":
+			effects.sounds.push({ kind: "volume", channel: channelOf(a.channel), volume: num(a.volume, 1), fade: num(a.fadetime, 0) });
+			return stage;
 		case "playsound": {
 			const key = text(a.key);
 			if (key) {

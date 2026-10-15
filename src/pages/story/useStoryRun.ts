@@ -243,7 +243,15 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const settings = useStorySettings(SETTINGS_KEY, seed);
 	const { auto, muted, setAuto, setMuted } = settings;
 	const urlOf = useCallback((ref: string) => storyAudioUrl(ref, presence), [presence]);
-	const { resume: resumeAudio, blocked } = useStoryAudio({ music: showing.stage.music, effects: showing.effects, muted, bgm: settings.bgm, sfx: settings.sfx, urlOf });
+	const { resume: resumeAudio, blocked } = useStoryAudio({
+		music: showing.stage.music,
+		musicVolume: showing.stage.musicVolume,
+		effects: showing.effects,
+		muted,
+		bgm: settings.bgm,
+		sfx: settings.sfx,
+		urlOf
+	});
 	const titles = useMusicTitles();
 	const preloaded = useRef(new Set<string>());
 

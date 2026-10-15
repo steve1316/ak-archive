@@ -27,6 +27,8 @@ const MUSIC_TRACKS = new WeakSet<HTMLAudioElement>();
 interface StoryAudioInput {
 	/** The track the stage wants, or null for silence. */
 	music: StageState["music"];
+	/** The track's level as the script last set it, or null for the track's own volume. */
+	musicVolume: StageState["musicVolume"];
 	/** The last walk's effects. A new object each walk, so its sound cues run once per walk. */
 	effects: Effects;
 	/** Whether everything is muted. */
@@ -109,7 +111,7 @@ function fadeVolume(audio: HTMLAudioElement, to: number, seconds: number, apply:
  * @param input The music, effects, mute state, the reader's volumes and the URL resolver.
  * @returns The resume function and whether playback is blocked.
  */
-export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryAudioInput): StoryAudio {
+export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, urlOf }: StoryAudioInput): StoryAudio {
 	const track = useRef<HTMLAudioElement | null>(null);
 	const playing = useRef<PlayingSound[]>([]);
 	const fadingOut = useRef(new Set<HTMLAudioElement>());
@@ -205,9 +207,9 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 		if (introUrl) {
 			first.addEventListener("ended", () => {
 				if (track.current === first) {
-					// The loop waited out the intro outside the owned elements, so it takes the reader's current volume and mute now.
+					// The loop waited out the intro outside the owned elements, so it takes the intro's level, the reader's volume and mute now.
 					track.current = loop;
-					apply(loop);
+					setLevel(loop, LEVELS.get(first) ?? target, apply);
 					loop.muted = mutedRef.current;
 					void play(loop);
 				}
@@ -222,10 +224,23 @@ export function useStoryAudio({ music, effects, muted, bgm, sfx, urlOf }: StoryA
 		void play(first, { keep: true });
 	}, [loopKey, introKey, volume, urlOf, play, fadeOut, apply]);
 
+	// The script turns the track up or down, over its fade. A new track starts at its own volume.
+	useEffect(() => {
+		if (musicVolume && track.current) {
+			fadeVolume(track.current, MUSIC_VOLUME * musicVolume.volume, musicVolume.fade, apply);
+		}
+	}, [musicVolume, apply]);
+
 	useEffect(() => {
 		for (const cue of effects.sounds) {
 			if (cue.kind === "stop") {
 				stopChannel(cue.channel, cue.fade);
+				continue;
+			}
+			if (cue.kind === "volume") {
+				for (const sound of playing.current.filter((entry) => cue.channel === null || entry.channel === cue.channel)) {
+					fadeVolume(sound.audio, Math.min(1, EFFECT_VOLUME * cue.volume), cue.fade, apply);
+				}
 				continue;
 			}
 			const url = urlOf(cue.key);

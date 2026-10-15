@@ -180,6 +180,21 @@ test("animtext shows a location stamp at its offset until animtextclean", () => 
 	assert.equal(applyCommand(stage, cmd("animtextclean"), effects).stamp, null);
 });
 
+test("musicvolume sets the track's level until the next track, and soundvolume queues a volume cue for its channel", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("playmusic", { key: "m_a", volume: 0.6 }), effects);
+	stage = applyCommand(stage, cmd("musicvolume", { volume: 0.2, fadetime: 1 }), effects);
+	assert.deepEqual([stage.music.volume, stage.musicVolume], [0.6, { volume: 0.2, fade: 1 }]);
+	assert.equal(applyCommand(stage, cmd("playmusic", { key: "m_b" }), effects).musicVolume, null);
+	assert.equal(applyCommand(stage, cmd("stopmusic"), effects).musicVolume, null);
+	applyCommand(stage, cmd("soundvolume", { channel: "bgs", volume: 0.3, fadetime: 2 }), effects);
+	applyCommand(stage, cmd("soundvolume", { volume: 0 }), effects);
+	assert.deepEqual(effects.sounds, [
+		{ kind: "volume", channel: "bgs", volume: 0.3, fade: 2 },
+		{ kind: "volume", channel: null, volume: 0, fade: 0 }
+	]);
+});
+
 test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {
 	const steps = [cmd("subtitle", { text: "Nightfall." }), cmd("subtitle", { text: "The boilers rumble." }), cmd("subtitle"), line(null, "After.")];
 	const first = advance(steps, START, emptyStage());
