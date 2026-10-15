@@ -143,6 +143,35 @@ test("subtitles and stickers keep their placement, a multi sticker keeps its fir
 	]);
 });
 
+test("a walk keeps the stage at each wait as a beat, so fades and pauses play in order before the stop", () => {
+	const steps = [
+		cmd("stopmusic", { fadetime: 2 }),
+		cmd("blocker", { a: 1, fadetime: 2, block: true }),
+		cmd("delay", { time: 1 }),
+		cmd("background", { image: "bg_ship" }),
+		cmd("blocker", { a: 0, fadetime: 2, block: true }),
+		cmd("delay", { time: 1 }),
+		cmd("playmusic", { key: "m_dark" }),
+		cmd("blocker", { a: 0.6, fadetime: 2, block: true }),
+		cmd("blocker", { a: 0.6, fadetime: 1, block: false }),
+		cmd("camerashake", { duration: 0.5, block: false }),
+		cmd("subtitle", { text: "It's time." })
+	];
+	const walk = advance(steps, START, emptyStage());
+	const beats = walk.beats.map((beat) => [beat.stage.blocker.alpha, beat.stage.background?.name ?? null, beat.stage.music?.loop ?? null, beat.wait]);
+	assert.deepEqual(beats, [
+		[1, null, null, 2],
+		[1, null, null, 1],
+		[0, "bg_ship", null, 2],
+		[0, "bg_ship", null, 1],
+		[0.6, "bg_ship", "m_dark", 2],
+		[0.6, "bg_ship", "m_dark", 0]
+	]);
+	assert.equal(walk.beats.at(-1).stage, walk.stage);
+	assert.deepEqual([walk.beats[0].effects.musicFade, walk.beats[5].effects.shake, walk.effects.musicFade, walk.effects.shake], [2, 0.5, 2, 0.5]);
+	assert.equal(advance([line(null, "a")], START, emptyStage()).beats.length, 1);
+});
+
 test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {
 	const steps = [cmd("subtitle", { text: "Nightfall." }), cmd("subtitle", { text: "The boilers rumble." }), cmd("subtitle"), line(null, "After.")];
 	const first = advance(steps, START, emptyStage());

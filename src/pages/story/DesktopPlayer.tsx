@@ -197,7 +197,8 @@ interface DesktopPlayerProps {
  */
 export default function DesktopPlayer({ reader, group, title, tag, presence }: DesktopPlayerProps) {
 	const {
-		run,
+		stage,
+		ended,
 		lines,
 		corner,
 		typed,
@@ -263,7 +264,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 			</Box>
 			<Box ref={player} sx={PLAYER_SX} onClickCapture={interact} data-region="story-player">
 				<StoryStage
-					stage={run.stage}
+					stage={stage}
 					name={(shown ?? said)?.name ?? null}
 					line={shown ?? said}
 					typed={shown ? typed : Number.MAX_SAFE_INTEGER}
@@ -286,7 +287,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							onSkip={skip}
 							full={fullscreen.supported ? fullscreen.active : null}
 							onFull={fullscreen.toggle}
-							ended={run.stop.kind === "end"}
+							ended={ended}
 							settingsOpen={settingsOpen}
 							onSettings={openSettings}
 						/>
@@ -300,7 +301,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 							{choices}
 						</Box>
 					) : null}
-					{run.stop.kind === "end" ? <StoryEndCard variant="stage" title={title} next={ending.next} back={ending.back} onRestart={restart} /> : null}
+					{ended ? <StoryEndCard variant="stage" title={title} next={ending.next} back={ending.back} onRestart={restart} /> : null}
 				</StoryStage>
 				{logOpen ? <StoryLogPanel title="Log" lines={lines} onClose={closeLog} container={player} /> : null}
 			</Box>

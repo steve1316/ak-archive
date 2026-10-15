@@ -121,6 +121,16 @@ export interface Cursor {
 /** Where a walk stopped. */
 export type Stop = { kind: "line"; line: LineStep } | { kind: "caption"; text: string } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
 
+/** The stage at one wait on the way to a stop: what shows, the effects met since the last wait, and how long the game holds it. */
+export interface Beat {
+	/** The stage as the wait begins. */
+	stage: StageState;
+	/** Effects met since the previous beat. */
+	effects: Effects;
+	/** How long the stage holds before the next beat, in seconds. */
+	wait: number;
+}
+
 /** The result of one walk. */
 export interface Advance {
 	/** Where to continue from. */
@@ -131,6 +141,8 @@ export interface Advance {
 	stop: Stop;
 	/** Effects met on the way. */
 	effects: Effects;
+	/** The walk in order, one beat per wait. The last beat is the stop itself, with `stage` and no wait, so there is always at least one. */
+	beats: Beat[];
 }
 
 /** One stretch of a path, from `walkLines`: the lines and captions on it, and the choice it stops at. */
@@ -184,6 +196,24 @@ export function emptyStage(): StageState {
  */
 export function emptyEffects(): Effects {
 	return { sounds: [], musicFade: 0, shake: 0, delay: 0, clearText: false };
+}
+
+/**
+ * Several walks' effects as one, as if met in a single walk.
+ *
+ * @param list The effects, in order.
+ * @returns The merged effects.
+ */
+export function mergeEffects(list: Effects[]): Effects {
+	const merged = emptyEffects();
+	for (const effects of list) {
+		merged.sounds.push(...effects.sounds);
+		merged.musicFade = effects.musicFade || merged.musicFade;
+		merged.shake = Math.max(merged.shake, effects.shake);
+		merged.delay += effects.delay;
+		merged.clearText ||= effects.clearText;
+	}
+	return merged;
 }
 
 /**
@@ -430,6 +460,22 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 }
 
 /**
+ * How long the game holds the stage after a command: a pause's time, or the fade or move of a command that blocks until it ends. A blocker
+ * blocks unless it sets `block=false`. Anything else blocks only when it sets `block` or `isblock`.
+ *
+ * @param step The command.
+ * @returns The wait, in seconds.
+ */
+function waitOf(step: CommandStep): number {
+	const a = step.a;
+	if (step.c === "delay") {
+		return Math.max(0, num(a.time, 0));
+	}
+	const blocks = step.c === "blocker" ? a.block !== false : a.block === true || a.isblock === true;
+	return blocks ? Math.max(0, num(a.fadetime, num(a.duration, 0))) : 0;
+}
+
+/**
  * The text a command shows that the reader clicks past, as the game waits on it: a subtitle with text, or a sticker with text that does not
  * set `block=false`.
  *
@@ -453,7 +499,12 @@ export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advan
 	let { index, hidden } = cursor;
 	const { pick } = cursor;
 	let next = stage;
-	const effects = emptyEffects();
+	const beats: Beat[] = [];
+	let effects = emptyEffects();
+	const finish = (stop: Stop): Advance => {
+		beats.push({ stage: next, effects, wait: 0 });
+		return { cursor: { index, pick, hidden }, stage: next, stop, effects: mergeEffects(beats.map((beat) => beat.effects)), beats };
+	};
 	while (index < steps.length) {
 		const step = steps[index];
 		index++;
@@ -468,18 +519,23 @@ export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advan
 			continue;
 		}
 		if (step.t === "line") {
-			return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "line", line: step }, effects };
+			return finish({ kind: "line", line: step });
 		}
 		if (step.t === "decision") {
-			return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "decision", decision: step }, effects };
+			return finish({ kind: "decision", decision: step });
 		}
 		next = applyCommand(next, step, effects);
 		const caption = captionOf(step);
 		if (caption !== null) {
-			return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "caption", text: caption }, effects };
+			return finish({ kind: "caption", text: caption });
+		}
+		const wait = waitOf(step);
+		if (wait > 0) {
+			beats.push({ stage: next, effects, wait });
+			effects = emptyEffects();
 		}
 	}
-	return { cursor: { index, pick, hidden }, stage: next, stop: { kind: "end" }, effects };
+	return finish({ kind: "end" });
 }
 
 /**
