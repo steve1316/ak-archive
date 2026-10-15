@@ -17,6 +17,26 @@ import type { CommandStep, DecisionStep, LineStep, Span, Step } from "../../type
 /** A sprite position on stage: left, middle or right. */
 export type Slot = "l" | "m" | "r";
 
+/** How a sprite has moved from its slot, from `characteraction`. Offsets are in the game's 1280x720 text space. */
+export interface Motion {
+	/** Horizontal offset, positive to the right. */
+	x: number;
+	/** Vertical offset, positive upwards. */
+	y: number;
+	/** The sprite's scale. */
+	scale: number;
+	/** How long the last move or zoom takes, in seconds. */
+	duration: number;
+	/** The jump to play: how high in text-space units, how many times, and over how long, or null. */
+	jump: { power: number; times: number; duration: number } | null;
+	/** How long the shake to play lasts, in seconds, or 0. */
+	shake: number;
+	/** Counts jumps and shakes, so the stage restarts the animation for each new one. */
+	cue: number;
+	/** Whether the sprite has exited off the stage. It stays in its slot, out of sight, until the slot is filled or cleared. */
+	gone: boolean;
+}
+
 /** Where a layer sits: an offset in the game's 1920x1080 units, and a scale. */
 export interface Placement {
 	/** Horizontal offset, positive to the right. */
@@ -89,6 +109,8 @@ export interface StageState {
 	image: LayerState | null;
 	/** The sprite in each occupied slot, by upstream sprite name. */
 	sprites: Partial<Record<Slot, string>>;
+	/** How each slot's sprite has moved, for slots whose sprite has. */
+	motion: Partial<Record<Slot, Motion>>;
 	/** The lit slot, or `all` when nobody is dimmed. */
 	focus: Slot | "all";
 	/** The full-screen fade. */
@@ -186,6 +208,12 @@ const CAPTION_DEFAULTS = { x: 300, y: 370, width: 700, size: 24 };
 /** Where a location stamp sits when the script leaves out `pos`: every stamp in the data but two. */
 const STAMP_POS = { x: -400, y: -200 };
 
+/** A sprite that has not moved. */
+const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, jump: null, shake: 0, cue: 0, gone: false };
+
+/** How far an exiting sprite slides, in text-space units: far enough to leave the stage from any slot. */
+const EXIT_DISTANCE = 1600;
+
 /** Every way the scripts name a slot, lowercased. */
 const SLOT_NAMES: Record<string, Slot> = { l: "l", left: "l", lfte: "l", m: "m", middle: "m", r: "r", right: "r" };
 
@@ -212,6 +240,7 @@ export function emptyStage(): StageState {
 		background: null,
 		image: null,
 		sprites: {},
+		motion: {},
 		focus: "all",
 		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 },
 		music: null,
@@ -379,6 +408,45 @@ function appendSticker(sticker: Sticker, added: Caption): Sticker {
 	return { ...sticker, text: sticker.text + added.text, ...(spans ? { spans } : {}) };
 }
 
+/**
+ * The character a sprite name shows, without its expression, such as `avg_npc_423_1` for `avg_npc_423_1#1$1`.
+ *
+ * @param name The sprite name.
+ * @returns The character.
+ */
+function characterOf(name: string): string {
+	return (name.split("#")[0] ?? name).toLowerCase();
+}
+
+/**
+ * A sprite's motion after one `characteraction`.
+ *
+ * @param motion The sprite's motion before it.
+ * @param slot The sprite's slot.
+ * @param a The command's arguments.
+ * @returns The new motion.
+ */
+function actionOf(motion: Motion, slot: Slot, a: Record<string, unknown>): Motion {
+	const duration = num(a.fadetime, num(a.duration, 0));
+	const moved = { ...motion, x: motion.x + num(a.xpos, 0), y: motion.y + num(a.ypos, 0), duration, jump: null, shake: 0 };
+	switch (text(a.type)?.toLowerCase()) {
+		case "move":
+			return moved;
+		case "zoom":
+			return { ...motion, scale: num(a.scale, motion.scale), duration, jump: null, shake: 0 };
+		case "jump":
+			return { ...moved, jump: { power: num(a.power, 20), times: Math.max(1, num(a.times, 1)), duration: duration || 0.3 }, cue: motion.cue + 1 };
+		case "shake":
+			return { ...motion, jump: null, shake: duration || 0.5, cue: motion.cue + 1 };
+		case "exit": {
+			const direction = text(a.direction) ?? (slot === "r" ? "right" : "left");
+			return { ...motion, x: motion.x + (direction === "right" ? EXIT_DISTANCE : -EXIT_DISTANCE), duration, jump: null, shake: 0, gone: true };
+		}
+		default:
+			return motion;
+	}
+}
+
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////////////////////////////////////
 // Walking
@@ -423,22 +491,36 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			});
 			const focusIndex = num(a.focus, 0);
 			const focus = names.length > 1 && focusIndex >= 1 && focusIndex <= names.length ? (slots[focusIndex - 1] ?? "all") : "all";
-			return { ...stage, sprites, focus };
+			return { ...stage, sprites, motion: {}, focus };
 		}
 		case "charslot": {
 			const slot = slotOf(a.slot);
 			const name = text(a.name);
 			let sprites = stage.sprites;
+			let motion = stage.motion;
 			if (!slot && !name) {
 				sprites = {};
-			} else if (slot && name) {
-				sprites = { ...sprites, [slot]: name };
+				motion = {};
 			} else if (slot) {
+				const before = sprites[slot];
 				sprites = { ...sprites };
-				delete sprites[slot];
+				// A new expression keeps the sprite where it moved to. A new character, or an empty slot, starts still.
+				if (name) {
+					sprites[slot] = name;
+				} else {
+					delete sprites[slot];
+				}
+				if (motion[slot] && !(name && before && characterOf(name) === characterOf(before))) {
+					motion = { ...motion };
+					delete motion[slot];
+				}
 			}
 			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;
-			return { ...stage, sprites, focus };
+			return { ...stage, sprites, motion, focus };
+		}
+		case "characteraction": {
+			const slot = slotOf(a.name);
+			return slot ? { ...stage, motion: { ...stage.motion, [slot]: actionOf(stage.motion[slot] ?? STILL, slot, a) } } : stage;
 		}
 		case "blocker":
 			return { ...stage, blocker: { color: colourOf(a), alpha: num(a.a, 0), fade: num(a.fadetime, 0) } };

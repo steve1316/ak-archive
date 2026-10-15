@@ -195,6 +195,26 @@ test("musicvolume sets the track's level until the next track, and soundvolume q
 	]);
 });
 
+test("characteraction moves by deltas, zooms, jumps, shakes and exits a slot's sprite, and a new character resets it", () => {
+	const effects = emptyEffects();
+	const act = (stage, a) => applyCommand(stage, cmd("characteraction", a), effects);
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1" }), effects);
+	stage = act(stage, { name: "middle", type: "move", xpos: -100, fadetime: 0.05 });
+	stage = act(stage, { name: "middle", type: "move", xpos: 200, ypos: 30, fadetime: 0.1 });
+	assert.deepEqual(stage.motion.m, { x: 100, y: 30, scale: 1, duration: 0.1, jump: null, shake: 0, cue: 0, gone: false });
+	stage = act(stage, { name: "middle", type: "zoom", scale: 1.2, fadetime: 1 });
+	stage = act(stage, { name: "middle", type: "jump", power: 20, times: 2, fadetime: 0.5 });
+	assert.deepEqual([stage.motion.m.scale, stage.motion.m.jump, stage.motion.m.cue], [1.2, { power: 20, times: 2, duration: 0.5 }, 1]);
+	stage = act(stage, { name: "middle", type: "shake", fadetime: 0.4 });
+	assert.deepEqual([stage.motion.m.jump, stage.motion.m.shake, stage.motion.m.cue], [null, 0.4, 2]);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#3$1" }), effects).motion.m.x, 100);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_b_1#1$1" }), effects).motion.m, undefined);
+	const gone = act(stage, { name: "middle", type: "exit", direction: "left", fadetime: 0.5 });
+	assert.deepEqual([gone.motion.m.gone, gone.motion.m.x < -1000, gone.sprites.m], [true, true, "avg_a_1#1$1"]);
+	assert.deepEqual(applyCommand(stage, cmd("charslot"), effects).motion, {});
+	assert.deepEqual(applyCommand(stage, cmd("character", { name: "x" }), effects).motion, {});
+});
+
 test("each subtitle with text is a stop the reader clicks past, and a bare subtitle clears it", () => {
 	const steps = [cmd("subtitle", { text: "Nightfall." }), cmd("subtitle", { text: "The boilers rumble." }), cmd("subtitle"), line(null, "After.")];
 	const first = advance(steps, START, emptyStage());

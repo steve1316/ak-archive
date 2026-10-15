@@ -8,7 +8,7 @@ import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
 import { fillNickname } from "./engine.js";
-import type { Caption, LayerState, Slot, StageState, Stamp, Sticker } from "./engine.js";
+import type { Caption, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
 
 /** Where a sprite stands, as % of the stage: height, bottom edge and centre. Tuned against the in-game capture `9.png`. */
 const SPRITE_PLACEMENT = { l: { height: 150.5, bottom: -47, centre: 34.5 }, r: { height: 139, bottom: -44, centre: 65.5 }, one: { height: 144, bottom: -45.5, centre: 50 } };
@@ -32,6 +32,12 @@ const SHAKE_FRAMES = {
 const KEYFRAMES = {
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
 	"@keyframes storyStampIn": { from: { opacity: 0, transform: "translate(-2cqh, -50%)" }, to: { opacity: 1, transform: "translate(0, -50%)" } },
+	"@keyframes storyJump": { "0%, 100%": { translate: "0 0" }, "50%": { translate: "0 calc(var(--jump) * -1)" } },
+	"@keyframes storySpriteShake": {
+		"0%, 100%": { translate: "0 0" },
+		"10%, 50%, 90%": { translate: "-0.8cqh 0" },
+		"30%, 70%": { translate: "0.8cqh 0" }
+	},
 	"@keyframes storyShake0": SHAKE_FRAMES,
 	"@keyframes storyShake1": SHAKE_FRAMES
 };
@@ -62,6 +68,15 @@ const STAMP_SX: SxProps<Theme> = {
 	"& .place": { fontSize: "4cqh", fontWeight: 700, lineHeight: 1.25 },
 	"& .time": { fontSize: "2.6cqh", lineHeight: 1.4, color: "#cfd3da" }
 };
+
+/** A full-stage frame a sprite moves in, so its offsets are % of the stage rather than of the sprite. */
+const SPRITE_FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, pointerEvents: "none" };
+
+/** A sprite, scaled from its feet. */
+const SPRITE_SX: SxProps<Theme> = { position: "absolute", transformOrigin: "50% 100%", pointerEvents: "none" };
+
+/** A sprite jump's inline style: its height as a custom property the keyframes read. */
+type JumpStyle = CSSProperties & { "--jump"?: string };
 
 /** The stage: 16:9, sized by the page, with text measured against its own height. */
 const STAGE_SX: SxProps<Theme> = {
@@ -187,6 +202,33 @@ function captionStyle(caption: Caption): CSSProperties {
 }
 
 /**
+ * Where a sprite's frame has moved to, sliding there over the move's time.
+ *
+ * @param motion The sprite's motion, if it has moved.
+ * @returns The style.
+ */
+function motionStyle(motion: Motion | undefined): CSSProperties {
+	if (!motion) {
+		return {};
+	}
+	return { transform: `translate(${(motion.x / TEXT_WIDTH) * 100}%, ${(-motion.y / TEXT_HEIGHT) * 100}%)`, transition: `transform ${motion.duration}s ease-in-out` };
+}
+
+/**
+ * The jump or shake a sprite plays, if its last action was one.
+ *
+ * @param motion The sprite's motion, if it has moved.
+ * @returns The style.
+ */
+function cueStyle(motion: Motion | undefined): JumpStyle {
+	if (motion?.jump) {
+		const { power, times, duration } = motion.jump;
+		return { "--jump": `${(power / TEXT_HEIGHT) * 100}cqh`, animation: `storyJump ${duration / times}s ease-in-out ${times}` };
+	}
+	return motion?.shake ? { animation: `storySpriteShake ${motion.shake}s linear` } : {};
+}
+
+/**
  * One background or art scene. It starts at its tween's `from` and moves to `to` on the next frame, so the tween plays.
  *
  * @param props Component props.
@@ -241,7 +283,8 @@ export function typedRuns(line: { text: string; spans?: Span[] }, typed: number)
  */
 const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState; presence: StoryPresence }) {
 	const slots = (Object.keys(stage.sprites) as Slot[]).filter((slot) => stage.sprites[slot]);
-	const alone = slots.length === 1;
+	// A sprite that exited is out of sight, so it does not keep a lone sprite from standing in the middle.
+	const alone = slots.filter((slot) => !stage.motion[slot]?.gone).length === 1;
 	return (
 		<>
 			{/* Keyed on the art, so a new scene mounts fresh and plays its own fade even when the fade time matches the last one. */}
@@ -255,15 +298,28 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 				}
 				const place = alone || slot === "m" ? SPRITE_PLACEMENT.one : SPRITE_PLACEMENT[slot];
 				const dimmed = stage.focus !== "all" && stage.focus !== slot;
+				const motion = stage.motion[slot];
+				const scale = motion?.scale ?? 1;
 				return (
-					<Box
-						key={slot}
-						component="img"
-						src={url}
-						alt=""
-						sx={{ position: "absolute", transform: "translateX(-50%)", transition: "filter 0.3s", pointerEvents: "none" }}
-						style={{ height: `${place.height}%`, bottom: `${place.bottom}%`, left: `${place.centre}%`, filter: dimmed ? DIMMED : "none" }}
-					/>
+					<Box key={slot} sx={SPRITE_FRAME_SX} style={motionStyle(motion)}>
+						{/* Keyed on the cue, so each new jump or shake plays from its start. */}
+						<Box key={motion?.cue ?? 0} sx={SPRITE_FRAME_SX} style={cueStyle(motion)}>
+							<Box
+								component="img"
+								src={url}
+								alt=""
+								sx={SPRITE_SX}
+								style={{
+									height: `${place.height}%`,
+									bottom: `${place.bottom}%`,
+									left: `${place.centre}%`,
+									filter: dimmed ? DIMMED : "none",
+									transform: `translateX(-50%) scale(${scale})`,
+									transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`
+								}}
+							/>
+						</Box>
+					</Box>
 				);
 			})}
 		</>
