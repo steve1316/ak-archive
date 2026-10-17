@@ -472,3 +472,15 @@ test("a caption stop says how long its text takes to type, and 0 when it shows a
 	assert.equal(advance([cmd("sticker", { id: "s", text: "Hello", delay: 0.001 })], START, emptyStage()).stop.typeTime, 0);
 	assert.equal(advance([cmd("subtitle", { text: "Hello" })], START, emptyStage()).stop.typeTime, 0);
 });
+
+test("bstart and bend give a sprite its own out-of-focus and in-focus brightness, and a new character or an empty slot loses them", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "l", name: "avg_a_1#1$1", bstart: 0.2, bend: 0.7, focus: "l" }), effects);
+	assert.deepEqual(stage.light, { l: { dim: 0.2, lit: 0.7 } });
+	stage = applyCommand(stage, cmd("charslot", { slot: "l", name: "avg_a_1#2$1", focus: "l" }), effects);
+	assert.deepEqual(stage.light.l, { dim: 0.2, lit: 0.7 });
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l", name: "avg_b_1#1$1" }), effects).light, {});
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l" }), effects).light, {});
+	const pair = applyCommand(emptyStage(), cmd("character", { name: "avg_a", name2: "avg_b", blackstart: 0.2, blackend: 0.7, blackstart2: 0.3, blackend2: 0.9 }), effects);
+	assert.deepEqual(pair.light, { l: { dim: 0.2, lit: 0.7 }, r: { dim: 0.3, lit: 0.9 } });
+});

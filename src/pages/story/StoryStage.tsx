@@ -7,7 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
-import { MIN_TYPING, characterOf, fillNickname } from "./engine.js";
+import { DEFAULT_DIM, MIN_TYPING, characterOf, fillNickname } from "./engine.js";
 import { shakeFrames } from "./shake.js";
 import type { Shake } from "./shake.js";
 import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
@@ -44,9 +44,6 @@ const KEYFRAMES = {
 	"@keyframes storyCurtainV": { from: { height: "var(--from)" }, to: { height: "var(--to)" } },
 	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } }
 };
-
-/** How a sprite that is not speaking is drawn. */
-const DIMMED = "brightness(0.45)";
 
 /** The game's layout size, which layer offsets are written in. */
 const GAME_WIDTH = 1920;
@@ -406,7 +403,7 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 					}
 					const size = spriteSize(spriteName);
 					const centre = alone ? SLOT_CENTRES.m : SLOT_CENTRES[slot];
-					const dimmed = stage.focus !== "all" && stage.focus !== slot;
+					const brightness = stage.focus === "all" || stage.focus === slot ? (stage.light[slot]?.lit ?? 1) : (stage.light[slot]?.dim ?? DEFAULT_DIM);
 					const motion = stage.motion[slot];
 					const scale = motion?.scale ?? 1;
 					const fade = stage.fadeIn[slot] ?? 0;
@@ -424,7 +421,7 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 										height: `${size.height}%`,
 										top: `${size.top}%`,
 										left: `${centre}%`,
-										filter: dimmed ? DIMMED : "none",
+										filter: brightness === 1 ? "none" : `brightness(${brightness})`,
 										transform: `translateX(-50%) scale(${scale})`,
 										transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`
 									}}

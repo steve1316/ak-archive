@@ -40,6 +40,14 @@ export interface Motion {
 	gone: boolean;
 }
 
+/** How bright a sprite is drawn, from `bstart`/`bend` on a charslot or `blackstart`/`blackend` on a character. */
+export interface Light {
+	/** The brightness while another sprite has the focus, 0 for black to 1 for untouched. */
+	dim: number;
+	/** The brightness while this sprite has the focus, or no one does. */
+	lit: number;
+}
+
 /** A blur from `focusout`: how strong, 0 to 1, and how long it takes to get there. */
 export interface Blur {
 	/** The strength, 0 for sharp to 1 for fully out of focus. */
@@ -153,6 +161,8 @@ export interface StageState {
 	sprites: Partial<Record<Slot, string>>;
 	/** How each slot's sprite has moved, for slots whose sprite has. */
 	motion: Partial<Record<Slot, Motion>>;
+	/** The sprites the script gave their own brightness. The rest dim to `DEFAULT_DIM` when another sprite has the focus. */
+	light: Partial<Record<Slot, Light>>;
 	/** How long each slot's sprite fades in over when its character arrives, in seconds. A new expression of the same character does not fade. */
 	fadeIn: Partial<Record<Slot, number>>;
 	/** The sprite fading out of each slot it was removed from. */
@@ -260,6 +270,9 @@ const CAPTION_DEFAULTS = { x: 300, y: 370, width: 700, size: 24 };
 const STAMP_POS = { x: -400, y: -200 };
 
 /** A sprite that has not moved. */
+/** How bright a sprite is while another has the focus, when the script does not say. */
+export const DEFAULT_DIM = 0.45;
+
 const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, from: null, jump: null, shake: 0, cue: 0, gone: false };
 
 /** How far an exiting sprite slides, in text-space units: far enough to leave the stage from any slot. */
@@ -282,6 +295,17 @@ function shakeOf(a: Record<string, unknown>): Shake {
 		randomness: num(a.randomness, 90),
 		fadeOut: a.fadeout === true
 	};
+}
+
+/**
+ * A sprite's brightness from its start and end arguments.
+ *
+ * @param start The brightness while it is out of focus.
+ * @param end The brightness while it has the focus.
+ * @returns The brightness, or null when the script gives neither.
+ */
+function lightOf(start: unknown, end: unknown): Light | null {
+	return start === undefined && end === undefined ? null : { dim: num(start, DEFAULT_DIM), lit: num(end, 1) };
 }
 
 /**
@@ -330,6 +354,7 @@ export function emptyStage(): StageState {
 		image: null,
 		sprites: {},
 		motion: {},
+		light: {},
 		fadeIn: {},
 		leaving: {},
 		focus: "all",
@@ -637,7 +662,15 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			});
 			const focusIndex = num(a.focus, 0);
 			const focus = names.length > 1 && focusIndex >= 1 && focusIndex <= names.length ? (slots[focusIndex - 1] ?? "all") : "all";
-			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, focus };
+			const light: Partial<Record<Slot, Light>> = {};
+			slots.slice(0, names.length).forEach((slot, index) => {
+				const suffix = index === 0 ? "" : String(index + 1);
+				const lit = lightOf(a[`blackstart${suffix}`] ?? (index === 0 ? a.blackstart1 : undefined), a[`blackend${suffix}`] ?? (index === 0 ? a.blackend1 : undefined));
+				if (lit) {
+					light[slot] = lit;
+				}
+			});
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, light, focus };
 		}
 		case "charslot": {
 			// A charslot naming a slot only acts on the sprite there when it carries one of these. Otherwise it empties the slot.
@@ -645,9 +678,11 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			const name = text(a.name);
 			let sprites = stage.sprites;
 			let motion = stage.motion;
+			let light = stage.light;
 			if (!slot && !name) {
 				sprites = {};
 				motion = {};
+				light = {};
 			} else if (slot) {
 				const before = sprites[slot];
 				sprites = { ...sprites };
@@ -661,6 +696,13 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 				if (motion[slot] && name && (motion[slot].gone || !(before && characterOf(name) === characterOf(before)))) {
 					motion = { ...motion };
 					delete motion[slot];
+				}
+				const lit = lightOf(a.bstart, a.bend);
+				if (lit && sprites[slot]) {
+					light = { ...light, [slot]: lit };
+				} else if (light[slot] && (!sprites[slot] || (name && !(before && characterOf(name) === characterOf(before))))) {
+					light = { ...light };
+					delete light[slot];
 				}
 				const to = pairOf(a.posto);
 				if (sprites[slot] && to) {
@@ -682,7 +724,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 				}
 			}
 			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;
-			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, focus };
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, light, focus };
 		}
 		case "characteraction": {
 			const slot = slotOf(a.name);
