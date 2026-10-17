@@ -194,7 +194,7 @@
 	},
 	"playmusic": {
 		"handled": true,
-		"ignored": ["crosstime", "delay", "volu7me"]
+		"ignored": ["crosstime", "volu7me"]
 	},
 	"playsound": {
 		"handled": true,

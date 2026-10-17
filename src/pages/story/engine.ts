@@ -202,7 +202,7 @@ export interface StageState {
 	/** The full-screen fade. */
 	blocker: Blocker;
 	/** The playing track, or null for silence. */
-	music: { intro: string | null; loop: string; volume: number; crossfade: number } | null;
+	music: { intro: string | null; loop: string; volume: number; crossfade: number; delay: number } | null;
 	/** The track's level as `musicvolume` last set it, and how long it fades there, or null for the track's own volume. */
 	musicVolume: { volume: number; fade: number } | null;
 	/** Narration over the scene, or null. */
@@ -832,7 +832,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return stage;
 		case "playmusic": {
 			const loop = text(a.key);
-			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0) }, musicVolume: null } : stage;
+			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0), delay: num(a.delay, 0) }, musicVolume: null } : stage;
 		}
 		case "stopmusic":
 			effects.musicFade = num(a.fadetime, 0);

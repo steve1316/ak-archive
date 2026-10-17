@@ -118,7 +118,7 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 	const timers = useRef<number[]>([]);
 	const mutedRef = useRef(muted);
 	const gains = useRef({ bgm, sfx });
-	const fades = useRef({ crossfade: 0, stop: 0 });
+	const fades = useRef({ crossfade: 0, stop: 0, delay: 0 });
 	// Starts every sound, and holds the track and looping sounds the browser refused until the reader's next click.
 	const { blocked, play, resume, forget } = useAudioGate();
 	const loopKey = music?.loop ?? null;
@@ -167,9 +167,10 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 
 	// The fade times for the music effect below, which runs only when the track itself changes.
 	const crossfade = music?.crossfade ?? 0;
+	const startDelay = music?.delay ?? 0;
 	useEffect(() => {
-		fades.current = { crossfade, stop: effects.musicFade };
-	}, [crossfade, effects.musicFade]);
+		fades.current = { crossfade, stop: effects.musicFade, delay: startDelay };
+	}, [crossfade, effects.musicFade, startDelay]);
 
 	useEffect(() => {
 		mutedRef.current = muted;
@@ -188,7 +189,7 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 
 	useEffect(() => {
 		const loopUrl = loopKey ? urlOf(loopKey) : null;
-		const { crossfade: fadeIn, stop } = fades.current;
+		const { crossfade: fadeIn, stop, delay } = fades.current;
 		if (track.current) {
 			fadeOut(track.current, loopUrl ? fadeIn : stop);
 			track.current = null;
@@ -222,10 +223,20 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 		track.current = first;
 		if (fadeIn > 0) {
 			setLevel(first, 0, apply);
-			fadeVolume(first, target, fadeIn, apply);
 		}
-		// Kept when refused, so an intro, which does not loop, still waits for the reader's click.
-		void play(first, { keep: true });
+		const start = () => {
+			if (fadeIn > 0) {
+				fadeVolume(first, target, fadeIn, apply);
+			}
+			// Kept when refused, so an intro, which does not loop, still waits for the reader's click.
+			void play(first, { keep: true });
+		};
+		// The script may hold the new track back, while the old one fades out at once.
+		const timer = delay > 0 ? window.setTimeout(start, delay * 1000) : null;
+		if (timer === null) {
+			start();
+		}
+		return () => window.clearTimeout(timer ?? undefined);
 	}, [loopKey, introKey, volume, urlOf, play, fadeOut, apply]);
 
 	// The script turns the track up or down, over its fade. A new track starts at its own volume.

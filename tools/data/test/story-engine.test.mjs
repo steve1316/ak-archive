@@ -28,7 +28,7 @@ test("advance applies commands up to the next line and stops there, then reaches
 	assert.equal(first.stop.kind, "line");
 	assert.equal(first.stop.line.text, "Hi.");
 	assert.equal(first.stage.background.name, "bg_a");
-	assert.deepEqual(first.stage.music, { intro: "m_i", loop: "m_l", volume: 0.8, crossfade: 0 });
+	assert.deepEqual(first.stage.music, { intro: "m_i", loop: "m_l", volume: 0.8, crossfade: 0, delay: 0 });
 	const second = advance(steps, first.cursor, first.stage);
 	assert.equal(second.stop.line.text, "Next.");
 	assert.equal(advance(steps, second.cursor, second.stage).stop.kind, "end");
@@ -336,6 +336,7 @@ test("stopmusic records its fade-out time", () => {
 	const steps = [cmd("playmusic", { key: "m_loop", crossfade: 2 }), line(null, "a"), cmd("stopmusic", { fadetime: 3 }), line(null, "b")];
 	const first = advance(steps, START, emptyStage());
 	assert.equal(first.stage.music.crossfade, 2);
+	assert.equal(advance([cmd("playmusic", { key: "m_loop", delay: 0.5 }), line(null, "a")], START, emptyStage()).stage.music.delay, 0.5);
 	const second = advance(steps, first.cursor, first.stage);
 	assert.deepEqual([second.stage.music, second.effects.musicFade], [null, 3]);
 });
