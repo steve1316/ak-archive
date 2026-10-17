@@ -7,6 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
+import { easeOf } from "./ease.js";
 import { DEFAULT_DIM, MIN_TYPING, characterOf, fillNickname } from "./engine.js";
 import { shakeFrames } from "./shake.js";
 import type { Shake } from "./shake.js";
@@ -244,7 +245,7 @@ function layerStyle(layer: LayerState, moved: boolean): CSSProperties {
 	const at = moved && layer.to ? layer.to : layer.from;
 	return {
 		transform: `translate(${(at.x / GAME_WIDTH) * 100}%, ${(-at.y / GAME_HEIGHT) * 100}%) scale(${at.xScale}, ${at.yScale})`,
-		transition: moved && layer.to ? `transform ${layer.duration}s linear` : "none",
+		transition: moved && layer.to ? `transform ${layer.duration}s ${easeOf(layer.ease)}` : "none",
 		animation: layer.fade > 0 ? `storyFadeIn ${layer.fade}s ease-out` : "none"
 	};
 }

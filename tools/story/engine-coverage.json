@@ -17,7 +17,7 @@
 	},
 	"backgroundtween": {
 		"handled": true,
-		"ignored": ["ease", "else", "image", "screenadapt", "x", "xscale", "y", "yscale"]
+		"ignored": ["else"]
 	},
 	"bgeffect": {
 		"handled": false,
@@ -37,7 +37,7 @@
 	},
 	"cgitem": {
 		"handled": true,
-		"ignored": ["aduration", "afrom", "ato", "ease", "layer", "pdelay", "pduration", "pfrom", "pto", "rduration", "rfrom", "rto", "sduration", "sfrom", "sto", "style"]
+		"ignored": ["aduration", "afrom", "ato", "layer", "pdelay", "rduration", "rfrom", "rto", "style"]
 	},
 	"character": {
 		"handled": true,
@@ -134,7 +134,7 @@
 	},
 	"image": {
 		"handled": true,
-		"ignored": ["ease", "height", "layer", "tiled", "width", "xfrom", "xpos", "xscalefrom", "xscaleto", "xto", "yfrom", "ypos", "yscalefrom", "yscalet", "yscaleto", "yto"]
+		"ignored": ["height", "layer", "tiled", "width", "xfrom", "xpos", "xscalefrom", "xscaleto", "xto", "yfrom", "ypos", "yscalefrom", "yscalet", "yscaleto", "yto"]
 	},
 	"imagerotate": {
 		"handled": false,
@@ -142,7 +142,7 @@
 	},
 	"imagetween": {
 		"handled": true,
-		"ignored": ["ease", "image", "screenadapt", "tiled", "x", "xfromscale", "xscale", "y", "yfromscale", "yscale", "yt"]
+		"ignored": ["tiled", "xfromscale", "yfromscale", "yt"]
 	},
 	"interlude": {
 		"handled": false,

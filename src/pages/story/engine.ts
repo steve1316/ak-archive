@@ -133,6 +133,8 @@ export interface LayerState {
 	duration: number;
 	/** How long it fades in, in seconds. */
 	fade: number;
+	/** The tween's easing as the script writes it, a curve name or number, or empty for linear. */
+	ease: string;
 	/** How the art fits the stage: `cover` fills it and crops the overflow, `contain` shows all of it with bars where it falls short. */
 	fit: "cover" | "contain";
 }
@@ -565,17 +567,29 @@ function blockerOf(before: Blocker, a: Record<string, unknown>): Blocker {
  */
 function layerOf(a: Record<string, unknown>, kind: LayerState["kind"]): LayerState | null {
 	const name = text(a.image);
-	return name
-		? {
-				name,
-				kind,
-				from: { x: num(a.x, 0), y: num(a.y, 0), xScale: num(a.xscale, 1), yScale: num(a.yscale, 1) },
-				to: null,
-				duration: 0,
-				fade: num(a.fadetime, 0),
-				fit: text(a.screenadapt)?.toLowerCase() === "showall" ? "contain" : "cover"
-			}
-		: null;
+	if (!name) {
+		return null;
+	}
+	// A cgitem names where it starts and ends (`pfrom`, `pto`) and its scale (`sfrom`, `sto`), which it moves between over `pduration`.
+	const start = pairOf(a.pfrom);
+	const end = pairOf(a.pto);
+	const from = {
+		x: start?.x ?? num(a.x, 0),
+		y: start?.y ?? num(a.y, 0),
+		xScale: num(a.sfrom, num(a.xscale, 1)),
+		yScale: num(a.sfrom, num(a.yscale, 1))
+	};
+	const moves = end !== null || "sto" in a;
+	return {
+		name,
+		kind,
+		from,
+		to: moves ? { x: end?.x ?? from.x, y: end?.y ?? from.y, xScale: num(a.sto, from.xScale), yScale: num(a.sto, from.yScale) } : null,
+		duration: Math.max(num(a.pduration, 0), num(a.sduration, 0)),
+		fade: num(a.fadetime, 0),
+		ease: String(a.ease ?? ""),
+		fit: text(a.screenadapt)?.toLowerCase() === "showall" ? "contain" : "cover"
+	};
 }
 
 /**
@@ -585,12 +599,26 @@ function layerOf(a: Record<string, unknown>, kind: LayerState["kind"]): LayerSta
  * @param a The tween's arguments.
  * @returns The tweened layer, or null when nothing is on stage.
  */
-function tweenOf(layer: LayerState | null, a: Record<string, unknown>): LayerState | null {
-	if (!layer) {
+function tweenOf(layer: LayerState | null, a: Record<string, unknown>, kind: LayerState["kind"]): LayerState | null {
+	// A tween that names an image starts it at the tween's own placement.
+	const base = text(a.image) && text(a.image) !== layer?.name ? layerOf(a, kind) : layer;
+	if (!base) {
 		return null;
 	}
-	const from = { x: num(a.xfrom, layer.from.x), y: num(a.yfrom, layer.from.y), xScale: num(a.xscalefrom, layer.from.xScale), yScale: num(a.yscalefrom, layer.from.yScale) };
-	return { ...layer, from, to: { x: num(a.xto, from.x), y: num(a.yto, from.y), xScale: num(a.xscaleto, from.xScale), yScale: num(a.yscaleto, from.yScale) }, duration: num(a.duration, 0) };
+	const at = base.from;
+	const from = {
+		x: num(a.xfrom, num(a.x, at.x)),
+		y: num(a.yfrom, num(a.y, at.y)),
+		xScale: num(a.xscalefrom, num(a.xscale, at.xScale)),
+		yScale: num(a.yscalefrom, num(a.yscale, at.yScale))
+	};
+	return {
+		...base,
+		from,
+		to: { x: num(a.xto, from.x), y: num(a.yto, from.y), xScale: num(a.xscaleto, from.xScale), yScale: num(a.yscaleto, from.yScale) },
+		duration: num(a.duration, 0),
+		ease: String(a.ease ?? "")
+	};
 }
 
 /**
@@ -719,17 +747,17 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "gridbg":
 		case "verticalbg": {
 			const first = text(a.imagegroup)?.split("/")[0] ?? null;
-			return { ...stage, background: first ? { name: first, kind: "images", from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0), fit: "cover" } : null };
+			return { ...stage, background: first ? { name: first, kind: "images", from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0), ease: "", fit: "cover" } : null };
 		}
 		case "backgroundtween":
-			return { ...stage, background: tweenOf(stage.background, a) };
+			return { ...stage, background: tweenOf(stage.background, a, "backgrounds") };
 		case "image":
 		case "cgitem":
 			return { ...stage, image: layerOf(a, "images") };
 		case "hidecgitem":
 			return { ...stage, image: null };
 		case "imagetween":
-			return { ...stage, image: tweenOf(stage.image, a) };
+			return { ...stage, image: tweenOf(stage.image, a, "images") };
 		case "character": {
 			const names = [a.name, a.name2, a.name3].map(text).filter((name): name is string => name !== null);
 			const slots = CHARACTER_SLOTS[names.length] ?? [];

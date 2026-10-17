@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { shakeFrames } from "../../../src/pages/story/shake.ts";
+import { easeOf } from "../../../src/pages/story/ease.ts";
 import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, linesAhead, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
 
 /**
@@ -109,7 +110,16 @@ test("blockers, art scenes with their tween, grayscale and unknown commands fold
 	assert.deepEqual(stage.blocker, { color: "rgb(0, 0, 0)", alpha: 1, fade: 0.6, from: null, wipe: null, cue: 1 });
 	stage = applyCommand(stage, cmd("image", { image: "avg_1_3", x: 0, y: -20, xscale: 1.1, yscale: 1.1, fadetime: 1 }), effects);
 	stage = applyCommand(stage, cmd("imagetween", { xfrom: 0, yfrom: -20, xto: 0, yto: 0, xscalefrom: 1.1, yscalefrom: 1.1, xscaleto: 1, yscaleto: 1, duration: 4 }), effects);
-	assert.deepEqual(stage.image, { name: "avg_1_3", kind: "images", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1, fit: "cover" });
+	assert.deepEqual(stage.image, {
+		name: "avg_1_3",
+		kind: "images",
+		from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 },
+		to: { x: 0, y: 0, xScale: 1, yScale: 1 },
+		duration: 4,
+		fade: 1,
+		ease: "",
+		fit: "cover"
+	});
 	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0.8 }), effects);
 	assert.equal(stage.tint.grayscale, 0.8);
 	assert.equal(applyCommand(stage, { t: "unknown", c: "video", a: {} }, effects), stage);
@@ -535,4 +545,14 @@ test("a charslot opacity between 0 and 1 stays on the sprite until the script ch
 	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a#2$1", afrom: 0.6, ato: 1 }), effects).alpha.m, undefined);
 	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_b#1$1" }), effects).alpha.m, undefined);
 	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", afrom: 0.6, ato: 0 }), effects).alpha.m, undefined);
+});
+
+test("easeOf reads curve names and numbers, and tweens and cgitems take their easing, start image and motion", () => {
+	assert.deepEqual([easeOf("OutQuad"), easeOf("6"), easeOf(undefined), easeOf("Nonsense")], [easeOf(6), easeOf(6), "linear", "linear"]);
+	assert.notEqual(easeOf("OutQuad"), "linear");
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("backgroundtween", { image: "bg_a", x: 5, xscale: 1.2, xto: 60, duration: 2, ease: "OutQuad" }), effects);
+	assert.deepEqual([stage.background.name, stage.background.from.x, stage.background.from.xScale, stage.background.to.x, easeOf(stage.background.ease)], ["bg_a", 5, 1.2, 60, easeOf("OutQuad")]);
+	stage = applyCommand(stage, cmd("cgitem", { image: "cg_a", pfrom: "-200,0", pto: "0,0", pduration: 10, sfrom: 1, sto: 1.3 }), effects);
+	assert.deepEqual([stage.image.from.x, stage.image.to.x, stage.image.to.xScale, stage.image.duration], [-200, 0, 1.3, 10]);
 });
