@@ -771,14 +771,20 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			const focusIndex = num(a.focus, 0);
 			const focus = names.length > 1 && focusIndex >= 1 && focusIndex <= names.length ? (slots[focusIndex - 1] ?? "all") : "all";
 			const light: Partial<Record<Slot, Light>> = {};
+			const motion: Partial<Record<Slot, Motion>> = {};
 			slots.slice(0, names.length).forEach((slot, index) => {
 				const suffix = index === 0 ? "" : String(index + 1);
+				// A sprite that enters slides in from the edge it names over the command's fade.
+				const enter = text(a[`enter${suffix}`])?.toLowerCase();
+				if (enter === "left" || enter === "right") {
+					motion[slot] = { ...STILL, from: { x: enter === "right" ? EXIT_DISTANCE : -EXIT_DISTANCE, y: 0 }, duration: num(a.fadetime, 0.6), cue: 1 };
+				}
 				const lit = lightOf(a[`blackstart${suffix}`] ?? (index === 0 ? a.blackstart1 : undefined), a[`blackend${suffix}`] ?? (index === 0 ? a.blackend1 : undefined));
 				if (lit) {
 					light[slot] = lit;
 				}
 			});
-			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, light, alpha: {}, focus };
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion, light, alpha: {}, focus };
 		}
 		case "charslot": {
 			// A charslot naming a slot only acts on the sprite there when it carries one of these. Otherwise it empties the slot.

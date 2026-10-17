@@ -556,3 +556,16 @@ test("easeOf reads curve names and numbers, and tweens and cgitems take their ea
 	stage = applyCommand(stage, cmd("cgitem", { image: "cg_a", pfrom: "-200,0", pto: "0,0", pduration: 10, sfrom: 1, sto: 1.3 }), effects);
 	assert.deepEqual([stage.image.from.x, stage.image.to.x, stage.image.to.xScale, stage.image.duration], [-200, 0, 1.3, 10]);
 });
+
+test("a character that enters slides in from the edge it names", () => {
+	const stage = applyCommand(emptyStage(), cmd("character", { name: "avg_a", enter: "left", name2: "avg_b", enter2: "right", fadetime: 1.5 }), emptyEffects());
+	const slots = Object.keys(stage.sprites);
+	assert.equal(slots.length, 2);
+	assert.deepEqual(
+		slots.map((slot) => [Math.sign(stage.motion[slot].from.x), stage.motion[slot].duration, stage.motion[slot].x]),
+		[
+			[-1, 1.5, 0],
+			[1, 1.5, 0]
+		]
+	);
+});
