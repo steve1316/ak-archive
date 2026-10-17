@@ -42,12 +42,15 @@ test("character places one, two or three sprites, focuses the speaker, and clear
 	assert.deepEqual(applyCommand(two, cmd("character"), effects).sprites, {});
 });
 
-test("charslot fills a slot, moves the focus, empties one slot, and clears every slot", () => {
+test("charslot fills a slot, moves the focus, keeps a slot that is only focused or moved, and clears every slot", () => {
 	const effects = emptyEffects();
 	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "l", name: "a" }), effects);
 	stage = applyCommand(stage, cmd("charslot", { slot: "r", name: "b", focus: "r" }), effects);
 	assert.deepEqual([stage.sprites, stage.focus], [{ l: "a", r: "b" }, "r"]);
 	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l" }), effects).sprites, { r: "b" });
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l", focus: "l" }), effects).sprites, { l: "a", r: "b" });
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l", posfrom: "0,0", posto: "10,0" }), effects).sprites, { l: "a", r: "b" });
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l", ato: 0 }), effects).sprites, { r: "b" });
 	assert.deepEqual(applyCommand(stage, cmd("charslot"), effects).sprites, {});
 });
 

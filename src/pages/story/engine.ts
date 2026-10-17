@@ -259,6 +259,9 @@ const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, jump: null, shake: 0,
 const EXIT_DISTANCE = 1600;
 
 /** Which layer each `focusout` type blurs. */
+/** The charslot arguments that act on a sprite already in the slot, such as a focus change, a move, a fade or a zoom. */
+const CHARSLOT_MODIFIERS = ["focus", "posfrom", "posto", "afrom", "ato", "action"];
+
 const BLUR_TARGETS: Record<string, keyof StageState["blur"]> = { bg: "background", lbg: "background", cg: "image", cgitem: "image", char: "sprites" };
 
 /** Which edge each `curtain` direction comes in from. The odd directions, a few corner curtains, are not drawn. */
@@ -590,6 +593,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, focus };
 		}
 		case "charslot": {
+			// A charslot naming a slot only acts on the sprite there when it carries one of these. Otherwise it empties the slot.
 			const slot = slotOf(a.slot);
 			const name = text(a.name);
 			let sprites = stage.sprites;
@@ -603,10 +607,10 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 				// A new expression keeps the sprite where it moved to. A new character, an empty slot or an exited sprite coming back starts still.
 				if (name) {
 					sprites[slot] = name;
-				} else {
+				} else if (a.ato === 0 || !CHARSLOT_MODIFIERS.some((key) => key in a)) {
 					delete sprites[slot];
 				}
-				if (motion[slot] && (motion[slot].gone || !(name && before && characterOf(name) === characterOf(before)))) {
+				if (motion[slot] && name && (motion[slot].gone || !(before && characterOf(name) === characterOf(before)))) {
 					motion = { ...motion };
 					delete motion[slot];
 				}
