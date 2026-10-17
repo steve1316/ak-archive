@@ -68,6 +68,16 @@ export interface Light {
 	lit: number;
 }
 
+/** The colour treatment of the whole scene, from `cameraeffect`. */
+export interface Tint {
+	/** How grey the scene is, 0 to 1. */
+	grayscale: number;
+	/** Whether the colours are inverted. */
+	invert: boolean;
+	/** How long the last change takes to show, in seconds. */
+	fade: number;
+}
+
 /** A blur from `focusout`: how strong, 0 to 1, and how long it takes to get there. */
 export interface Blur {
 	/** The strength, 0 for sharp to 1 for fully out of focus. */
@@ -205,8 +215,8 @@ export interface StageState {
 	blur: Partial<Record<"background" | "image" | "sprites", Blur>>;
 	/** The letterbox bar on each edge that has one. */
 	curtains: Partial<Record<Edge, Curtain>>;
-	/** Whether the scene is drawn in grey. */
-	grayscale: boolean;
+	/** The scene's colour treatment from `cameraeffect`. */
+	tint: Tint;
 }
 
 /** One sound cue: play a sound, or stop or set the volume of the sounds on one channel, or on every channel when `channel` is null. */
@@ -299,6 +309,25 @@ const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, from: null, pivot: { 
 const EXIT_DISTANCE = 1600;
 
 /**
+ * The stage after a `cameraeffect`. Grayscale takes an amount and colour inversion switches on with its `amount` above 0 or with no amount.
+ *
+ * @param stage The stage before.
+ * @param a The command's arguments.
+ * @returns The stage after.
+ */
+function tintOf(stage: StageState, a: Record<string, unknown>): StageState {
+	const fade = num(a.fadetime, 0);
+	switch (text(a.effect)?.toLowerCase()) {
+		case "grayscale":
+			return { ...stage, tint: { ...stage.tint, grayscale: Math.min(1, Math.max(0, num(a.amount, 0))), fade } };
+		case "colorinverse":
+			return { ...stage, tint: { ...stage.tint, invert: a.keep !== false && num(a.amount, 1) > 0, fade } };
+		default:
+			return stage;
+	}
+}
+
+/**
  * A shake from `camerashake` arguments.
  *
  * @param a The command's arguments.
@@ -387,7 +416,7 @@ export function emptyStage(): StageState {
 		stamp: null,
 		blur: {},
 		curtains: {},
-		grayscale: false
+		tint: { grayscale: 0, invert: false, fade: 0 }
 	};
 }
 
@@ -857,7 +886,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			effects.shake = shakeOf(a);
 			return stage;
 		case "cameraeffect":
-			return text(a.effect)?.toLowerCase() === "grayscale" ? { ...stage, grayscale: num(a.amount, 0) > 0 } : stage;
+			return tintOf(stage, a);
 		default:
 			return stage;
 	}

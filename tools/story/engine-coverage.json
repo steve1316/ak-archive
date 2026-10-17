@@ -29,7 +29,7 @@
 	},
 	"cameraeffect": {
 		"handled": true,
-		"ignored": ["from", "initamount", "keep", "to"]
+		"ignored": ["from", "initamount", "to"]
 	},
 	"camerashake": {
 		"handled": true,

@@ -11,7 +11,7 @@ import { DEFAULT_DIM, MIN_TYPING, characterOf, fillNickname } from "./engine.js"
 import { shakeFrames } from "./shake.js";
 import type { Shake } from "./shake.js";
 import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
-import type { Blocker, Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
+import type { Blocker, Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker, Tint } from "./engine.js";
 
 /**
  * The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. The floor is not the game's: it is how low a
@@ -301,6 +301,17 @@ function motionStyle(motion: Motion | undefined): JumpStyle {
 		style.animation = `storySlide${motion.cue % 2 ? "A" : "B"} ${motion.duration}s ease-in-out`;
 	}
 	return style;
+}
+
+/**
+ * The filter and its fade for the scene's colour treatment.
+ *
+ * @param tint The tint.
+ * @returns The style.
+ */
+function tintStyle(tint: Tint): CSSProperties {
+	const filters = [tint.grayscale > 0 ? `grayscale(${tint.grayscale})` : "", tint.invert ? "invert(1)" : ""].filter(Boolean).join(" ");
+	return { filter: filters || undefined, transition: tint.fade > 0 ? `filter ${tint.fade}s linear` : undefined };
 }
 
 /**
@@ -661,7 +672,7 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 	// The whole line for the unseen copy. It changes with the line, not with each character the typewriter adds.
 	const fullLine = useMemo(() => (line ? typedRuns(line, Number.MAX_SAFE_INTEGER) : null), [line]);
 	return (
-		<Box sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }} ref={shaker} onClick={onClick} data-region="story-stage">
+		<Box sx={STAGE_SX} style={tintStyle(stage.tint)} ref={shaker} onClick={onClick} data-region="story-stage">
 			<GlobalStyles styles={KEYFRAMES} />
 			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}

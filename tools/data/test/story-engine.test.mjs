@@ -111,7 +111,7 @@ test("blockers, art scenes with their tween, grayscale and unknown commands fold
 	stage = applyCommand(stage, cmd("imagetween", { xfrom: 0, yfrom: -20, xto: 0, yto: 0, xscalefrom: 1.1, yscalefrom: 1.1, xscaleto: 1, yscaleto: 1, duration: 4 }), effects);
 	assert.deepEqual(stage.image, { name: "avg_1_3", kind: "images", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1, fit: "cover" });
 	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0.8 }), effects);
-	assert.equal(stage.grayscale, true);
+	assert.equal(stage.tint.grayscale, 0.8);
 	assert.equal(applyCommand(stage, { t: "unknown", c: "video", a: {} }, effects), stage);
 	assert.equal(applyCommand(stage, cmd("image"), effects).image, null);
 });
@@ -512,4 +512,15 @@ test("camerashake waits out its delay and a stop shake has no duration", () => {
 	assert.deepEqual([effects.shake.duration, effects.shake.delay], [0.3, 0.5]);
 	applyCommand(emptyStage(), cmd("camerashake", { stop: true }), effects);
 	assert.deepEqual([effects.shake.duration, effects.shake.delay], [0, 0]);
+});
+
+test("cameraeffect keeps a partial grayscale and its fade, and colour inversion switches on and off", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("cameraeffect", { effect: "Grayscale", amount: 0.5, fadetime: 2 }), effects);
+	assert.deepEqual(stage.tint, { grayscale: 0.5, invert: false, fade: 2 });
+	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Colorinverse", keep: true }), effects);
+	assert.equal(stage.tint.invert, true);
+	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Colorinverse", keep: false }), effects);
+	assert.equal(stage.tint.invert, false);
+	assert.equal(applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0 }), effects).tint.grayscale, 0);
 });
