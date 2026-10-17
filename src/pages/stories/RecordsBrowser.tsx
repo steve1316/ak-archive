@@ -12,7 +12,7 @@ import { hasIllustration, hasPortrait, illustrationUrl, portraitUrl } from "../.
 import { searchIndex } from "../../lib/data.js";
 import { CHIP_SELECTED_SX, CHIP_UNSELECTED_SX } from "../../lib/layout.js";
 import { storyPath } from "../../lib/routes.js";
-import { loadStoryGroup } from "../../lib/story.js";
+import { groupNameRepeats, loadStoryGroup } from "../../lib/story.js";
 import type { StoryGroup, StoryIndex } from "../../types/story.js";
 import { filterOperators, pickSkinKey, recordOperators } from "./records.js";
 import type { RecordOperator } from "./records.js";
@@ -222,8 +222,7 @@ const RecordDetail = memo(function RecordDetail({ operator, onBack }: RecordDeta
 		};
 	}, [operator.sets, attempt]);
 
-	// Nearly every record set holds stories named after the set itself, so a card heads itself only when a story's name says something new.
-	const titled = useMemo(() => new Set((groups ?? []).filter((group) => group.stories.some((story) => story.name !== group.name)).map((group) => group.id)), [groups]);
+	const titled = useMemo(() => new Set((groups ?? []).filter((group) => !groupNameRepeats(group)).map((group) => group.id)), [groups]);
 
 	const sets = operator.sets.length;
 	return (

@@ -10,7 +10,7 @@ import { useParams } from "react-router-dom";
 
 import { LoadError, MOBILE_LANDSCAPE_QUERY, ScrollToTop, fillBelowNavbar, useIsMobile } from "archive-kit";
 
-import { loadStory, loadStoryGroup, loadStoryPresence, storyTitle } from "../../lib/story.js";
+import { groupNameRepeats, loadStory, loadStoryGroup, loadStoryPresence, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { StoryFile, StoryGroup } from "../../types/story.js";
 import DesktopPlayer from "./DesktopPlayer.js";
@@ -103,7 +103,8 @@ export default function Story() {
 	const title = entry ? storyTitle(entry) : storyId;
 	useEffect(() => {
 		if (data && entry) {
-			document.title = `${title} - ${data.group.name} - Arknights Archive`;
+			const group = groupNameRepeats(data.group) ? "" : ` - ${data.group.name}`;
+			document.title = `${title}${group} - Arknights Archive`;
 		}
 	}, [data, entry, title]);
 

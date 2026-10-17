@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 
 import { StoryCorner, StoryEndCard, StoryLogPanel, StorySettingsCard, useFullscreen } from "archive-kit";
 
+import { groupNameRepeats } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import { storyGroupPath } from "../../lib/routes.js";
 import type { StoryGroup } from "../../types/story.js";
@@ -255,7 +256,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		<>
 			<Box sx={TITLE_SX}>
 				<Button component={Link} to={storyGroupPath(group.id)} size="small">
-					{group.name}
+					{groupNameRepeats(group) ? "Stories" : group.name}
 				</Button>
 				<Typography component="h1" variant="body1">
 					{title}

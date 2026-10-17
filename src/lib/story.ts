@@ -174,3 +174,13 @@ export function storyAudioUrl(ref: string, presence: StoryPresence): string | nu
 export function storyTitle(entry: StoryGroupEntry): string {
 	return `${entry.code ? `${entry.code} ` : ""}${entry.name}`;
 }
+
+/**
+ * Whether a group's name only repeats its stories' names, as nearly every operator record set does, so a view can leave it out.
+ *
+ * @param group The group.
+ * @returns True when every story in the group has the group's own name.
+ */
+export function groupNameRepeats(group: StoryGroup): boolean {
+	return group.stories.every((story) => story.name === group.name);
+}
