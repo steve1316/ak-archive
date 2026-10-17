@@ -27,6 +27,8 @@ export interface Motion {
 	scale: number;
 	/** How long the last move or zoom takes, in seconds. */
 	duration: number;
+	/** Where a charslot slid the sprite in from, in the same offsets as `x` and `y`, or null when it did not slide. */
+	from: { x: number; y: number } | null;
 	/** The jump to play: how high in text-space units, how many times, and over how long, or null. */
 	jump: { power: number; times: number; duration: number } | null;
 	/** How long the shake to play lasts, in seconds, or 0. */
@@ -255,12 +257,23 @@ const CAPTION_DEFAULTS = { x: 300, y: 370, width: 700, size: 24 };
 const STAMP_POS = { x: -400, y: -200 };
 
 /** A sprite that has not moved. */
-const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, jump: null, shake: 0, cue: 0, gone: false };
+const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, from: null, jump: null, shake: 0, cue: 0, gone: false };
 
 /** How far an exiting sprite slides, in text-space units: far enough to leave the stage from any slot. */
 const EXIT_DISTANCE = 1600;
 
 /** Which layer each `focusout` type blurs. */
+/**
+ * A position argument such as `-100,0`.
+ *
+ * @param value The argument.
+ * @returns Its x and y, or null when it is not a pair of numbers.
+ */
+function pairOf(value: unknown): { x: number; y: number } | null {
+	const parts = typeof value === "string" ? value.split(",").map((part) => Number(part.trim())) : [];
+	return parts.length === 2 && parts.every(Number.isFinite) ? { x: parts[0] ?? 0, y: parts[1] ?? 0 } : null;
+}
+
 /** The charslot arguments that act on a sprite already in the slot, such as a focus change, a move, a fade or a zoom. */
 const CHARSLOT_MODIFIERS = ["focus", "posfrom", "posto", "afrom", "ato", "action"];
 
@@ -538,7 +551,7 @@ function recast(stage: StageState, sprites: Partial<Record<Slot, string>>, fade:
  */
 function actionOf(motion: Motion, slot: Slot, a: Record<string, unknown>): Motion {
 	// Each action replaces the last one's jump or shake.
-	const next = { ...motion, duration: timeOf(a), jump: null, shake: 0 };
+	const next = { ...motion, duration: timeOf(a), from: null, jump: null, shake: 0 };
 	const moved = { ...next, x: motion.x + num(a.xpos, 0), y: motion.y + num(a.ypos, 0) };
 	switch (text(a.type)?.toLowerCase()) {
 		case "move":
@@ -616,15 +629,34 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			} else if (slot) {
 				const before = sprites[slot];
 				sprites = { ...sprites };
-				// A new expression keeps the sprite where it moved to. A new character, an empty slot or an exited sprite coming back starts still.
-				if (name) {
-					sprites[slot] = name;
-				} else if (a.ato === 0 || !CHARSLOT_MODIFIERS.some((key) => key in a)) {
+				// Fading to nothing takes the sprite off even when the line names it.
+				if (a.ato === 0 || (!name && !CHARSLOT_MODIFIERS.some((key) => key in a))) {
 					delete sprites[slot];
+				} else if (name) {
+					sprites[slot] = name;
 				}
+				// A new expression keeps the sprite where it moved to. A new character, an empty slot or an exited sprite coming back starts still.
 				if (motion[slot] && name && (motion[slot].gone || !(before && characterOf(name) === characterOf(before)))) {
 					motion = { ...motion };
 					delete motion[slot];
+				}
+				const to = pairOf(a.posto);
+				if (sprites[slot] && to) {
+					const from = pairOf(a.posfrom) ?? to;
+					const slid = from.x !== to.x || from.y !== to.y;
+					motion = {
+						...motion,
+						[slot]: {
+							...(motion[slot] ?? STILL),
+							...to,
+							duration: num(a.duration, 0),
+							from: slid ? from : null,
+							jump: null,
+							shake: 0,
+							gone: false,
+							cue: (motion[slot]?.cue ?? 0) + (slid ? 1 : 0)
+						}
+					};
 				}
 			}
 			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;

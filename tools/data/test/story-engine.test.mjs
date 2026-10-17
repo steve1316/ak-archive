@@ -204,7 +204,7 @@ test("characteraction moves by deltas, zooms, jumps, shakes and exits a slot's s
 	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1" }), effects);
 	stage = act(stage, { name: "middle", type: "move", xpos: -100, fadetime: 0.05 });
 	stage = act(stage, { name: "middle", type: "move", xpos: 200, ypos: 30, fadetime: 0.1 });
-	assert.deepEqual(stage.motion.m, { x: 100, y: 30, scale: 1, duration: 0.1, jump: null, shake: 0, cue: 0, gone: false });
+	assert.deepEqual(stage.motion.m, { x: 100, y: 30, scale: 1, duration: 0.1, from: null, jump: null, shake: 0, cue: 0, gone: false });
 	stage = act(stage, { name: "middle", type: "zoom", scale: 1.2, fadetime: 1 });
 	stage = act(stage, { name: "middle", type: "jump", power: 20, times: 2, fadetime: 0.5 });
 	assert.deepEqual([stage.motion.m.scale, stage.motion.m.jump, stage.motion.m.cue], [1.2, { power: 20, times: 2, duration: 0.5 }, 1]);
@@ -426,4 +426,19 @@ test("background and image fit the stage by their screenadapt: showall shows all
 	assert.equal(fit("background", { image: "bg_a", screenadapt: "coverall" }), "cover");
 	assert.equal(fit("background", { image: "bg_a" }), "cover");
 	assert.equal(fit("image", { image: "cg_a", screenadapt: "showall" }), "contain");
+});
+
+test("charslot places a sprite at posto, sliding from posfrom, and fades one out to nothing even when it names the sprite", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1", posfrom: "300,0", posto: "0,0", duration: 1 }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.motion.m.from, stage.motion.m.duration], [0, { x: 300, y: 0 }, 1]);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#2$1", posfrom: "-350,0", posto: "-350,0", duration: 0 }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.motion.m.from], [-350, null]);
+	assert.equal(stage.sprites.m, "avg_a_1#2$1");
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", posfrom: "0,0", posto: "0,0", focus: "m" }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.sprites.m], [0, "avg_a_1#2$1"]);
+	const faded = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#2$1", afrom: 1, ato: 0, duration: 0.5 }), effects);
+	assert.deepEqual([faded.sprites, faded.leaving.m.fade], [{}, 0.5]);
+	const partial = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#2$1", afrom: 1, ato: 0.7, duration: 0.5 }), effects);
+	assert.equal(partial.sprites.m, "avg_a_1#2$1");
 });

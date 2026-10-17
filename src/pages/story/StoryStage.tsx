@@ -28,6 +28,8 @@ const SHAKE_FRAMES = {
 
 /** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
 const KEYFRAMES = {
+	"@keyframes storySlideA": { from: { transform: "translate(var(--slide-x), var(--slide-y))" } },
+	"@keyframes storySlideB": { from: { transform: "translate(var(--slide-x), var(--slide-y))" } },
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
 	"@keyframes storyStampIn": { from: { opacity: 0, translate: "-2cqh 0" }, to: { opacity: 1, translate: "0 0" } },
 	"@keyframes storyFadeOnly": { from: { opacity: 0 }, to: { opacity: 1 } },
@@ -114,7 +116,7 @@ const SPRITE_FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, pointe
 const SPRITE_SX: SxProps<Theme> = { position: "absolute", transformOrigin: "50% 100%", pointerEvents: "none" };
 
 /** A sprite jump's inline style: its height as a custom property the keyframes read. */
-type JumpStyle = CSSProperties & { "--jump"?: string };
+type JumpStyle = CSSProperties & { "--jump"?: string; "--slide-x"?: string; "--slide-y"?: string };
 
 /** How strong a full `focusout` blur is, as % of the stage height. */
 const BLUR_MAX = 1.2;
@@ -291,11 +293,33 @@ function captionStyle(caption: Caption): CSSProperties {
  * @param motion The sprite's motion, if it has moved.
  * @returns The style.
  */
-function motionStyle(motion: Motion | undefined): CSSProperties {
+function motionStyle(motion: Motion | undefined): JumpStyle {
 	if (!motion) {
 		return {};
 	}
-	return { transform: `translate(${(motion.x / TEXT_WIDTH) * 100}%, ${(-motion.y / TEXT_HEIGHT) * 100}%)`, transition: `transform ${motion.duration}s ease-in-out` };
+	const style: JumpStyle = { transform: `translate(${(motion.x / TEXT_WIDTH) * 100}%, ${(-motion.y / TEXT_HEIGHT) * 100}%)`, transition: `transform ${motion.duration}s ease-in-out` };
+	if (motion.from && motion.duration > 0) {
+		// The two keyframes take turns, so a second slide restarts the animation.
+		style["--slide-x"] = `${(motion.from.x / TEXT_WIDTH) * 100}%`;
+		style["--slide-y"] = `${(-motion.from.y / TEXT_HEIGHT) * 100}%`;
+		style.animation = `storySlide${motion.cue % 2 ? "A" : "B"} ${motion.duration}s ease-in-out`;
+	}
+	return style;
+}
+
+/**
+ * A sprite frame's style with its fade-in added to any slide it plays.
+ *
+ * @param style The frame's motion style.
+ * @param fade How long it fades in, in seconds, or 0 for no fade.
+ * @returns The style.
+ */
+function withFade(style: JumpStyle, fade: number): JumpStyle {
+	if (fade <= 0) {
+		return style;
+	}
+	const fadeIn = `storyFadeIn ${fade}s ease-out`;
+	return { ...style, animation: style.animation ? `${fadeIn}, ${style.animation}` : fadeIn };
 }
 
 /**
@@ -393,7 +417,7 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 					const fade = stage.fadeIn[slot] ?? 0;
 					return (
 						// Keyed on the character, so one arriving fades in while a new expression of the same one changes at once.
-						<Box key={`${slot}:${characterOf(spriteName)}`} sx={SPRITE_FRAME_SX} style={{ ...motionStyle(motion), animation: fade > 0 ? `storyFadeIn ${fade}s ease-out` : undefined }}>
+						<Box key={`${slot}:${characterOf(spriteName)}`} sx={SPRITE_FRAME_SX} style={withFade(motionStyle(motion), fade)}>
 							{/* Keyed on the cue, so each new jump or shake plays from its start. */}
 							<Box key={motion?.cue ?? 0} sx={SPRITE_FRAME_SX} style={cueStyle(motion)}>
 								<Box
