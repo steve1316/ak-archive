@@ -141,6 +141,7 @@ const STORY_SX: SxProps<Theme> = {
 	alignItems: "center",
 	py: 0.75,
 	borderTop: "1px solid rgba(255,255,255,0.06)",
+	"&:first-child": { borderTop: "none" },
 	color: "inherit",
 	textDecoration: "none",
 	"&:hover": { color: "primary.main" }
@@ -221,6 +222,9 @@ const RecordDetail = memo(function RecordDetail({ operator, onBack }: RecordDeta
 		};
 	}, [operator.sets, attempt]);
 
+	// Nearly every record set holds stories named after the set itself, so a card heads itself only when a story's name says something new.
+	const titled = useMemo(() => new Set((groups ?? []).filter((group) => group.stories.some((story) => story.name !== group.name)).map((group) => group.id)), [groups]);
+
 	const sets = operator.sets.length;
 	return (
 		<Box sx={onBack ? DETAIL_OVER_SX : DETAIL_SX}>
@@ -248,9 +252,11 @@ const RecordDetail = memo(function RecordDetail({ operator, onBack }: RecordDeta
 					{error ? <LoadError what="these record stories" onRetry={() => setAttempt((value) => value + 1)} /> : null}
 					{(groups ?? []).map((group) => (
 						<Box key={group.id} sx={SET_SX}>
-							<Typography component="h3" sx={{ fontSize: 16, fontWeight: 600, mb: 0.5 }}>
-								{group.name}
-							</Typography>
+							{titled.has(group.id) ? (
+								<Typography component="h3" sx={{ fontSize: 16, fontWeight: 600, mb: 0.5 }}>
+									{group.name}
+								</Typography>
+							) : null}
 							{group.stories.map((story) => (
 								<Box key={story.id} component={Link} to={storyPath(group.id, story.id)} sx={STORY_SX}>
 									<Typography>{story.name}</Typography>
