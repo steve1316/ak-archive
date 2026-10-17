@@ -564,12 +564,6 @@ function StampView({ stamp }: { stamp: Stamp }) {
 }
 
 /**
- * The location stamp, subtitle and stickers, each where its script puts it. Drawn over the fade, so narration over a darkened scene stays readable.
- *
- * @param props Component props.
- * @returns The captions.
- */
-/**
  * One caption, typed out a character at a time at the script's pace. The whole text sits unseen underneath, so the box keeps its size and the
  * words do not shift as they appear. More text added to the same caption carries on from where it had got to.
  *
@@ -580,6 +574,7 @@ function StampView({ stamp }: { stamp: Stamp }) {
  */
 function CaptionView({ caption, finishKey }: { caption: Caption; finishKey: number }) {
 	const total = caption.text.length;
+	const full = useMemo(() => typedRuns(caption, Number.MAX_SAFE_INTEGER), [caption]);
 	const instant = caption.typing < MIN_TYPING;
 	const [typed, setTyped] = useState(instant ? total : 0);
 	const last = useRef(caption.text);
@@ -607,12 +602,18 @@ function CaptionView({ caption, finishKey }: { caption: Caption; finishKey: numb
 	const shown = instant ? total : Math.min(typed, total);
 	return (
 		<Box sx={CAPTION_SX} style={captionStyle(caption)}>
-			<Box sx={{ visibility: instant ? "visible" : "hidden" }}>{typedRuns(caption, Number.MAX_SAFE_INTEGER)}</Box>
+			<Box sx={{ visibility: instant ? "visible" : "hidden" }}>{full}</Box>
 			{instant ? null : <Box sx={{ position: "absolute", inset: 0 }}>{typedRuns(caption, shown)}</Box>}
 		</Box>
 	);
 }
 
+/**
+ * The location stamp, subtitle and stickers, each where its script puts it. Drawn over the fade, so narration over a darkened scene stays readable.
+ *
+ * @param props Component props.
+ * @returns The captions.
+ */
 const Captions = memo(function Captions({
 	subtitle,
 	stickers,

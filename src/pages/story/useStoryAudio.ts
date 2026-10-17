@@ -290,6 +290,8 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 	// Leaving the story silences everything, including sounds still fading out, and stops their fade timers.
 	useEffect(
 		() => () => {
+			timers.current.forEach((id) => window.clearTimeout(id));
+			timers.current = [];
 			for (const audio of allAudio()) {
 				window.clearInterval(FADES.get(audio));
 				audio.pause();

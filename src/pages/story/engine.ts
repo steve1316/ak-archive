@@ -289,16 +289,15 @@ const CAPTION_DEFAULTS = { x: 300, y: 370, width: 700, size: 24 };
 /** Where a location stamp sits when the script leaves out `pos`: every stamp in the data but two. */
 const STAMP_POS = { x: -400, y: -200 };
 
-/** A sprite that has not moved. */
 /** How bright a sprite is while another has the focus, when the script does not say. */
 export const DEFAULT_DIM = 0.45;
 
+/** A sprite that has not moved. */
 const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, from: null, pivot: { x: 0.5, y: 0.5 }, jump: null, shake: 0, shakeSwing: { power: 6, times: 5 }, cue: 0, gone: false };
 
 /** How far an exiting sprite slides, in text-space units: far enough to leave the stage from any slot. */
 const EXIT_DISTANCE = 1600;
 
-/** Which layer each `focusout` type blurs. */
 /**
  * A shake from `camerashake` arguments.
  *
@@ -342,6 +341,7 @@ function pairOf(value: unknown): { x: number; y: number } | null {
 /** The charslot arguments that act on a sprite already in the slot, such as a focus change, a move, a fade or a zoom. */
 const CHARSLOT_MODIFIERS = ["focus", "posfrom", "posto", "afrom", "ato", "action"];
 
+/** Which layer each `focusout` type blurs. */
 const BLUR_TARGETS: Record<string, keyof StageState["blur"]> = { bg: "background", lbg: "background", cg: "image", cgitem: "image", char: "sprites" };
 
 /** Which edge each `curtain` direction comes in from. The odd directions, a few corner curtains, are not drawn. */
@@ -647,7 +647,7 @@ function actionOf(motion: Motion, slot: Slot, a: Record<string, unknown>): Motio
 		case "move":
 			return moved;
 		case "zoom":
-			return { ...next, scale: num(a.scale, motion.scale), pivot: pairOf(a.poszoom) ? { x: pairOf(a.poszoom)?.x ?? 0.5, y: pairOf(a.poszoom)?.y ?? 0.5 } : motion.pivot };
+			return { ...next, scale: num(a.scale, motion.scale), pivot: pairOf(a.poszoom) ?? motion.pivot };
 		case "jump":
 			return { ...moved, jump: { power: num(a.power, 20), times: Math.max(1, num(a.times, 1)), duration: next.duration || 0.3 }, cue: motion.cue + 1 };
 		case "shake":
