@@ -307,7 +307,8 @@ const EXIT_DISTANCE = 1600;
 function shakeOf(a: Record<string, unknown>): Shake {
 	const strength = num(a.strength, 0);
 	return {
-		duration: num(a.duration, 0.5),
+		duration: a.stop === true ? 0 : num(a.duration, 0.5),
+		delay: num(a.delay, 0),
 		x: num(a.xstrength, strength),
 		y: num(a.ystrength, strength),
 		vibrato: num(a.vibrato, 10),

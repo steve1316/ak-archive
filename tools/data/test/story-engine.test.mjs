@@ -98,7 +98,7 @@ test("effects collect sounds, shakes and a cleared box on the way to a line, acr
 	assert.deepEqual(effects, {
 		sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null, delay: 0 }],
 		musicFade: 0,
-		shake: { duration: 1, x: 0, y: 0, vibrato: 10, randomness: 90, fadeOut: false },
+		shake: { duration: 1, delay: 0, x: 0, y: 0, vibrato: 10, randomness: 90, fadeOut: false },
 		clearText: true
 	});
 });
@@ -452,7 +452,7 @@ test("charslot places a sprite at posto, sliding from posfrom, and fades one out
 test("camerashake keeps its strengths, jolts and fade, and shakeFrames makes a repeatable shake that comes to rest", () => {
 	const effects = emptyEffects();
 	applyCommand(emptyStage(), cmd("camerashake", { duration: 0.3, xstrength: 10, ystrength: 12, vibrato: 30, randomness: 90, fadeout: true }), effects);
-	assert.deepEqual(effects.shake, { duration: 0.3, x: 10, y: 12, vibrato: 30, randomness: 90, fadeOut: true });
+	assert.deepEqual(effects.shake, { duration: 0.3, delay: 0, x: 10, y: 12, vibrato: 30, randomness: 90, fadeOut: true });
 	const frames = shakeFrames(effects.shake, 3);
 	assert.equal(frames.length, 10);
 	assert.deepEqual([frames[0].transform, frames.at(-1).transform], ["translate(0, 0)", "translate(0, 0)"]);
@@ -504,4 +504,12 @@ test("a blocker keeps the colour and opacity it starts from, and the slider styl
 	stage = applyCommand(stage, cmd("blocker", { a: 1, r: 0, g: 0, b: 0, style: "slider", inverse: true, fadetime: 2 }), effects);
 	assert.deepEqual([stage.blocker.wipe, stage.blocker.from, stage.blocker.cue], ["backward", null, 2]);
 	assert.equal(applyCommand(stage, cmd("blocker", { a: 0, r: 0, g: 0, b: 0, style: "slider", inverse: false, fadetime: 1 }), effects).blocker.wipe, "forward");
+});
+
+test("camerashake waits out its delay and a stop shake has no duration", () => {
+	const effects = emptyEffects();
+	applyCommand(emptyStage(), cmd("camerashake", { duration: 0.3, delay: 0.5 }), effects);
+	assert.deepEqual([effects.shake.duration, effects.shake.delay], [0.3, 0.5]);
+	applyCommand(emptyStage(), cmd("camerashake", { stop: true }), effects);
+	assert.deepEqual([effects.shake.duration, effects.shake.delay], [0, 0]);
 });

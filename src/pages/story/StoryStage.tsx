@@ -649,7 +649,11 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 	const shaker = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (shakeKey && shake) {
-			shaker.current?.animate?.(shakeFrames(shake, shakeKey), { duration: shake.duration * 1000, easing: "linear" });
+			if (shake.duration > 0) {
+				shaker.current?.animate?.(shakeFrames(shake, shakeKey), { duration: shake.duration * 1000, delay: shake.delay * 1000, easing: "linear" });
+			} else {
+				shaker.current?.getAnimations?.().forEach((animation) => animation.cancel());
+			}
 		}
 		// Only a new shakeKey starts a shake.
 	}, [shakeKey]);

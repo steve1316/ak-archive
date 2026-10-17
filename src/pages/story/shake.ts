@@ -7,8 +7,10 @@ const SPACE = { width: 1280, height: 720 };
 
 /** A camera shake from `camerashake`. */
 export interface Shake {
-	/** How long it lasts, in seconds. */
+	/** How long it lasts, in seconds. A duration of 0 stops the shake in progress. */
 	duration: number;
+	/** How long to wait before it starts, in seconds. */
+	delay: number;
 	/** The furthest it moves sideways, in the game's 1280x720 text space. */
 	x: number;
 	/** The furthest it moves up or down, in the same space. */
