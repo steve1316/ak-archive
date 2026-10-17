@@ -200,7 +200,7 @@ export default function App() {
 							}
 						/>
 						<Route
-							path="/story/:group/:story"
+							path="/story/:group/:story?"
 							element={
 								<Suspense>
 									<Story />
