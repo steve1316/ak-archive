@@ -525,3 +525,14 @@ test("cameraeffect keeps a partial grayscale and its fade, and colour inversion 
 	assert.equal(stage.tint.invert, false);
 	assert.equal(applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0 }), effects).tint.grayscale, 0);
 });
+
+test("a charslot opacity between 0 and 1 stays on the sprite until the script changes it or the slot empties", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a#1$1", afrom: 0.6, ato: 0.6 }), effects);
+	assert.equal(stage.alpha.m, 0.6);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a#2$1" }), effects);
+	assert.equal(stage.alpha.m, 0.6);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a#2$1", afrom: 0.6, ato: 1 }), effects).alpha.m, undefined);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_b#1$1" }), effects).alpha.m, undefined);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", afrom: 0.6, ato: 0 }), effects).alpha.m, undefined);
+});

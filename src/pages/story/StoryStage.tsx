@@ -468,6 +468,7 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 										top: `${size.top}%`,
 										left: `${centre}%`,
 										filter: brightness === 1 ? "none" : `brightness(${brightness})`,
+										opacity: stage.alpha[slot],
 										transform: `translateX(-50%) scale(${scale})`,
 										transformOrigin: motion ? `${motion.pivot.x * 100}% ${(1 - motion.pivot.y) * 100}%` : undefined,
 										transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`

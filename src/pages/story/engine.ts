@@ -193,6 +193,8 @@ export interface StageState {
 	motion: Partial<Record<Slot, Motion>>;
 	/** The sprites the script gave their own brightness. The rest dim to `DEFAULT_DIM` when another sprite has the focus. */
 	light: Partial<Record<Slot, Light>>;
+	/** The sprites the script left part see-through, by opacity. The rest are solid. */
+	alpha: Partial<Record<Slot, number>>;
 	/** How long each slot's sprite fades in over when its character arrives, in seconds. A new expression of the same character does not fade. */
 	fadeIn: Partial<Record<Slot, number>>;
 	/** The sprite fading out of each slot it was removed from. */
@@ -405,6 +407,7 @@ export function emptyStage(): StageState {
 		sprites: {},
 		motion: {},
 		light: {},
+		alpha: {},
 		fadeIn: {},
 		leaving: {},
 		focus: "all",
@@ -743,7 +746,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 					light[slot] = lit;
 				}
 			});
-			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, light, focus };
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, light, alpha: {}, focus };
 		}
 		case "charslot": {
 			// A charslot naming a slot only acts on the sprite there when it carries one of these. Otherwise it empties the slot.
@@ -752,10 +755,12 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			let sprites = stage.sprites;
 			let motion = stage.motion;
 			let light = stage.light;
+			let alpha = stage.alpha;
 			if (!slot && !name) {
 				sprites = {};
 				motion = {};
 				light = {};
+				alpha = {};
 			} else if (slot) {
 				const before = sprites[slot];
 				sprites = { ...sprites };
@@ -776,6 +781,14 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 				} else if (light[slot] && (!sprites[slot] || (name && !(before && characterOf(name) === characterOf(before))))) {
 					light = { ...light };
 					delete light[slot];
+				}
+				// A sprite left part see-through keeps it until the script sets another opacity, or a new character or an empty slot clears it.
+				const ato = typeof a.ato === "number" ? a.ato : null;
+				if (sprites[slot] && ato !== null && ato > 0 && ato < 1) {
+					alpha = { ...alpha, [slot]: ato };
+				} else if (alpha[slot] && (ato !== null || !sprites[slot] || (name && !(before && characterOf(name) === characterOf(before))))) {
+					alpha = { ...alpha };
+					delete alpha[slot];
 				}
 				const to = pairOf(a.posto);
 				if (sprites[slot] && to) {
@@ -803,7 +816,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 				motion = { ...motion, [slot]: { ...actionOf(before, slot, { ...a, type: action, fadetime: a.duration }), from: before.from } };
 			}
 			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;
-			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, light, focus };
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, light, alpha, focus };
 		}
 		case "characteraction": {
 			const slot = slotOf(a.name);
