@@ -17,7 +17,7 @@ import path from "node:path";
 import { ledgerProblems, missingAssets, publishedAssets, referencedAssets } from "./lib/gaps.mjs";
 import { cardOf } from "./lib/operators.mjs";
 import { parseRecord } from "./lib/record.mjs";
-import { storySlug } from "./lib/routePages.mjs";
+import { fileStorySlug, storySlug } from "./lib/routePages.mjs";
 import { SHARDS } from "./lib/shards.mjs";
 import { spriteKey } from "../story/keys.mjs";
 import { STEP_TYPES } from "../story/parse_avg.mjs";
@@ -1128,10 +1128,19 @@ for (const groupId of storyGroupIds) {
 		continue;
 	}
 	const group = read(`story/groups/${groupId}`);
-	// A story's URL ends in its short name, so two stories sharing one, or a longer group's story with none, could not both be reached.
-	const slugs = group.stories.map((entry) => storySlug(group, entry.id));
-	if (group.stories.length > 1 && (new Set(slugs).size !== slugs.length || slugs.includes(""))) {
-		fail(`story group ${groupId} has short names that are empty or repeat: ${slugs.join(", ")}`);
+	// A longer group's story URL ends in its short name. An old file-based link is only tried when no short name matches, so one that
+	// equals another story's short name would open that story instead.
+	if (group.stories.length > 1) {
+		const bySlug = new Map(group.stories.map((entry) => [storySlug(group, entry.id), entry.id]));
+		if (bySlug.has("")) {
+			fail(`story ${bySlug.get("")} in ${groupId} has an empty short name, so its URL would open nothing`);
+		}
+		for (const entry of group.stories) {
+			const taker = bySlug.get(fileStorySlug(group, entry.id));
+			if (taker && taker !== entry.id) {
+				fail(`story ${entry.id}'s old link ${groupId}/${fileStorySlug(group, entry.id)} would open ${taker} instead`);
+			}
+		}
 	}
 	for (const entry of group.stories) {
 		if (checkedStories.has(entry.id)) {

@@ -10,9 +10,12 @@ export declare function enemyNumber(id: string): string;
 export interface StoryGroupIds {
 	/** The group id. */
 	id: string;
-	/** Its stories, in order. */
-	stories: { id: string }[];
+	/** Its stories, in order, with the stage code and tag their short names are built from. */
+	stories: { id: string; code: string | null; tag: string }[];
 }
+
+/** A story's short name in the form the first short URLs used, which now only redirects. See `routePages.mjs`. */
+export declare function fileStorySlug(group: { id: string }, story: string): string;
 
 /** The short name a story's URL ends in, or an empty string for a group's only story. See `routePages.mjs`. */
 export declare function storySlug(group: StoryGroupIds, story: string): string;

@@ -1,4 +1,4 @@
-import { enemyNumber, operatorNumber, storyRoute, storySlug } from "../../tools/data/lib/routePages.mjs";
+import { enemyNumber, fileStorySlug, operatorNumber, storyRoute, storySlug } from "../../tools/data/lib/routePages.mjs";
 import type { StoryGroup, StoryGroupEntry } from "../types/story.js";
 import { searchIndex } from "./data.js";
 
@@ -26,7 +26,7 @@ export function storyGroupPath(group: string | null = null): string {
 
 /**
  * The route for one story in the player: the group alone for its only story, such as `/story/story_angel_set_1`, or the group and the
- * story's short name, such as `/story/act40side/01_beg`.
+ * story's short name, such as `/story/act40side/or-1-before`.
  *
  * @param group The story's group.
  * @param story The story id.
@@ -37,8 +37,8 @@ export function storyPath(group: StoryGroup, story: string): string {
 }
 
 /**
- * The story a story URL's last segment names. That is its short name, which is empty for a group's only story. Links from before the short
- * form name the full id, or the id without its group's, such as `story_1`, and still find it.
+ * The story a story URL's last segment names. That is its short name, which is empty for a group's only story. Older links still find it:
+ * the full id, the id without its group's such as `story_1`, and the file-based short name such as `10-01_beg`.
  *
  * @param group The story's group.
  * @param segment The URL's last segment, or an empty string when it has none.
@@ -46,7 +46,10 @@ export function storyPath(group: StoryGroup, story: string): string {
  */
 export function storyAt(group: StoryGroup, segment: string): StoryGroupEntry | undefined {
 	const { stories } = group;
-	return stories.find((story) => storySlug(group, story.id) === segment) ?? stories.find((story) => story.id === segment || story.id === `${group.id}_${segment}`);
+	return (
+		stories.find((story) => storySlug(group, story.id) === segment) ??
+		stories.find((story) => story.id === segment || story.id === `${group.id}_${segment}` || fileStorySlug(group, story.id) === segment)
+	);
 }
 
 /**

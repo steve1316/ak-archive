@@ -44,33 +44,87 @@ export function enemyNumber(id) {
 	return numberIn(ENEMY_NUMBER, id);
 }
 
+/**
+ * The parts of a story group a story's URL is built from: its id, and each story's id with the stage code and tag its short name uses.
+ *
+ * @typedef {{id: string, stories: {id: string, code: string | null, tag: string}[]}} StoryGroupIds
+ */
+
 /** The words a story id starts with once its group id is gone, such as the `level_` of `act40side_level_act40side_01_beg`. */
 const STORY_KIND = /^(level|story)_/;
 
 /**
- * The short name a story's URL ends in, with every part the URL already says dropped: the group id, `level_` or `story_`, and the group id
- * or `main_` again. So `act40side_level_act40side_01_beg` becomes `01_beg` and `main_10_level_main_10-01_beg` becomes `10-01_beg`. A group
- * with one story needs no name at all, which is nearly every operator record. `check.mjs` keeps the names unique within each group.
+ * A story's short name in the form the first short URLs used, built from its file name: the id with every part the URL already says dropped.
+ * So `act40side_level_act40side_01_beg` becomes `01_beg`. Main story files count battles apart from story-only stages, so this name can be
+ * a number off what a reader sees, and links in this form now only redirect.
  *
- * @param {{id: string, stories: {id: string}[]}} group The story group.
+ * @param {{id: string}} group The story group.
  * @param {string} story The story id.
- * @returns {string} The short name, or an empty string for a group's only story.
+ * @returns {string} The file-based short name.
  */
-export function storySlug(group, story) {
-	if (group.stories.length === 1) {
-		return "";
-	}
+export function fileStorySlug(group, story) {
 	const rest = (story.startsWith(`${group.id}_`) ? story.slice(group.id.length + 1) : story).replace(STORY_KIND, "");
 	const repeat = [`${group.id}_`, "main_"].find((prefix) => rest.startsWith(prefix));
 	return repeat ? rest.slice(repeat.length) : rest;
 }
 
+/** The word a story's tag adds to its short name, so the two stories around one battle differ. */
+const TAG_WORDS = new Map([
+	["Before Operation", "before"],
+	["After Operation", "after"]
+]);
+
+/** Each group's short names, built once per group object. */
+const slugCache = new WeakMap();
+
+/**
+ * Every story's short name in a group, from the stage code a reader sees, such as `10-2-before` for `main_10_level_main_10-01_beg` or
+ * `or-1-after`. A story with no code keeps its {@link fileStorySlug}. A name already taken gets `-2`, `-3` and so on, as the alternate
+ * endings of 15-17 do. A group with one story needs no name at all, which is nearly every operator record.
+ *
+ * @param {StoryGroupIds} group The story group.
+ * @returns {Map<string, string>} The short names by story id, empty for a group with one story.
+ */
+function storySlugs(group) {
+	let slugs = slugCache.get(group);
+	if (slugs) {
+		return slugs;
+	}
+	slugs = new Map();
+	if (group.stories.length > 1) {
+		const used = new Set();
+		for (const story of group.stories) {
+			const tag = TAG_WORDS.get(story.tag);
+			const base = story.code ? [story.code.toLowerCase(), tag].filter(Boolean).join("-") : fileStorySlug(group, story.id);
+			let slug = base;
+			for (let n = 2; used.has(slug); n++) {
+				slug = `${base}-${n}`;
+			}
+			used.add(slug);
+			slugs.set(story.id, slug);
+		}
+	}
+	slugCache.set(group, slugs);
+	return slugs;
+}
+
+/**
+ * The short name a story's URL ends in. See `storySlugs` for how it is built.
+ *
+ * @param {StoryGroupIds} group The story group.
+ * @param {string} story The story id.
+ * @returns {string} The short name, or an empty string for a group's only story.
+ */
+export function storySlug(group, story) {
+	return storySlugs(group).get(story) ?? "";
+}
+
 /**
  * A story's route under the site's base, without a leading slash: the group alone for its only story, or the group and the short name.
  *
- * @param {{id: string, stories: {id: string}[]}} group The story group.
+ * @param {StoryGroupIds} group The story group.
  * @param {string} story The story id.
- * @returns {string} The route, such as `story/story_angel_set_1` or `story/act40side/01_beg`.
+ * @returns {string} The route, such as `story/story_angel_set_1` or `story/act40side/or-1-before`.
  */
 export function storyRoute(group, story) {
 	const slug = storySlug(group, story);
@@ -87,7 +141,7 @@ export function storyRoute(group, story) {
  * group's stories in a `story/<group>/` folder, so the two never meet. `/stories/<group>` gets no page: it would need a `stories/` folder
  * beside `stories.html`, which is the same trailing-slash clash as the art viewer's.
  *
- * @param {{operatorIds: string[], enemyHeadIds: string[], storyGroups?: {id: string, stories: {id: string}[]}[]}} ids Every operator id,
+ * @param {{operatorIds: string[], enemyHeadIds: string[], storyGroups?: StoryGroupIds[]}} ids Every operator id,
  * every enemy group's head id, and every story group.
  * @returns {string[]} The paths, such as `operator/10` and `enemy/1506`.
  */

@@ -98,7 +98,8 @@ export default function Story() {
 				if (!entry) {
 					throw new Error(`No story ${param} in ${groupId}`);
 				}
-				// An older link, by full id or by the id without its group's. The group is cached, so the page this remounts into loads at once.
+				// An older link, by full id, by the id without its group's, or by the file-based name such as `10-01_beg`.
+				// The group is cached, so the page this remounts into loads at once.
 				const canonical = storyPath(group, entry.id);
 				if (canonical !== pathname) {
 					if (active) {
