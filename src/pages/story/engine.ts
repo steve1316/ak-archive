@@ -84,6 +84,10 @@ export interface Blur {
 	amount: number;
 	/** How long it takes to reach that strength, in seconds. */
 	duration: number;
+	/** The strength it starts from, which may differ from where the last blur left off. */
+	from: number;
+	/** Counts blurs on the layer, so the stage restarts the animation for each new one. */
+	cue: number;
 }
 
 /** A letterbox bar from `curtain`. */
@@ -824,7 +828,8 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		}
 		case "focusout": {
 			const target = BLUR_TARGETS[text(a.type)?.toLowerCase() ?? ""];
-			return target ? { ...stage, blur: { ...stage.blur, [target]: { amount: num(a.to, 0), duration: timeOf(a) } } } : stage;
+			const to = num(a.to, 0);
+			return target ? { ...stage, blur: { ...stage.blur, [target]: { amount: to, duration: timeOf(a), from: num(a.from, to), cue: (stage.blur[target]?.cue ?? 0) + 1 } } } : stage;
 		}
 		case "curtain": {
 			if (!("direction" in a)) {

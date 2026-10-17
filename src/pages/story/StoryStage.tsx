@@ -45,6 +45,8 @@ const KEYFRAMES = {
 	"@keyframes storyBlockFadeB": { from: { backgroundColor: "var(--from-color)", opacity: "var(--from-alpha)" } },
 	"@keyframes storyWipeA": { from: { transform: "translateX(var(--wipe-from))" } },
 	"@keyframes storyWipeB": { from: { transform: "translateX(var(--wipe-from))" } },
+	"@keyframes storyBlurA": { from: { filter: "blur(var(--blur-from))" } },
+	"@keyframes storyBlurB": { from: { filter: "blur(var(--blur-from))" } },
 	"@keyframes storyCurtainV": { from: { height: "var(--from)" }, to: { height: "var(--to)" } },
 	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } }
 };
@@ -108,7 +110,16 @@ const SPRITE_FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, pointe
 const SPRITE_SX: SxProps<Theme> = { position: "absolute", transformOrigin: "50% 100%", pointerEvents: "none" };
 
 /** A sprite jump's inline style: its height as a custom property the keyframes read. */
-type JumpStyle = CSSProperties & { "--jump"?: string; "--power"?: string; "--from-color"?: string; "--from-alpha"?: number; "--wipe-from"?: string; "--slide-x"?: string; "--slide-y"?: string };
+type JumpStyle = CSSProperties & {
+	"--jump"?: string;
+	"--power"?: string;
+	"--from-color"?: string;
+	"--from-alpha"?: number;
+	"--wipe-from"?: string;
+	"--blur-from"?: string;
+	"--slide-x"?: string;
+	"--slide-y"?: string;
+};
 
 /** How strong a full `focusout` blur is, as % of the stage height. */
 const BLUR_MAX = 1.2;
@@ -239,13 +250,17 @@ function layerStyle(layer: LayerState, moved: boolean): CSSProperties {
 }
 
 /**
- * The filter for a blurred layer, easing between sharp and blurred. A sharp layer has no filter, so it costs nothing to draw.
+ * The filter for a blurred layer, easing from where the script starts it to where it ends. A sharp layer has no filter, so it costs nothing to draw.
  *
  * @param blur The layer's blur, if it has one.
  * @returns The style.
  */
-function blurStyle(blur: Blur | undefined): CSSProperties {
-	return blur ? { filter: blur.amount > 0 ? `blur(${blur.amount * BLUR_MAX}cqh)` : "none", transition: `filter ${blur.duration}s ease-in-out` } : {};
+function blurStyle(blur: Blur | undefined): JumpStyle {
+	if (!blur) {
+		return {};
+	}
+	const filter = blur.amount > 0 ? `blur(${blur.amount * BLUR_MAX}cqh)` : "none";
+	return blur.duration > 0 ? { filter, "--blur-from": `${blur.from * BLUR_MAX}cqh`, animation: `storyBlur${blur.cue % 2 ? "A" : "B"} ${blur.duration}s ease-in-out` } : { filter };
 }
 
 /**

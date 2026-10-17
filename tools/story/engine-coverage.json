@@ -114,7 +114,7 @@
 	},
 	"focusout": {
 		"handled": true,
-		"ignored": ["from", "id"]
+		"ignored": ["id"]
 	},
 	"gridbg": {
 		"handled": true,

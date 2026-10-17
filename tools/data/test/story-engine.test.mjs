@@ -229,8 +229,8 @@ test("focusout blurs its layer over its duration, and curtain draws, resizes and
 	const effects = emptyEffects();
 	let stage = applyCommand(emptyStage(), cmd("focusout", { type: "bg", from: 0, to: 1, duration: 1.5 }), effects);
 	stage = applyCommand(stage, cmd("focusout", { type: "char", from: 0, to: 0.5, duration: 1 }), effects);
-	assert.deepEqual(stage.blur, { background: { amount: 1, duration: 1.5 }, sprites: { amount: 0.5, duration: 1 } });
-	assert.deepEqual(applyCommand(stage, cmd("focusout", { type: "cgitem", to: 0.3 }), effects).blur.image, { amount: 0.3, duration: 0 });
+	assert.deepEqual(stage.blur, { background: { amount: 1, duration: 1.5, from: 0, cue: 1 }, sprites: { amount: 0.5, duration: 1, from: 0, cue: 1 } });
+	assert.deepEqual(applyCommand(stage, cmd("focusout", { type: "cgitem", to: 0.3 }), effects).blur.image, { amount: 0.3, duration: 0, from: 0.3, cue: 1 });
 	stage = applyCommand(stage, cmd("curtain", { direction: 0, fillfrom: 0.2, fillto: 0.05, fadetime: 2, grad: true }), effects);
 	stage = applyCommand(stage, cmd("curtain", { direction: 4, fillfrom: 0.2, fillto: 0.05, fadetime: 2 }), effects);
 	stage = applyCommand(stage, cmd("curtain", { direction: 0, fillfrom: 0.05, fillto: 0.1, fadetime: 1 }), effects);
