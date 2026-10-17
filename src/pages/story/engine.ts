@@ -44,6 +44,22 @@ export interface Motion {
 	gone: boolean;
 }
 
+/** The full-screen fade, or the wipe that covers and uncovers the stage. */
+export interface Blocker {
+	/** The colour it ends at. */
+	color: string;
+	/** How opaque it ends, 0 to 1. */
+	alpha: number;
+	/** How long it takes to get there, in seconds. */
+	fade: number;
+	/** The colour and opacity it starts from when the script names them, or null to start from where it is. */
+	from: { color: string; alpha: number } | null;
+	/** Which way a wipe sweeps, `forward` for left to right, or null for a plain fade. */
+	wipe: "forward" | "backward" | null;
+	/** Counts blockers, so the stage restarts the animation for each new one. */
+	cue: number;
+}
+
 /** How bright a sprite is drawn, from `bstart`/`bend` on a charslot or `blackstart`/`blackend` on a character. */
 export interface Light {
 	/** The brightness while another sprite has the focus, 0 for black to 1 for untouched. */
@@ -174,7 +190,7 @@ export interface StageState {
 	/** The lit slot, or `all` when nobody is dimmed. */
 	focus: Slot | "all";
 	/** The full-screen fade. */
-	blocker: { color: string; alpha: number; fade: number };
+	blocker: Blocker;
 	/** The playing track, or null for silence. */
 	music: { intro: string | null; loop: string; volume: number; crossfade: number } | null;
 	/** The track's level as `musicvolume` last set it, and how long it fades there, or null for the track's own volume. */
@@ -362,7 +378,7 @@ export function emptyStage(): StageState {
 		fadeIn: {},
 		leaving: {},
 		focus: "all",
-		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 },
+		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0, from: null, wipe: null, cue: 0 },
 		music: null,
 		musicVolume: null,
 		subtitle: null,
@@ -472,12 +488,35 @@ function slotOf(value: unknown): Slot | null {
  * A blocker's colour. The data writes channels as 0-1, and a few scripts write 0-255.
  *
  * @param a The blocker's arguments.
+ * @param suffix `from` for the colour it starts at, or nothing for the colour it ends at.
  * @returns A CSS colour.
  */
-function colourOf(a: Record<string, unknown>): string {
+function colourOf(a: Record<string, unknown>, suffix = ""): string {
 	const channels = [num(a.r, 0), num(a.g, 0), num(a.b, 0)];
 	const scale = channels.some((channel) => channel > 1) ? 1 : 255;
-	return `rgb(${channels.map((channel) => Math.round(channel * scale)).join(", ")})`;
+	const shown = suffix ? [num(a[`r${suffix}`], channels[0] ?? 0), num(a[`g${suffix}`], channels[1] ?? 0), num(a[`b${suffix}`], channels[2] ?? 0)] : channels;
+	return `rgb(${shown.map((channel) => Math.round(channel * scale)).join(", ")})`;
+}
+
+/**
+ * A blocker from its arguments. `rfrom`, `gfrom`, `bfrom` and `afrom` are where its colour and opacity start, and the `slider` style wipes
+ * across the stage in place of fading.
+ *
+ * @param before The blocker on stage.
+ * @param a The command's arguments.
+ * @returns The new blocker.
+ */
+function blockerOf(before: Blocker, a: Record<string, unknown>): Blocker {
+	const named = ["rfrom", "gfrom", "bfrom", "afrom"].some((key) => key in a);
+	const to = colourOf(a);
+	return {
+		color: to,
+		alpha: num(a.a, 0),
+		fade: num(a.fadetime, 0),
+		from: named ? { color: colourOf(a, "from"), alpha: num(a.afrom, num(a.a, 0)) } : null,
+		wipe: text(a.style)?.toLowerCase() === "slider" ? (a.inverse === true ? "backward" : "forward") : null,
+		cue: before.cue + 1
+	};
 }
 
 /**
@@ -757,7 +796,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return { ...stage, curtains: { ...stage.curtains, [edge]: curtain } };
 		}
 		case "blocker":
-			return { ...stage, blocker: { color: colourOf(a), alpha: num(a.a, 0), fade: num(a.fadetime, 0) } };
+			return { ...stage, blocker: blockerOf(stage.blocker, a) };
 		case "dialog":
 			effects.clearText = true;
 			return stage;

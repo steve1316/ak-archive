@@ -25,7 +25,7 @@
 	},
 	"blocker": {
 		"handled": true,
-		"ignored": ["afrom", "bfrom", "ease", "gfrom", "image", "initr", "inverse", "rfrom", "style"]
+		"ignored": ["bfrom", "ease", "gfrom", "image", "initr", "rfrom"]
 	},
 	"cameraeffect": {
 		"handled": true,

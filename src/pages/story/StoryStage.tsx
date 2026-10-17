@@ -11,7 +11,7 @@ import { DEFAULT_DIM, MIN_TYPING, characterOf, fillNickname } from "./engine.js"
 import { shakeFrames } from "./shake.js";
 import type { Shake } from "./shake.js";
 import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
-import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
+import type { Blocker, Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
 
 /**
  * The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. The floor is not the game's: it is how low a
@@ -41,6 +41,10 @@ const KEYFRAMES = {
 		"25%": { translate: "calc(var(--power) * -1) 0" },
 		"75%": { translate: "var(--power) 0" }
 	},
+	"@keyframes storyBlockFadeA": { from: { backgroundColor: "var(--from-color)", opacity: "var(--from-alpha)" } },
+	"@keyframes storyBlockFadeB": { from: { backgroundColor: "var(--from-color)", opacity: "var(--from-alpha)" } },
+	"@keyframes storyWipeA": { from: { transform: "translateX(var(--wipe-from))" } },
+	"@keyframes storyWipeB": { from: { transform: "translateX(var(--wipe-from))" } },
 	"@keyframes storyCurtainV": { from: { height: "var(--from)" }, to: { height: "var(--to)" } },
 	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } }
 };
@@ -104,7 +108,7 @@ const SPRITE_FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, pointe
 const SPRITE_SX: SxProps<Theme> = { position: "absolute", transformOrigin: "50% 100%", pointerEvents: "none" };
 
 /** A sprite jump's inline style: its height as a custom property the keyframes read. */
-type JumpStyle = CSSProperties & { "--jump"?: string; "--power"?: string; "--slide-x"?: string; "--slide-y"?: string };
+type JumpStyle = CSSProperties & { "--jump"?: string; "--power"?: string; "--from-color"?: string; "--from-alpha"?: number; "--wipe-from"?: string; "--slide-x"?: string; "--slide-y"?: string };
 
 /** How strong a full `focusout` blur is, as % of the stage height. */
 const BLUR_MAX = 1.2;
@@ -297,6 +301,33 @@ function motionStyle(motion: Motion | undefined): JumpStyle {
 		style.animation = `storySlide${motion.cue % 2 ? "A" : "B"} ${motion.duration}s ease-in-out`;
 	}
 	return style;
+}
+
+/**
+ * How the blocker is drawn. A fade moves its opacity, from the script's starting colour and opacity when it names them. A wipe slides it
+ * across the stage in the direction the script sweeps. The two keyframes take turns, so each new blocker restarts the animation.
+ *
+ * @param blocker The blocker.
+ * @returns The style.
+ */
+function blockerStyle(blocker: Blocker): JumpStyle {
+	const turn = blocker.cue % 2 ? "A" : "B";
+	if (blocker.wipe) {
+		const sweep = blocker.wipe === "forward" ? 1 : -1;
+		const covering = blocker.alpha > 0;
+		return {
+			background: blocker.color,
+			transform: covering ? "translateX(0)" : `translateX(${sweep * 100}%)`,
+			"--wipe-from": covering ? `${-sweep * 100}%` : "0%",
+			animation: blocker.fade > 0 ? `storyWipe${turn} ${blocker.fade}s ease-in-out` : undefined
+		};
+	}
+	return {
+		background: blocker.color,
+		opacity: blocker.alpha,
+		transition: `opacity ${blocker.fade}s linear`,
+		...(blocker.from && blocker.fade > 0 ? { "--from-color": blocker.from.color, "--from-alpha": blocker.from.alpha, animation: `storyBlockFade${turn} ${blocker.fade}s linear` } : {})
+	};
 }
 
 /**
@@ -629,7 +660,7 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 			<GlobalStyles styles={KEYFRAMES} />
 			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
-			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
+			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={blockerStyle(stage.blocker)} />
 			<Captions subtitle={stage.subtitle} stickers={stage.stickers} stamp={stage.stamp} nickname={nickname} finishKey={finishKey} />
 			{!hideText && line ? (
 				<>

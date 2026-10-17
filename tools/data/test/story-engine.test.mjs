@@ -106,7 +106,7 @@ test("effects collect sounds, shakes and a cleared box on the way to a line, acr
 test("blockers, art scenes with their tween, grayscale and unknown commands fold into the stage", () => {
 	const effects = emptyEffects();
 	let stage = applyCommand(emptyStage(), cmd("blocker", { a: 1, r: 0, g: 0, b: 0, fadetime: 0.6 }), effects);
-	assert.deepEqual(stage.blocker, { color: "rgb(0, 0, 0)", alpha: 1, fade: 0.6 });
+	assert.deepEqual(stage.blocker, { color: "rgb(0, 0, 0)", alpha: 1, fade: 0.6, from: null, wipe: null, cue: 1 });
 	stage = applyCommand(stage, cmd("image", { image: "avg_1_3", x: 0, y: -20, xscale: 1.1, yscale: 1.1, fadetime: 1 }), effects);
 	stage = applyCommand(stage, cmd("imagetween", { xfrom: 0, yfrom: -20, xto: 0, yto: 0, xscalefrom: 1.1, yscalefrom: 1.1, xscaleto: 1, yscaleto: 1, duration: 4 }), effects);
 	assert.deepEqual(stage.image, { name: "avg_1_3", kind: "images", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1, fit: "cover" });
@@ -495,4 +495,13 @@ test("a charslot action zooms about its pivot, jumps to posto, and shakes by its
 	stage = applyCommand(stage, cmd("charslot", { slot: "m", action: "shake", power: 8, times: 100, duration: 0.5 }), effects);
 	assert.deepEqual([stage.motion.m.jump, stage.motion.m.shake, stage.motion.m.shakeSwing], [null, 0.5, { power: 8, times: 100 }]);
 	assert.equal(applyCommand(emptyStage(), cmd("charslot", { slot: "m", action: "shake", power: 8 }), effects).motion.m, undefined);
+});
+
+test("a blocker keeps the colour and opacity it starts from, and the slider style wipes in the direction the script sweeps", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("blocker", { a: 1, r: 1, g: 1, b: 1, afrom: 0, rfrom: 0.8, gfrom: 0.8, bfrom: 0.8, fadetime: 0.3 }), effects);
+	assert.deepEqual([stage.blocker.color, stage.blocker.from, stage.blocker.wipe], ["rgb(255, 255, 255)", { color: "rgb(204, 204, 204)", alpha: 0 }, null]);
+	stage = applyCommand(stage, cmd("blocker", { a: 1, r: 0, g: 0, b: 0, style: "slider", inverse: true, fadetime: 2 }), effects);
+	assert.deepEqual([stage.blocker.wipe, stage.blocker.from, stage.blocker.cue], ["backward", null, 2]);
+	assert.equal(applyCommand(stage, cmd("blocker", { a: 0, r: 0, g: 0, b: 0, style: "slider", inverse: false, fadetime: 1 }), effects).blocker.wipe, "forward");
 });
