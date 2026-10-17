@@ -25,7 +25,7 @@
 	},
 	"blocker": {
 		"handled": true,
-		"ignored": ["bfrom", "ease", "gfrom", "image", "initr", "rfrom"]
+		"ignored": ["ease", "image", "initr"]
 	},
 	"cameraeffect": {
 		"handled": true,
@@ -42,10 +42,6 @@
 	"character": {
 		"handled": true,
 		"ignored": [
-			"blackend",
-			"blackend2",
-			"blackstart",
-			"blackstart2",
 			"blo",
 			"blockl",
 			"blok",

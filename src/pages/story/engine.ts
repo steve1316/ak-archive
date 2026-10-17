@@ -521,13 +521,13 @@ function slotOf(value: unknown): Slot | null {
  * A blocker's colour. The data writes channels as 0-1, and a few scripts write 0-255.
  *
  * @param a The blocker's arguments.
- * @param suffix `from` for the colour it starts at, or nothing for the colour it ends at.
+ * @param from Whether to give the colour it starts at, which falls back to the colour it ends at, or that end colour.
  * @returns A CSS colour.
  */
-function colourOf(a: Record<string, unknown>, suffix = ""): string {
+function colourOf(a: Record<string, unknown>, from = false): string {
 	const channels = [num(a.r, 0), num(a.g, 0), num(a.b, 0)];
 	const scale = channels.some((channel) => channel > 1) ? 1 : 255;
-	const shown = suffix ? [num(a[`r${suffix}`], channels[0] ?? 0), num(a[`g${suffix}`], channels[1] ?? 0), num(a[`b${suffix}`], channels[2] ?? 0)] : channels;
+	const shown = from ? [num(a.rfrom, channels[0] ?? 0), num(a.gfrom, channels[1] ?? 0), num(a.bfrom, channels[2] ?? 0)] : channels;
 	return `rgb(${shown.map((channel) => Math.round(channel * scale)).join(", ")})`;
 }
 
@@ -540,13 +540,13 @@ function colourOf(a: Record<string, unknown>, suffix = ""): string {
  * @returns The new blocker.
  */
 function blockerOf(before: Blocker, a: Record<string, unknown>): Blocker {
-	const named = ["rfrom", "gfrom", "bfrom", "afrom"].some((key) => key in a);
+	const named = "rfrom" in a || "gfrom" in a || "bfrom" in a || "afrom" in a;
 	const to = colourOf(a);
 	return {
 		color: to,
 		alpha: num(a.a, 0),
 		fade: num(a.fadetime, 0),
-		from: named ? { color: colourOf(a, "from"), alpha: num(a.afrom, num(a.a, 0)) } : null,
+		from: named ? { color: colourOf(a, true), alpha: num(a.afrom, num(a.a, 0)) } : null,
 		wipe: text(a.style)?.toLowerCase() === "slider" ? (a.inverse === true ? "backward" : "forward") : null,
 		cue: before.cue + 1
 	};

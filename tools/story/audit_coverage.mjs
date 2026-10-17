@@ -49,6 +49,10 @@ function keysRead(text, funcs, seen = new Set()) {
 	for (const m of text.matchAll(/\b(?:a|args)\.(\w+)|"(\w+)" in a\b|\ba\["(\w+)"\]/g)) {
 		keys.add(m[1] ?? m[2] ?? m[3]);
 	}
+	// A key built from a template, such as the numbered `blackstart2`, counts as read for the bare name and its numbers.
+	for (const m of text.matchAll(/\ba\[`(\w+?)\$\{/g)) {
+		[m[1], ...[1, 2, 3, 4].map((n) => m[1] + n)].forEach((k) => keys.add(k));
+	}
 	for (const m of text.matchAll(/\b(\w+)\(/g)) {
 		const fn = m[1];
 		if (funcs.has(fn) && fn !== "applyCommand" && !seen.has(fn)) {
