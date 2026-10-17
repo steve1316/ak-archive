@@ -30,10 +30,14 @@ export interface Motion {
 	duration: number;
 	/** Where a charslot slid the sprite in from, in the same offsets as `x` and `y`, or null when it did not slide. */
 	from: { x: number; y: number } | null;
+	/** The point of the sprite a zoom grows from, as fractions of its image from the left and from the bottom. */
+	pivot: { x: number; y: number };
 	/** The jump to play: how high in text-space units, how many times, and over how long, or null. */
 	jump: { power: number; times: number; duration: number } | null;
 	/** How long the shake to play lasts, in seconds, or 0. */
 	shake: number;
+	/** How far the shake swings, in text-space units, and how many times it swings. */
+	shakeSwing: { power: number; times: number };
 	/** Counts jumps and shakes, so the stage restarts the animation for each new one. */
 	cue: number;
 	/** Whether the sprite has exited off the stage. It stays in its slot, out of sight, until the slot is filled or cleared. */
@@ -273,7 +277,7 @@ const STAMP_POS = { x: -400, y: -200 };
 /** How bright a sprite is while another has the focus, when the script does not say. */
 export const DEFAULT_DIM = 0.45;
 
-const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, from: null, jump: null, shake: 0, cue: 0, gone: false };
+const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, from: null, pivot: { x: 0.5, y: 0.5 }, jump: null, shake: 0, shakeSwing: { power: 6, times: 5 }, cue: 0, gone: false };
 
 /** How far an exiting sprite slides, in text-space units: far enough to leave the stage from any slot. */
 const EXIT_DISTANCE = 1600;
@@ -604,11 +608,11 @@ function actionOf(motion: Motion, slot: Slot, a: Record<string, unknown>): Motio
 		case "move":
 			return moved;
 		case "zoom":
-			return { ...next, scale: num(a.scale, motion.scale) };
+			return { ...next, scale: num(a.scale, motion.scale), pivot: pairOf(a.poszoom) ? { x: pairOf(a.poszoom)?.x ?? 0.5, y: pairOf(a.poszoom)?.y ?? 0.5 } : motion.pivot };
 		case "jump":
 			return { ...moved, jump: { power: num(a.power, 20), times: Math.max(1, num(a.times, 1)), duration: next.duration || 0.3 }, cue: motion.cue + 1 };
 		case "shake":
-			return { ...next, shake: next.duration || 0.5, cue: motion.cue + 1 };
+			return { ...next, shake: next.duration || 0.5, shakeSwing: { power: num(a.power, 6), times: Math.max(1, num(a.times, 5)) }, cue: motion.cue + 1 };
 		case "exit": {
 			const direction = text(a.direction) ?? (slot === "r" ? "right" : "left");
 			return { ...next, x: motion.x + (direction === "right" ? EXIT_DISTANCE : -EXIT_DISTANCE), gone: true };
@@ -722,6 +726,12 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 						}
 					};
 				}
+			}
+			const action = text(a.action);
+			if (slot && action && sprites[slot]) {
+				// The action keeps the slide the same command may have started.
+				const before = motion[slot] ?? STILL;
+				motion = { ...motion, [slot]: { ...actionOf(before, slot, { ...a, type: action, fadetime: a.duration }), from: before.from } };
 			}
 			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;
 			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, light, focus };

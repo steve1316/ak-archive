@@ -76,14 +76,12 @@
 	"charslot": {
 		"handled": true,
 		"ignored": [
-			"action",
 			"aduration",
 			"afrom",
 			"blocker",
 			"bstrart",
 			"charslot",
 			"delay",
-			"direction",
 			"duraiton",
 			"duratin",
 			"duratio",
@@ -99,11 +97,7 @@
 			"pfrom",
 			"poasfrom",
 			"posform",
-			"poszoom",
-			"power",
-			"random",
-			"scale",
-			"times"
+			"random"
 		]
 	},
 	"curtain": {

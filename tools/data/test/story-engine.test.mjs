@@ -210,7 +210,7 @@ test("characteraction moves by deltas, zooms, jumps, shakes and exits a slot's s
 	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1" }), effects);
 	stage = act(stage, { name: "middle", type: "move", xpos: -100, fadetime: 0.05 });
 	stage = act(stage, { name: "middle", type: "move", xpos: 200, ypos: 30, fadetime: 0.1 });
-	assert.deepEqual(stage.motion.m, { x: 100, y: 30, scale: 1, duration: 0.1, from: null, jump: null, shake: 0, cue: 0, gone: false });
+	assert.deepEqual(stage.motion.m, { x: 100, y: 30, scale: 1, duration: 0.1, from: null, pivot: { x: 0.5, y: 0.5 }, jump: null, shake: 0, shakeSwing: { power: 6, times: 5 }, cue: 0, gone: false });
 	stage = act(stage, { name: "middle", type: "zoom", scale: 1.2, fadetime: 1 });
 	stage = act(stage, { name: "middle", type: "jump", power: 20, times: 2, fadetime: 0.5 });
 	assert.deepEqual([stage.motion.m.scale, stage.motion.m.jump, stage.motion.m.cue], [1.2, { power: 20, times: 2, duration: 0.5 }, 1]);
@@ -483,4 +483,16 @@ test("bstart and bend give a sprite its own out-of-focus and in-focus brightness
 	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l" }), effects).light, {});
 	const pair = applyCommand(emptyStage(), cmd("character", { name: "avg_a", name2: "avg_b", blackstart: 0.2, blackend: 0.7, blackstart2: 0.3, blackend2: 0.9 }), effects);
 	assert.deepEqual(pair.light, { l: { dim: 0.2, lit: 0.7 }, r: { dim: 0.3, lit: 0.9 } });
+});
+
+test("a charslot action zooms about its pivot, jumps to posto, and shakes by its power and times", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1" }), effects);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", action: "zoom", poszoom: "0.5,0.65", scale: 1.4, duration: 0.5 }), effects);
+	assert.deepEqual([stage.motion.m.scale, stage.motion.m.pivot, stage.motion.m.duration], [1.4, { x: 0.5, y: 0.65 }, 0.5]);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", action: "jump", posfrom: "0,0", posto: "-80,0", power: 5, times: 2, duration: 0.4 }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.motion.m.from, stage.motion.m.jump], [-80, { x: 0, y: 0 }, { power: 5, times: 2, duration: 0.4 }]);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", action: "shake", power: 8, times: 100, duration: 0.5 }), effects);
+	assert.deepEqual([stage.motion.m.jump, stage.motion.m.shake, stage.motion.m.shakeSwing], [null, 0.5, { power: 8, times: 100 }]);
+	assert.equal(applyCommand(emptyStage(), cmd("charslot", { slot: "m", action: "shake", power: 8 }), effects).motion.m, undefined);
 });

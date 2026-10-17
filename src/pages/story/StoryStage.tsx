@@ -38,8 +38,8 @@ const KEYFRAMES = {
 	"@keyframes storyJump": { "0%, 100%": { translate: "0 0" }, "50%": { translate: "0 calc(var(--jump) * -1)" } },
 	"@keyframes storySpriteShake": {
 		"0%, 100%": { translate: "0 0" },
-		"10%, 50%, 90%": { translate: "-0.8cqh 0" },
-		"30%, 70%": { translate: "0.8cqh 0" }
+		"25%": { translate: "calc(var(--power) * -1) 0" },
+		"75%": { translate: "var(--power) 0" }
 	},
 	"@keyframes storyCurtainV": { from: { height: "var(--from)" }, to: { height: "var(--to)" } },
 	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } }
@@ -104,7 +104,7 @@ const SPRITE_FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, pointe
 const SPRITE_SX: SxProps<Theme> = { position: "absolute", transformOrigin: "50% 100%", pointerEvents: "none" };
 
 /** A sprite jump's inline style: its height as a custom property the keyframes read. */
-type JumpStyle = CSSProperties & { "--jump"?: string; "--slide-x"?: string; "--slide-y"?: string };
+type JumpStyle = CSSProperties & { "--jump"?: string; "--power"?: string; "--slide-x"?: string; "--slide-y"?: string };
 
 /** How strong a full `focusout` blur is, as % of the stage height. */
 const BLUR_MAX = 1.2;
@@ -325,7 +325,11 @@ function cueStyle(motion: Motion | undefined): JumpStyle {
 		const { power, times, duration } = motion.jump;
 		return { "--jump": `${(power / TEXT_HEIGHT) * 100}cqh`, animation: `storyJump ${duration / times}s ease-in-out ${times}` };
 	}
-	return motion?.shake ? { animation: `storySpriteShake ${motion.shake}s linear` } : {};
+	if (motion?.shake) {
+		const { power, times } = motion.shakeSwing;
+		return { "--power": `${(power / TEXT_HEIGHT) * 100}cqh`, animation: `storySpriteShake ${motion.shake / times}s linear ${times}` };
+	}
+	return {};
 }
 
 /**
@@ -423,6 +427,7 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 										left: `${centre}%`,
 										filter: brightness === 1 ? "none" : `brightness(${brightness})`,
 										transform: `translateX(-50%) scale(${scale})`,
+										transformOrigin: motion ? `${motion.pivot.x * 100}% ${(1 - motion.pivot.y) * 100}%` : undefined,
 										transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`
 									}}
 								/>
