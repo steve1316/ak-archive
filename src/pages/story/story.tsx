@@ -17,9 +17,13 @@ import DesktopPlayer from "./DesktopPlayer.js";
 import MobilePlayer from "./MobilePlayer.js";
 import { useStoryRun } from "./useStoryRun.js";
 
-/** The page on a desktop: a black band with the stage centred at the largest 16:9 that fits under the bar. */
+/**
+ * The page on a desktop: a black band with the stage centred at the largest 16:9 that fits under the bar. It clips, so a camera shake
+ * moving the stage past the window's edge never grows the page and flashes scroll bars.
+ */
 const PAGE_SX: SxProps<Theme> = (theme) => ({
 	background: "#000",
+	overflow: "clip",
 	...fillBelowNavbar(theme.mixins.toolbar, "minHeight"),
 	display: "flex",
 	flexDirection: "column",
@@ -34,6 +38,8 @@ const MOBILE_PAGE_SX: SxProps<Theme> = (theme) => ({
 	display: "flex",
 	flexDirection: "column",
 	background: "#000",
+	// Clipped for the same camera shake as the desktop page.
+	overflow: "clip",
 	// Last, so it wins over the toolbar heights above.
 	[`@media ${MOBILE_LANDSCAPE_QUERY}`]: { height: "100dvh" }
 });
