@@ -208,7 +208,7 @@ export interface Cursor {
 }
 
 /** Where a walk stopped. */
-export type Stop = { kind: "line"; line: LineStep } | { kind: "caption"; text: string } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
+export type Stop = { kind: "line"; line: LineStep } | { kind: "caption"; text: string; typeTime: number } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
 
 /** The stage at one wait on the way to a stop: what shows, the effects met since the last wait, and how long the game holds it. */
 export interface Beat {
@@ -787,6 +787,21 @@ function waitOf(step: CommandStep): number {
 	return blocks ? Math.max(0, timeOf(a)) : 0;
 }
 
+/** Typing slower than a frame is worth drawing. Anything quicker shows all at once. */
+export const MIN_TYPING = 0.016;
+
+/**
+ * How long a caption takes to type out.
+ *
+ * @param text The caption's new text.
+ * @param a The command's arguments, whose `delay` is the time each character takes.
+ * @returns The time in seconds, or 0 when it shows all at once.
+ */
+function typeTimeOf(text: string, a: Record<string, unknown>): number {
+	const each = num(a.delay, 0);
+	return each >= MIN_TYPING ? each * text.length : 0;
+}
+
 /**
  * The text a command shows that the reader clicks past, as the game waits on it: a subtitle with text, or a sticker with text that does not
  * set `block=false`.
@@ -840,7 +855,7 @@ export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advan
 		next = applyCommand(next, step, effects);
 		const caption = captionOf(step);
 		if (caption !== null) {
-			return finish({ kind: "caption", text: caption });
+			return finish({ kind: "caption", text: caption, typeTime: typeTimeOf(caption, step.a) });
 		}
 		const wait = waitOf(step);
 		if (wait > 0) {

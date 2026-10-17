@@ -465,3 +465,10 @@ test("a subtitle or sticker's delay is how long each of its characters takes to 
 	assert.equal(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi.", delay: 0.04 }), effects).subtitle.typing, 0.04);
 	assert.equal(applyCommand(emptyStage(), cmd("sticker", { id: "s", text: "Hi.", delay: 0 }), effects).stickers[0].typing, 0);
 });
+
+test("a caption stop says how long its text takes to type, and 0 when it shows at once", () => {
+	const typed = advance([cmd("sticker", { id: "s", text: "Hello", delay: 0.04 })], START, emptyStage());
+	assert.ok(Math.abs(typed.stop.typeTime - 0.2) < 1e-9);
+	assert.equal(advance([cmd("sticker", { id: "s", text: "Hello", delay: 0.001 })], START, emptyStage()).stop.typeTime, 0);
+	assert.equal(advance([cmd("subtitle", { text: "Hello" })], START, emptyStage()).stop.typeTime, 0);
+});

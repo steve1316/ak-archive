@@ -99,6 +99,8 @@ export interface StoryRun {
 	settings: StorySettingsState;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
+	/** Changes when a click types out a caption still typing. */
+	finishKey: number;
 	/** The shake to play when `shakeKey` changes. */
 	shake: Shake | null;
 	/** Steps back to the previous stop. */
@@ -238,6 +240,9 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const [nickname, setNicknameState] = useState(() => readStored(NICKNAME_KEY) || DEFAULT_NICKNAME);
 	const [shakeKey, setShakeKey] = useState(0);
 	const [shake, setShake] = useState<Shake | null>(null);
+	const [finishKey, setFinishKey] = useState(0);
+	// When the caption on screen began typing, to tell whether a click should finish it first.
+	const captionSince = useRef(0);
 
 	// The old AUTO and mute keys, read once, seed the settings for anything the reader has not saved yet.
 	const [seed] = useState(() => ({ auto: readStored(OLD_AUTO_KEY) === "1", muted: readStored(OLD_MUTED_KEY) === "1" }));
@@ -260,6 +265,11 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const stop = playing ? null : run.stop;
 	const line: LineStep | null = stop?.kind === "line" ? stop.line : null;
 	const caption = stop?.kind === "caption" ? fillNickname(stop.text, nickname) : null;
+	useEffect(() => {
+		if (stop?.kind === "caption") {
+			captionSince.current = performance.now();
+		}
+	}, [stop]);
 	const decision = stop?.kind === "decision" ? stop.decision : null;
 	const ended = stop?.kind === "end";
 	const shown = useMemo(() => (line ? fillNickname(line, nickname) : null), [line, nickname]);
@@ -374,6 +384,11 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		}
 		if (typed < length) {
 			setTyped(length);
+			return;
+		}
+		if (run.stop.kind === "caption" && run.stop.typeTime > 0 && performance.now() - captionSince.current < run.stop.typeTime * 1000) {
+			captionSince.current = 0;
+			setFinishKey((key) => key + 1);
 			return;
 		}
 		land(advance(steps, run.cursor, run.stage), []);
@@ -517,6 +532,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		nickname,
 		settings,
 		shakeKey,
+		finishKey,
 		shake,
 		back,
 		restart,

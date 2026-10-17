@@ -7,7 +7,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
-import { characterOf, fillNickname } from "./engine.js";
+import { MIN_TYPING, characterOf, fillNickname } from "./engine.js";
 import { shakeFrames } from "./shake.js";
 import type { Shake } from "./shake.js";
 import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
@@ -208,6 +208,8 @@ interface StoryStageProps {
 	hideText: boolean;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
+	/** Changes when the reader clicks, which types out any caption still typing. */
+	finishKey: number;
 	/** The shake to play when `shakeKey` changes. */
 	shake: Shake | null;
 	/** Anything drawn over the stage, such as the controls and choices. */
@@ -534,18 +536,16 @@ function StampView({ stamp }: { stamp: Stamp }) {
  * @param props Component props.
  * @returns The captions.
  */
-/** Typing slower than a frame is worth drawing. Anything quicker shows all at once. */
-const MIN_TYPING = 0.016;
-
 /**
  * One caption, typed out a character at a time at the script's pace. The whole text sits unseen underneath, so the box keeps its size and the
  * words do not shift as they appear. More text added to the same caption carries on from where it had got to.
  *
  * @param props Component props.
  * @param props.caption The caption, with the reader's name filled in.
+ * @param props.finishKey Changes when the reader clicks, which types out whatever is left.
  * @returns The caption.
  */
-function CaptionView({ caption }: { caption: Caption }) {
+function CaptionView({ caption, finishKey }: { caption: Caption; finishKey: number }) {
 	const total = caption.text.length;
 	const instant = caption.typing < MIN_TYPING;
 	const [typed, setTyped] = useState(instant ? total : 0);
@@ -556,6 +556,14 @@ function CaptionView({ caption }: { caption: Caption }) {
 		}
 		last.current = caption.text;
 	}, [caption.text]);
+	// A caption that arrives after a click starts typing, so only a change after it mounted finishes it.
+	const seenKey = useRef(finishKey);
+	useEffect(() => {
+		if (finishKey !== seenKey.current) {
+			seenKey.current = finishKey;
+			setTyped(Number.MAX_SAFE_INTEGER);
+		}
+	}, [finishKey]);
 	useEffect(() => {
 		if (instant || typed >= total) {
 			return;
@@ -563,7 +571,7 @@ function CaptionView({ caption }: { caption: Caption }) {
 		const timer = window.setTimeout(() => setTyped((count) => count + 1), caption.typing * 1000);
 		return () => window.clearTimeout(timer);
 	}, [instant, typed, total, caption.typing]);
-	const shown = instant ? total : typed;
+	const shown = instant ? total : Math.min(typed, total);
 	return (
 		<Box sx={CAPTION_SX} style={captionStyle(caption)}>
 			<Box sx={{ visibility: instant ? "visible" : "hidden" }}>{typedRuns(caption, Number.MAX_SAFE_INTEGER)}</Box>
@@ -572,14 +580,26 @@ function CaptionView({ caption }: { caption: Caption }) {
 	);
 }
 
-const Captions = memo(function Captions({ subtitle, stickers, stamp, nickname }: { subtitle: Caption | null; stickers: Sticker[]; stamp: Stamp | null; nickname: string }) {
+const Captions = memo(function Captions({
+	subtitle,
+	stickers,
+	stamp,
+	nickname,
+	finishKey
+}: {
+	subtitle: Caption | null;
+	stickers: Sticker[];
+	stamp: Stamp | null;
+	nickname: string;
+	finishKey: number;
+}) {
 	return (
 		<>
 			{/* Keyed on the text, so a new stamp slides in again. */}
 			{stamp ? <StampView key={`${stamp.place}|${stamp.time}`} stamp={stamp} /> : null}
-			{subtitle ? <CaptionView caption={fillNickname(subtitle, nickname)} /> : null}
+			{subtitle ? <CaptionView caption={fillNickname(subtitle, nickname)} finishKey={finishKey} /> : null}
 			{stickers.map((entry) => (
-				<CaptionView key={entry.id} caption={fillNickname(entry, nickname)} />
+				<CaptionView key={entry.id} caption={fillNickname(entry, nickname)} finishKey={finishKey} />
 			))}
 		</>
 	);
@@ -591,7 +611,7 @@ const Captions = memo(function Captions({ subtitle, stickers, stamp, nickname }:
  * @param props Component props.
  * @returns The stage.
  */
-function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, nickname, presence, hideText, shakeKey, shake, children, onClick }: StoryStageProps) {
+function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, nickname, presence, hideText, shakeKey, finishKey, shake, children, onClick }: StoryStageProps) {
 	const shaker = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (shakeKey && shake) {
@@ -608,7 +628,7 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
 			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
-			<Captions subtitle={stage.subtitle} stickers={stage.stickers} stamp={stage.stamp} nickname={nickname} />
+			<Captions subtitle={stage.subtitle} stickers={stage.stickers} stamp={stage.stamp} nickname={nickname} finishKey={finishKey} />
 			{!hideText && line ? (
 				<>
 					<Box sx={VIGNETTE_SX} />
