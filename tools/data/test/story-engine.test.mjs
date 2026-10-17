@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { shakeFrames } from "../../../src/pages/story/shake.ts";
 import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, linesAhead, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
 
 /**
@@ -94,7 +95,12 @@ test("a predicate listing every value shows its lines whatever was picked", () =
 test("effects collect sounds, shakes and a cleared box on the way to a line, across a pause", () => {
 	const steps = [cmd("playsound", { key: "s_a", volume: 0.5 }), cmd("camerashake", { duration: 1 }), cmd("delay", { time: 0.6 }), cmd("dialog"), line(null, "x")];
 	const { effects } = advance(steps, START, emptyStage());
-	assert.deepEqual(effects, { sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null }], musicFade: 0, shake: 1, clearText: true });
+	assert.deepEqual(effects, {
+		sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null }],
+		musicFade: 0,
+		shake: { duration: 1, x: 0, y: 0, vibrato: 10, randomness: 90, fadeOut: false },
+		clearText: true
+	});
 });
 
 test("blockers, art scenes with their tween, grayscale and unknown commands fold into the stage", () => {
@@ -171,7 +177,7 @@ test("a walk keeps the stage at each wait as a beat, so fades and pauses play in
 		[0.6, "bg_ship", "m_dark", 0]
 	]);
 	assert.equal(walk.beats.at(-1).stage, walk.stage);
-	assert.deepEqual([walk.beats[0].effects.musicFade, walk.beats[5].effects.shake, walk.effects.musicFade, walk.effects.shake], [2, 0.5, 2, 0.5]);
+	assert.deepEqual([walk.beats[0].effects.musicFade, walk.beats[5].effects.shake?.duration, walk.effects.musicFade, walk.effects.shake?.duration], [2, 0.5, 2, 0.5]);
 	assert.equal(advance([line(null, "a")], START, emptyStage()).beats.length, 1);
 });
 
@@ -441,4 +447,15 @@ test("charslot places a sprite at posto, sliding from posfrom, and fades one out
 	assert.deepEqual([faded.sprites, faded.leaving.m.fade], [{}, 0.5]);
 	const partial = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#2$1", afrom: 1, ato: 0.7, duration: 0.5 }), effects);
 	assert.equal(partial.sprites.m, "avg_a_1#2$1");
+});
+
+test("camerashake keeps its strengths, jolts and fade, and shakeFrames makes a repeatable shake that comes to rest", () => {
+	const effects = emptyEffects();
+	applyCommand(emptyStage(), cmd("camerashake", { duration: 0.3, xstrength: 10, ystrength: 12, vibrato: 30, randomness: 90, fadeout: true }), effects);
+	assert.deepEqual(effects.shake, { duration: 0.3, x: 10, y: 12, vibrato: 30, randomness: 90, fadeOut: true });
+	const frames = shakeFrames(effects.shake, 3);
+	assert.equal(frames.length, 10);
+	assert.deepEqual([frames[0].transform, frames.at(-1).transform], ["translate(0, 0)", "translate(0, 0)"]);
+	assert.deepEqual(shakeFrames(effects.shake, 3), frames);
+	assert.notDeepEqual(shakeFrames(effects.shake, 4), frames);
 });

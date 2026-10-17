@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { Box, GlobalStyles } from "@mui/material";
@@ -8,6 +8,8 @@ import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
 import { characterOf, fillNickname } from "./engine.js";
+import { shakeFrames } from "./shake.js";
+import type { Shake } from "./shake.js";
 import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
 import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
 
@@ -17,16 +19,7 @@ import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState
  */
 const TEXT_BOX = { nameRight: 26.1, nameTop: 86.9, nameFont: 3.6, lineLeft: 29.9, lineTop: 86.8, lineWidth: 55, lineFont: 2.65, lineHeight: 1.4, lineFloor: 98 };
 
-/** One camera shake. */
-const SHAKE_FRAMES = {
-	"0%, 100%": { transform: "translate(0, 0)" },
-	"20%": { transform: "translate(-0.6%, 0.4%)" },
-	"40%": { transform: "translate(0.6%, -0.4%)" },
-	"60%": { transform: "translate(-0.4%, -0.3%)" },
-	"80%": { transform: "translate(0.4%, 0.3%)" }
-};
-
-/** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
+/** The keyframes the stage uses for fades, slides and sprite motion. */
 const KEYFRAMES = {
 	"@keyframes storySlideA": { from: { transform: "translate(var(--slide-x), var(--slide-y))" } },
 	"@keyframes storySlideB": { from: { transform: "translate(var(--slide-x), var(--slide-y))" } },
@@ -49,9 +42,7 @@ const KEYFRAMES = {
 		"30%, 70%": { translate: "0.8cqh 0" }
 	},
 	"@keyframes storyCurtainV": { from: { height: "var(--from)" }, to: { height: "var(--to)" } },
-	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } },
-	"@keyframes storyShake0": SHAKE_FRAMES,
-	"@keyframes storyShake1": SHAKE_FRAMES
+	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } }
 };
 
 /** How a sprite that is not speaking is drawn. */
@@ -217,6 +208,8 @@ interface StoryStageProps {
 	hideText: boolean;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
+	/** The shake to play when `shakeKey` changes. */
+	shake: Shake | null;
 	/** Anything drawn over the stage, such as the controls and choices. */
 	children?: ReactNode;
 	/** Called when the stage is clicked. The phone reader handles taps around the stage itself, so it passes none. */
@@ -566,17 +559,19 @@ const Captions = memo(function Captions({ subtitle, stickers, stamp, nickname }:
  * @param props Component props.
  * @returns The stage.
  */
-function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, nickname, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, nickname, presence, hideText, shakeKey, shake, children, onClick }: StoryStageProps) {
+	const shaker = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (shakeKey && shake) {
+			shaker.current?.animate?.(shakeFrames(shake, shakeKey), { duration: shake.duration * 1000, easing: "linear" });
+		}
+		// Only a new shakeKey starts a shake.
+	}, [shakeKey]);
 	const textStyle = useMemo<TextSizeStyle>(() => ({ "--text-size": textSize }), [textSize]);
 	// The whole line for the unseen copy. It changes with the line, not with each character the typewriter adds.
 	const fullLine = useMemo(() => (line ? typedRuns(line, Number.MAX_SAFE_INTEGER) : null), [line]);
 	return (
-		<Box
-			sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }}
-			style={{ animation: shakeKey ? `storyShake${shakeKey % 2} 0.5s linear` : undefined }}
-			onClick={onClick}
-			data-region="story-stage"
-		>
+		<Box sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }} ref={shaker} onClick={onClick} data-region="story-stage">
 			<GlobalStyles styles={KEYFRAMES} />
 			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}

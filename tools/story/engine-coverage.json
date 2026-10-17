@@ -33,7 +33,7 @@
 	},
 	"camerashake": {
 		"handled": true,
-		"ignored": ["delay", "fadeout", "focus", "randomness", "stop", "strength", "vibrato", "xstrength", "ystrength"]
+		"ignored": ["delay", "focus", "stop"]
 	},
 	"cgitem": {
 		"handled": true,

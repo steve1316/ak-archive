@@ -9,6 +9,7 @@ import type { StoryPresence } from "../../lib/story.js";
 import type { DecisionStep, LineStep, StoryFile, StoryGroup } from "../../types/story.js";
 import { START, advance, choose, emptyStage, fillNickname, linesAhead, mergeEffects, skipToStop, upcomingArt } from "./engine.js";
 import type { Advance, Effects, SoundCue, StageState } from "./engine.js";
+import type { Shake } from "./shake.js";
 import { useMusicTitles } from "./useMusicTitles.js";
 import { useStoryAudio } from "./useStoryAudio.js";
 
@@ -98,6 +99,8 @@ export interface StoryRun {
 	settings: StorySettingsState;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
+	/** The shake to play when `shakeKey` changes. */
+	shake: Shake | null;
 	/** Steps back to the previous stop. */
 	back: () => void;
 	/** Starts the story again from its first stop, with the Log, the history and the picks cleared. */
@@ -234,6 +237,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	const [covered, setCovered] = useState(false);
 	const [nickname, setNicknameState] = useState(() => readStored(NICKNAME_KEY) || DEFAULT_NICKNAME);
 	const [shakeKey, setShakeKey] = useState(0);
+	const [shake, setShake] = useState<Shake | null>(null);
 
 	// The old AUTO and mute keys, read once, seed the settings for anything the reader has not saved yet.
 	const [seed] = useState(() => ({ auto: readStored(OLD_AUTO_KEY) === "1", muted: readStored(OLD_MUTED_KEY) === "1" }));
@@ -354,6 +358,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		setLog(entries);
 		setTyped(0);
 		setShakeKey(0);
+		setShake(null);
 	}, [steps]);
 
 	// Jump past the beats still playing to the stop, running the sounds they would have started.
@@ -401,7 +406,8 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 
 	// Each beat that met a shake shakes the stage.
 	useEffect(() => {
-		if (effects.shake > 0) {
+		if (effects.shake) {
+			setShake(effects.shake);
 			setShakeKey((key) => key + 1);
 		}
 	}, [effects]);
@@ -511,6 +517,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 		nickname,
 		settings,
 		shakeKey,
+		shake,
 		back,
 		restart,
 		pick,

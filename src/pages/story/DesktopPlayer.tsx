@@ -214,6 +214,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 		nickname,
 		settings,
 		shakeKey,
+		shake,
 		pick,
 		restart,
 		skip,
@@ -273,6 +274,7 @@ export default function DesktopPlayer({ reader, group, title, tag, presence }: D
 					presence={presence}
 					hideText={hideUi}
 					shakeKey={shakeKey}
+					shake={shake}
 					onClick={onStage}
 				>
 					{!hideUi ? (

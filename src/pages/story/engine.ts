@@ -13,6 +13,7 @@
  */
 
 import type { CommandStep, DecisionStep, LineStep, Span, Step } from "../../types/story.js";
+import type { Shake } from "./shake.js";
 
 /** A sprite position on stage: left, middle or right. */
 export type Slot = "l" | "m" | "r";
@@ -188,8 +189,8 @@ export interface Effects {
 	sounds: SoundCue[];
 	/** How long the music fades out over when a `stopmusic` was met, in seconds. */
 	musicFade: number;
-	/** How long the stage shakes, in seconds, or 0. */
-	shake: number;
+	/** The camera shake met, or null. */
+	shake: Shake | null;
 	/** Whether the text box was cleared. */
 	clearText: boolean;
 }
@@ -264,6 +265,24 @@ const EXIT_DISTANCE = 1600;
 
 /** Which layer each `focusout` type blurs. */
 /**
+ * A shake from `camerashake` arguments.
+ *
+ * @param a The command's arguments.
+ * @returns The shake.
+ */
+function shakeOf(a: Record<string, unknown>): Shake {
+	const strength = num(a.strength, 0);
+	return {
+		duration: num(a.duration, 0.5),
+		x: num(a.xstrength, strength),
+		y: num(a.ystrength, strength),
+		vibrato: num(a.vibrato, 10),
+		randomness: num(a.randomness, 90),
+		fadeOut: a.fadeout === true
+	};
+}
+
+/**
  * A position argument such as `-100,0`.
  *
  * @param value The argument.
@@ -330,7 +349,7 @@ export function emptyStage(): StageState {
  * @returns The effects.
  */
 export function emptyEffects(): Effects {
-	return { sounds: [], musicFade: 0, shake: 0, clearText: false };
+	return { sounds: [], musicFade: 0, shake: null, clearText: false };
 }
 
 /**
@@ -344,7 +363,7 @@ export function mergeEffects(list: Effects[]): Effects {
 	for (const effects of list) {
 		merged.sounds.push(...effects.sounds);
 		merged.musicFade = effects.musicFade || merged.musicFade;
-		merged.shake = Math.max(merged.shake, effects.shake);
+		merged.shake = effects.shake ?? merged.shake;
 		merged.clearText ||= effects.clearText;
 	}
 	return merged;
@@ -740,7 +759,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "animtextclean":
 			return { ...stage, stamp: stage.stamp ? { ...stage.stamp, leaving: true } : null };
 		case "camerashake":
-			effects.shake = Math.max(effects.shake, num(a.duration, 0.5));
+			effects.shake = shakeOf(a);
 			return stage;
 		case "cameraeffect":
 			return text(a.effect)?.toLowerCase() === "grayscale" ? { ...stage, grayscale: num(a.amount, 0) > 0 } : stage;
