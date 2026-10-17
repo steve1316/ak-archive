@@ -1,4 +1,5 @@
-import { enemyNumber, operatorNumber } from "../../tools/data/lib/routePages.mjs";
+import { enemyNumber, operatorNumber, storyRoute, storySlug } from "../../tools/data/lib/routePages.mjs";
+import type { StoryGroup, StoryGroupEntry } from "../types/story.js";
 import { searchIndex } from "./data.js";
 
 // The route numbers live in `routePages.mjs`, which the build also uses to write a real page for every route, so the two cannot disagree.
@@ -24,14 +25,28 @@ export function storyGroupPath(group: string | null = null): string {
 }
 
 /**
- * The route for one story in the player.
+ * The route for one story in the player: the group alone for its only story, such as `/story/story_angel_set_1`, or the group and the
+ * story's short name, such as `/story/act40side/01_beg`.
  *
- * @param group The story group id.
+ * @param group The story's group.
  * @param story The story id.
  * @returns The route, without the site's base path.
  */
-export function storyPath(group: string, story: string): string {
-	return `/story/${group}/${story}`;
+export function storyPath(group: StoryGroup, story: string): string {
+	return `/${storyRoute(group, story)}`;
+}
+
+/**
+ * The story a story URL's last segment names. That is its short name, which is empty for a group's only story. Links from before the short
+ * form name the full id, or the id without its group's, such as `story_1`, and still find it.
+ *
+ * @param group The story's group.
+ * @param segment The URL's last segment, or an empty string when it has none.
+ * @returns The story, or undefined when the group has none by that name.
+ */
+export function storyAt(group: StoryGroup, segment: string): StoryGroupEntry | undefined {
+	const { stories } = group;
+	return stories.find((story) => storySlug(group, story.id) === segment) ?? stories.find((story) => story.id === segment || story.id === `${group.id}_${segment}`);
 }
 
 /**

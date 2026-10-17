@@ -6,13 +6,14 @@ import { useEffect, useState } from "react";
 
 import { Box, Typography } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
-import { useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { LoadError, MOBILE_LANDSCAPE_QUERY, ScrollToTop, fillBelowNavbar, useIsMobile } from "archive-kit";
 
+import { storyAt, storyPath } from "../../lib/routes.js";
 import { groupNameRepeats, loadStory, loadStoryGroup, loadStoryPresence, storyTitle } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
-import type { StoryFile, StoryGroup } from "../../types/story.js";
+import type { StoryFile, StoryGroup, StoryGroupEntry } from "../../types/story.js";
 import DesktopPlayer from "./DesktopPlayer.js";
 import MobilePlayer from "./MobilePlayer.js";
 import { useStoryRun } from "./useStoryRun.js";
@@ -73,13 +74,16 @@ function StoryPlayer({ story, group, title, tag, presence, mobile }: StoryPlayer
 }
 
 /**
- * The story player route: loads the story, its group and the asset presence, then plays it.
+ * The story player route: loads the group and the asset presence, then the story the address names, then plays it. An address in an older
+ * form is swapped for the story's own as soon as the group is known, before the story itself loads.
  *
  * @returns The page.
  */
 export default function Story() {
-	const { group: groupId = "", story: storyId = "" } = useParams();
-	const [data, setData] = useState<{ story: StoryFile; group: StoryGroup; presence: StoryPresence } | null>(null);
+	const { group: groupId = "", story: param = "" } = useParams();
+	const { pathname, search } = useLocation();
+	const navigate = useNavigate();
+	const [data, setData] = useState<{ story: StoryFile; entry: StoryGroupEntry; group: StoryGroup; presence: StoryPresence } | null>(null);
 	const [error, setError] = useState(false);
 	const [attempt, setAttempt] = useState(0);
 	const mobile = useIsMobile();
@@ -88,31 +92,46 @@ export default function Story() {
 		let active = true;
 		setData(null);
 		setError(false);
-		Promise.all([loadStory(storyId), loadStoryGroup(groupId), loadStoryPresence()]).then(
-			([story, group, presence]) => {
-				if (active) {
-					setData({ story, group, presence });
+		Promise.all([loadStoryGroup(groupId), loadStoryPresence()])
+			.then(async ([group, presence]) => {
+				const entry = storyAt(group, param);
+				if (!entry) {
+					throw new Error(`No story ${param} in ${groupId}`);
 				}
-			},
-			() => {
-				if (active) {
-					setError(true);
+				// An older link, by full id or by the id without its group's. The group is cached, so the page this remounts into loads at once.
+				const canonical = storyPath(group, entry.id);
+				if (canonical !== pathname) {
+					if (active) {
+						navigate(`${canonical}${search}`, { replace: true });
+					}
+					return null;
 				}
-			}
-		);
+				return { story: await loadStory(entry.id), entry, group, presence };
+			})
+			.then(
+				(loaded) => {
+					if (active && loaded) {
+						setData(loaded);
+					}
+				},
+				() => {
+					if (active) {
+						setError(true);
+					}
+				}
+			);
 		return () => {
 			active = false;
 		};
-	}, [groupId, storyId, attempt]);
+	}, [groupId, param, pathname, search, navigate, attempt]);
 
-	const entry = data?.group.stories.find((item) => item.id === storyId);
-	const title = entry ? storyTitle(entry) : storyId;
+	const title = data ? storyTitle(data.entry) : param;
 	useEffect(() => {
-		if (data && entry) {
+		if (data) {
 			const group = groupNameRepeats(data.group) ? "" : ` - ${data.group.name}`;
 			document.title = `${title}${group} - Arknights Archive`;
 		}
-	}, [data, entry, title]);
+	}, [data, title]);
 
 	return (
 		<Box component="main" sx={mobile && data ? MOBILE_PAGE_SX : PAGE_SX}>
@@ -120,7 +139,7 @@ export default function Story() {
 			{error ? (
 				<LoadError what="this story" onRetry={() => setAttempt((value) => value + 1)} titleComponent="h1" />
 			) : data ? (
-				<StoryPlayer key={data.story.id} story={data.story} group={data.group} title={title} tag={entry?.tag} presence={data.presence} mobile={mobile} />
+				<StoryPlayer key={data.story.id} story={data.story} group={data.group} title={title} tag={data.entry.tag} presence={data.presence} mobile={mobile} />
 			) : (
 				<Typography color="text.secondary" role="status">
 					Loading...

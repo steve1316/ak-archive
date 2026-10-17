@@ -88,7 +88,7 @@ function StoryList({ groupId, subtitle, onClose }: StoryListProps) {
 				<Box
 					key={story.id}
 					component={Link}
-					to={storyPath(group.id, story.id)}
+					to={storyPath(group, story.id)}
 					sx={{
 						display: "grid",
 						gridTemplateColumns: "56px 1fr auto",

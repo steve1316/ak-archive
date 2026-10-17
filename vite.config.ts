@@ -13,6 +13,7 @@ import { baseTrailingSlash, routePages, spaFallback } from "archive-kit/config";
 import { EMPTY_PRESENCE, slimManifest } from "./tools/data/lib/presence.mjs";
 import { RIG_BUCKET_COUNT, splitRigIndex } from "./tools/data/lib/rigBuckets.mjs";
 import { routePagePaths } from "./tools/data/lib/routePages.mjs";
+import type { StoryGroupIds } from "./tools/data/lib/routePages.mjs";
 
 // Pages serves the site from /ak-archive/, while Docker and local previews serve it from the root. VITE_BASE lets the same source produce both.
 const BASE = process.env.VITE_BASE ?? "/ak-archive/";
@@ -171,9 +172,8 @@ async function routePageList(): Promise<string[]> {
 	const ids = await dataIds();
 	const groupDir = path.join(STORY_DATA_DIR, "groups");
 	const groupFiles = await fs.readdir(groupDir).catch(() => [] as string[]);
-	const groups = await Promise.all(groupFiles.map(async (file) => JSON.parse(await fs.readFile(path.join(groupDir, file), "utf8")) as { id: string; stories: { id: string }[] }));
-	const storyPaths = groups.flatMap((group) => group.stories.map((story) => `${group.id}/${story.id}`));
-	return routePagePaths({ operatorIds: ids.operators, enemyHeadIds: ids.enemyHeads, storyPaths });
+	const groups = await Promise.all(groupFiles.map(async (file) => JSON.parse(await fs.readFile(path.join(groupDir, file), "utf8")) as StoryGroupIds));
+	return routePagePaths({ operatorIds: ids.operators, enemyHeadIds: ids.enemyHeads, storyGroups: groups });
 }
 
 /**

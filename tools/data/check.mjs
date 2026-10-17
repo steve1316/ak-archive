@@ -17,6 +17,7 @@ import path from "node:path";
 import { ledgerProblems, missingAssets, publishedAssets, referencedAssets } from "./lib/gaps.mjs";
 import { cardOf } from "./lib/operators.mjs";
 import { parseRecord } from "./lib/record.mjs";
+import { storySlug } from "./lib/routePages.mjs";
 import { SHARDS } from "./lib/shards.mjs";
 import { spriteKey } from "../story/keys.mjs";
 import { STEP_TYPES } from "../story/parse_avg.mjs";
@@ -1127,6 +1128,11 @@ for (const groupId of storyGroupIds) {
 		continue;
 	}
 	const group = read(`story/groups/${groupId}`);
+	// A story's URL ends in its short name, so two stories sharing one, or a longer group's story with none, could not both be reached.
+	const slugs = group.stories.map((entry) => storySlug(group, entry.id));
+	if (group.stories.length > 1 && (new Set(slugs).size !== slugs.length || slugs.includes(""))) {
+		fail(`story group ${groupId} has short names that are empty or repeat: ${slugs.join(", ")}`);
+	}
 	for (const entry of group.stories) {
 		if (checkedStories.has(entry.id)) {
 			continue;

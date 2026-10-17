@@ -257,7 +257,7 @@ const RecordDetail = memo(function RecordDetail({ operator, onBack }: RecordDeta
 								</Typography>
 							) : null}
 							{group.stories.map((story) => (
-								<Box key={story.id} component={Link} to={storyPath(group.id, story.id)} sx={STORY_SX}>
+								<Box key={story.id} component={Link} to={storyPath(group, story.id)} sx={STORY_SX}>
 									<Typography>{story.name}</Typography>
 									<Typography variant="caption" sx={{ border: "1px solid #2a303c", borderRadius: 1, px: 0.75, color: "text.secondary" }}>
 										{story.tag}

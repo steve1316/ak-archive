@@ -316,7 +316,7 @@ export function useStoryRun(story: StoryFile, group: StoryGroup, title: string, 
 	// The end card's ways on, the same in both views.
 	const ending = useMemo(
 		() => ({
-			next: next ? { label: `Next: ${storyTitle(next)}`, to: storyPath(group.id, next.id) } : undefined,
+			next: next ? { label: `Next: ${storyTitle(next)}`, to: storyPath(group, next.id) } : undefined,
 			back: { label: `Back to ${group.name}`, to: storyGroupPath(group.id) }
 		}),
 		[next, group]
