@@ -117,8 +117,14 @@ export const HERO_RELEASE_SX: SxProps<Theme> = { m: 0, mt: 0.5, fontSize: 13, co
 /** A second line under the release line, such as an enemy's debut or an outfit's own release. Also meant for a plain `p`. */
 export const HERO_DEBUT_SX: SxProps<Theme> = { m: 0, fontSize: 13, color: "text.secondary" };
 
+/** How hero chips wrap and space within one row. */
+const HERO_CHIP_WRAP = { flexWrap: "wrap", gap: 0.625 } as const;
+
 /** The row of choice chips under the name, such as an operator's forms or an enemy's variants. */
-export const HERO_CHIPS_SX: SxProps<Theme> = { flexWrap: "wrap", gap: 0.625, mt: 1.25 };
+export const HERO_CHIPS_SX: SxProps<Theme> = { ...HERO_CHIP_WRAP, mt: 1.25 };
+
+/** The chips of one row in a stack of labelled hero chip rows, which spaces the rows itself. */
+export const HERO_CHIP_ROW_SX: SxProps<Theme> = { ...HERO_CHIP_WRAP, minWidth: 0 };
 
 /** A detail page's top padding, in the theme's spacing units. The operator page's fold subtracts it to size itself to the viewport. */
 export const PAGE_TOP_PADDING = 1.75;
