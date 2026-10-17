@@ -569,3 +569,12 @@ test("a character that enters slides in from the edge it names", () => {
 		]
 	);
 });
+
+test("a character command re-casting the same character keeps its slide", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("character", { name: "avg_a#1$1", enter: "left", fadetime: 1 }), effects);
+	const slot = Object.keys(stage.sprites)[0];
+	stage = applyCommand(stage, cmd("character", { name: "avg_a#2$1" }), effects);
+	assert.equal(stage.motion[slot].duration, 1);
+	assert.equal(applyCommand(stage, cmd("character", { name: "avg_b#1$1" }), effects).motion[slot], undefined);
+});

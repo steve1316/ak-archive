@@ -774,6 +774,12 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			const motion: Partial<Record<Slot, Motion>> = {};
 			slots.slice(0, names.length).forEach((slot, index) => {
 				const suffix = index === 0 ? "" : String(index + 1);
+				// A character already standing there keeps where it moved to, so a new expression does not cut a slide short.
+				const kept = stage.motion[slot];
+				const before = stage.sprites[slot];
+				if (kept && !kept.gone && before && characterOf(before) === characterOf(names[index] ?? "")) {
+					motion[slot] = kept;
+				}
 				// A sprite that enters slides in from the edge it names over the command's fade.
 				const enter = text(a[`enter${suffix}`])?.toLowerCase();
 				if (enter === "left" || enter === "right") {
