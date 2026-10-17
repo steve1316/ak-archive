@@ -96,7 +96,7 @@ test("effects collect sounds, shakes and a cleared box on the way to a line, acr
 	const steps = [cmd("playsound", { key: "s_a", volume: 0.5 }), cmd("camerashake", { duration: 1 }), cmd("delay", { time: 0.6 }), cmd("dialog"), line(null, "x")];
 	const { effects } = advance(steps, START, emptyStage());
 	assert.deepEqual(effects, {
-		sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null }],
+		sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null, delay: 0 }],
 		musicFade: 0,
 		shake: { duration: 1, x: 0, y: 0, vibrato: 10, randomness: 90, fadeOut: false },
 		clearText: true
@@ -143,12 +143,12 @@ test("each layer records the asset kind its art is published under, so a large b
 test("subtitles and stickers keep their placement, a multi sticker keeps its first placement, and styled runs append", () => {
 	const effects = emptyEffects();
 	const subtitle = applyCommand(emptyStage(), cmd("subtitle", { text: "Hi.", x: 200, y: 360, width: 900, size: 26, alignment: "left" }), effects).subtitle;
-	assert.deepEqual(subtitle, { text: "Hi.", x: 200, y: 360, width: 900, size: 26, align: "left" });
-	assert.deepEqual(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi." }), effects).subtitle, { text: "Hi.", x: 300, y: 370, width: 700, size: 24, align: "center" });
+	assert.deepEqual(subtitle, { text: "Hi.", x: 200, y: 360, width: 900, size: 26, align: "left", typing: 0 });
+	assert.deepEqual(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi." }), effects).subtitle, { text: "Hi.", x: 300, y: 370, width: 700, size: 24, align: "center", typing: 0 });
 	let stage = applyCommand(emptyStage(), cmd("sticker", { id: "st1", multi: true, text: "Dear K,", x: 180, y: 170, width: 700, size: 24, alignment: "left" }), effects);
 	stage = applyCommand(stage, cmd("sticker", { id: "st1", multi: true, text: "\n\nRed.", x: 380, spans: [{ text: "\n\n" }, { text: "Red.", color: "#ff0000" }] }), effects);
 	assert.deepEqual(stage.stickers, [
-		{ id: "st1", text: "Dear K,\n\nRed.", spans: [{ text: "Dear K," }, { text: "\n\n" }, { text: "Red.", color: "#ff0000" }], x: 180, y: 170, width: 700, size: 24, align: "left" }
+		{ id: "st1", text: "Dear K,\n\nRed.", spans: [{ text: "Dear K," }, { text: "\n\n" }, { text: "Red.", color: "#ff0000" }], x: 180, y: 170, width: 700, size: 24, align: "left", typing: 0 }
 	]);
 });
 
@@ -320,14 +320,14 @@ test("sound cues keep their order, loop flag and channel, and stopsound stops on
 	const steps = [
 		cmd("playsound", { key: "rain", loop: true, channel: "bgs", volume: 0.4 }),
 		cmd("stopsound", { channel: "bgs", fadetime: 1.5 }),
-		cmd("playsound", { key: "door" }),
+		cmd("playsound", { key: "door", delay: 0.3 }),
 		cmd("stopsound"),
 		line(null, "x")
 	];
 	assert.deepEqual(advance(steps, START, emptyStage()).effects.sounds, [
-		{ kind: "play", key: "rain", volume: 0.4, loop: true, channel: "bgs" },
+		{ kind: "play", key: "rain", volume: 0.4, loop: true, channel: "bgs", delay: 0 },
 		{ kind: "stop", channel: "bgs", fade: 1.5 },
-		{ kind: "play", key: "door", volume: 1, loop: false, channel: null },
+		{ kind: "play", key: "door", volume: 1, loop: false, channel: null, delay: 0.3 },
 		{ kind: "stop", channel: null, fade: 0 }
 	]);
 });
@@ -458,4 +458,10 @@ test("camerashake keeps its strengths, jolts and fade, and shakeFrames makes a r
 	assert.deepEqual([frames[0].transform, frames.at(-1).transform], ["translate(0, 0)", "translate(0, 0)"]);
 	assert.deepEqual(shakeFrames(effects.shake, 3), frames);
 	assert.notDeepEqual(shakeFrames(effects.shake, 4), frames);
+});
+
+test("a subtitle or sticker's delay is how long each of its characters takes to appear", () => {
+	const effects = emptyEffects();
+	assert.equal(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi.", delay: 0.04 }), effects).subtitle.typing, 0.04);
+	assert.equal(applyCommand(emptyStage(), cmd("sticker", { id: "s", text: "Hi.", delay: 0 }), effects).stickers[0].typing, 0);
 });

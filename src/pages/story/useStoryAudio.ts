@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { useAudioGate } from "archive-kit";
 
-import type { Effects, StageState } from "./engine.js";
+import type { Effects, SoundCue, StageState } from "./engine.js";
 
 /** How loud the music and sound effects play before the script's own volume and the reader's volumes apply. */
 const MUSIC_VOLUME = 0.5;
@@ -115,6 +115,7 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 	const track = useRef<HTMLAudioElement | null>(null);
 	const playing = useRef<PlayingSound[]>([]);
 	const fadingOut = useRef(new Set<HTMLAudioElement>());
+	const timers = useRef<number[]>([]);
 	const mutedRef = useRef(muted);
 	const gains = useRef({ bgm, sfx });
 	const fades = useRef({ crossfade: 0, stop: 0 });
@@ -234,6 +235,38 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 		}
 	}, [musicVolume, apply]);
 
+	// Starts one sound effect, after the script's delay for it. The timers are cleared when the story is left.
+	const startSound = useCallback(
+		(cue: Extract<SoundCue, { kind: "play" }>, url: string) => {
+			const start = () => {
+				if (cue.channel !== null) {
+					stopChannel(cue.channel, 0);
+				}
+				const audio = new Audio(url);
+				setLevel(audio, Math.min(1, EFFECT_VOLUME * cue.volume), apply);
+				audio.loop = cue.loop;
+				audio.muted = mutedRef.current;
+				const sound = { audio, channel: cue.channel };
+				playing.current.push(sound);
+				audio.addEventListener("ended", () => {
+					playing.current = playing.current.filter((entry) => entry !== sound);
+				});
+				// A one-shot that could not start is stale by the time it could, so it is dropped rather than resumed later.
+				void play(audio).then((started) => {
+					if (!started && !audio.loop) {
+						playing.current = playing.current.filter((entry) => entry !== sound);
+					}
+				});
+			};
+			if (cue.delay > 0) {
+				timers.current.push(window.setTimeout(start, cue.delay * 1000));
+			} else {
+				start();
+			}
+		},
+		[play, stopChannel, apply]
+	);
+
 	useEffect(() => {
 		for (const cue of effects.sounds) {
 			if (cue.kind === "stop") {
@@ -250,26 +283,9 @@ export function useStoryAudio({ music, musicVolume, effects, muted, bgm, sfx, ur
 			if (!url) {
 				continue;
 			}
-			if (cue.channel !== null) {
-				stopChannel(cue.channel, 0);
-			}
-			const audio = new Audio(url);
-			setLevel(audio, Math.min(1, EFFECT_VOLUME * cue.volume), apply);
-			audio.loop = cue.loop;
-			audio.muted = mutedRef.current;
-			const sound = { audio, channel: cue.channel };
-			playing.current.push(sound);
-			audio.addEventListener("ended", () => {
-				playing.current = playing.current.filter((entry) => entry !== sound);
-			});
-			// A one-shot that could not start is stale by the time it could, so it is dropped rather than resumed later.
-			void play(audio).then((started) => {
-				if (!started && !audio.loop) {
-					playing.current = playing.current.filter((entry) => entry !== sound);
-				}
-			});
+			startSound(cue, url);
 		}
-	}, [effects, urlOf, play, stopChannel, soundsOn, apply]);
+	}, [effects, urlOf, soundsOn, startSound, stopChannel, apply]);
 
 	// Leaving the story silences everything, including sounds still fading out, and stops their fade timers.
 	useEffect(

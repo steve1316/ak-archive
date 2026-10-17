@@ -111,6 +111,8 @@ export interface Caption {
 	size: number;
 	/** How the text aligns inside its box. */
 	align: "left" | "center" | "right";
+	/** How long each character takes to appear, in seconds, or 0 for all at once. */
+	typing: number;
 }
 
 /** A sticker: a caption the script names by id, so later stickers can add to it or remove it. */
@@ -179,7 +181,7 @@ export interface StageState {
 
 /** One sound cue: play a sound, or stop or set the volume of the sounds on one channel, or on every channel when `channel` is null. */
 export type SoundCue =
-	| { kind: "play"; key: string; volume: number; loop: boolean; channel: string | null }
+	| { kind: "play"; key: string; volume: number; loop: boolean; channel: string | null; delay: number }
 	| { kind: "stop"; channel: string | null; fade: number }
 	| { kind: "volume"; channel: string | null; volume: number; fade: number };
 
@@ -502,7 +504,8 @@ function captionFrom(a: Record<string, unknown>, line: string): Caption {
 		y: num(a.y, CAPTION_DEFAULTS.y),
 		width: num(a.width, CAPTION_DEFAULTS.width),
 		size: num(a.size, CAPTION_DEFAULTS.size),
-		align
+		align,
+		typing: Math.max(0, num(a.delay, 0))
 	};
 }
 
@@ -721,7 +724,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "playsound": {
 			const key = text(a.key);
 			if (key) {
-				effects.sounds.push({ kind: "play", key, volume: num(a.volume, 1), loop: a.loop === true, channel: channelOf(a.channel) });
+				effects.sounds.push({ kind: "play", key, volume: num(a.volume, 1), loop: a.loop === true, channel: channelOf(a.channel), delay: Math.max(0, num(a.delay, 0)) });
 			}
 			return stage;
 		}

@@ -208,7 +208,7 @@
 	},
 	"playsound": {
 		"handled": true,
-		"ignored": ["crossfade", "crosstime", "delai", "delay", "volum", "voluyme"]
+		"ignored": ["crossfade", "crosstime", "delai", "volum", "voluyme"]
 	},
 	"showitem": {
 		"handled": false,
@@ -220,7 +220,7 @@
 	},
 	"sticker": {
 		"handled": true,
-		"ignored": ["afrom", "ato", "delay", "hidelog"]
+		"ignored": ["afrom", "ato", "hidelog"]
 	},
 	"stopmusic": {
 		"handled": true,
@@ -232,7 +232,7 @@
 	},
 	"subtitle": {
 		"handled": true,
-		"ignored": ["afrom", "ato", "delay", "multi"]
+		"ignored": ["afrom", "ato", "multi"]
 	},
 	"theater": {
 		"handled": false,

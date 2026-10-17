@@ -534,20 +534,52 @@ function StampView({ stamp }: { stamp: Stamp }) {
  * @param props Component props.
  * @returns The captions.
  */
+/** Typing slower than a frame is worth drawing. Anything quicker shows all at once. */
+const MIN_TYPING = 0.016;
+
+/**
+ * One caption, typed out a character at a time at the script's pace. The whole text sits unseen underneath, so the box keeps its size and the
+ * words do not shift as they appear. More text added to the same caption carries on from where it had got to.
+ *
+ * @param props Component props.
+ * @param props.caption The caption, with the reader's name filled in.
+ * @returns The caption.
+ */
+function CaptionView({ caption }: { caption: Caption }) {
+	const total = caption.text.length;
+	const instant = caption.typing < MIN_TYPING;
+	const [typed, setTyped] = useState(instant ? total : 0);
+	const last = useRef(caption.text);
+	useEffect(() => {
+		if (!caption.text.startsWith(last.current)) {
+			setTyped(0);
+		}
+		last.current = caption.text;
+	}, [caption.text]);
+	useEffect(() => {
+		if (instant || typed >= total) {
+			return;
+		}
+		const timer = window.setTimeout(() => setTyped((count) => count + 1), caption.typing * 1000);
+		return () => window.clearTimeout(timer);
+	}, [instant, typed, total, caption.typing]);
+	const shown = instant ? total : typed;
+	return (
+		<Box sx={CAPTION_SX} style={captionStyle(caption)}>
+			<Box sx={{ visibility: instant ? "visible" : "hidden" }}>{typedRuns(caption, Number.MAX_SAFE_INTEGER)}</Box>
+			{instant ? null : <Box sx={{ position: "absolute", inset: 0 }}>{typedRuns(caption, shown)}</Box>}
+		</Box>
+	);
+}
+
 const Captions = memo(function Captions({ subtitle, stickers, stamp, nickname }: { subtitle: Caption | null; stickers: Sticker[]; stamp: Stamp | null; nickname: string }) {
 	return (
 		<>
 			{/* Keyed on the text, so a new stamp slides in again. */}
 			{stamp ? <StampView key={`${stamp.place}|${stamp.time}`} stamp={stamp} /> : null}
-			{subtitle ? (
-				<Box sx={CAPTION_SX} style={captionStyle(subtitle)}>
-					{typedRuns(fillNickname(subtitle, nickname), Number.MAX_SAFE_INTEGER)}
-				</Box>
-			) : null}
+			{subtitle ? <CaptionView caption={fillNickname(subtitle, nickname)} /> : null}
 			{stickers.map((entry) => (
-				<Box key={entry.id} sx={CAPTION_SX} style={captionStyle(entry)}>
-					{typedRuns(fillNickname(entry, nickname), Number.MAX_SAFE_INTEGER)}
-				</Box>
+				<CaptionView key={entry.id} caption={fillNickname(entry, nickname)} />
 			))}
 		</>
 	);
