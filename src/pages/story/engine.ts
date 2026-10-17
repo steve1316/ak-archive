@@ -13,6 +13,7 @@
  */
 
 import type { CommandStep, DecisionStep, LineStep, Span, Step } from "../../types/story.js";
+import type { Shake } from "./shake.js";
 
 /** A sprite position on stage: left, middle or right. */
 export type Slot = "l" | "m" | "r";
@@ -27,14 +28,54 @@ export interface Motion {
 	scale: number;
 	/** How long the last move or zoom takes, in seconds. */
 	duration: number;
+	/** Where a charslot slid the sprite in from, in the same offsets as `x` and `y`, or null when it did not slide. */
+	from: { x: number; y: number } | null;
+	/** The point of the sprite a zoom grows from, as fractions of its image from the left and from the bottom. */
+	pivot: { x: number; y: number };
 	/** The jump to play: how high in text-space units, how many times, and over how long, or null. */
 	jump: { power: number; times: number; duration: number } | null;
 	/** How long the shake to play lasts, in seconds, or 0. */
 	shake: number;
+	/** How far the shake swings, in text-space units, and how many times it swings. */
+	shakeSwing: { power: number; times: number };
 	/** Counts jumps and shakes, so the stage restarts the animation for each new one. */
 	cue: number;
 	/** Whether the sprite has exited off the stage. It stays in its slot, out of sight, until the slot is filled or cleared. */
 	gone: boolean;
+}
+
+/** The full-screen fade, or the wipe that covers and uncovers the stage. */
+export interface Blocker {
+	/** The colour it ends at. */
+	color: string;
+	/** How opaque it ends, 0 to 1. */
+	alpha: number;
+	/** How long it takes to get there, in seconds. */
+	fade: number;
+	/** The colour and opacity it starts from when the script names them, or null to start from where it is. */
+	from: { color: string; alpha: number } | null;
+	/** Which way a wipe sweeps, `forward` for left to right, or null for a plain fade. */
+	wipe: "forward" | "backward" | null;
+	/** Counts blockers, so the stage restarts the animation for each new one. */
+	cue: number;
+}
+
+/** How bright a sprite is drawn, from `bstart`/`bend` on a charslot or `blackstart`/`blackend` on a character. */
+export interface Light {
+	/** The brightness while another sprite has the focus, 0 for black to 1 for untouched. */
+	dim: number;
+	/** The brightness while this sprite has the focus, or no one does. */
+	lit: number;
+}
+
+/** The colour treatment of the whole scene, from `cameraeffect`. */
+export interface Tint {
+	/** How grey the scene is, 0 to 1. */
+	grayscale: number;
+	/** Whether the colours are inverted. */
+	invert: boolean;
+	/** How long the last change takes to show, in seconds. */
+	fade: number;
 }
 
 /** A blur from `focusout`: how strong, 0 to 1, and how long it takes to get there. */
@@ -43,6 +84,10 @@ export interface Blur {
 	amount: number;
 	/** How long it takes to reach that strength, in seconds. */
 	duration: number;
+	/** The strength it starts from, which may differ from where the last blur left off. */
+	from: number;
+	/** Counts blurs on the layer, so the stage restarts the animation for each new one. */
+	cue: number;
 }
 
 /** A letterbox bar from `curtain`. */
@@ -88,6 +133,10 @@ export interface LayerState {
 	duration: number;
 	/** How long it fades in, in seconds. */
 	fade: number;
+	/** The tween's easing as the script writes it, a curve name or number, or empty for linear. */
+	ease: string;
+	/** How the art fits the stage: `cover` fills it and crops the overflow, `contain` shows all of it with bars where it falls short. */
+	fit: "cover" | "contain";
 }
 
 /** Text the script places over the scene: a subtitle or a sticker. Positions are in the game's 1280x720 text space, from the top-left. */
@@ -106,6 +155,8 @@ export interface Caption {
 	size: number;
 	/** How the text aligns inside its box. */
 	align: "left" | "center" | "right";
+	/** How long each character takes to appear, in seconds, or 0 for all at once. */
+	typing: number;
 }
 
 /** A sticker: a caption the script names by id, so later stickers can add to it or remove it. */
@@ -146,6 +197,10 @@ export interface StageState {
 	sprites: Partial<Record<Slot, string>>;
 	/** How each slot's sprite has moved, for slots whose sprite has. */
 	motion: Partial<Record<Slot, Motion>>;
+	/** The sprites the script gave their own brightness. The rest dim to `DEFAULT_DIM` when another sprite has the focus. */
+	light: Partial<Record<Slot, Light>>;
+	/** The sprites the script left part see-through, by opacity. The rest are solid. */
+	alpha: Partial<Record<Slot, number>>;
 	/** How long each slot's sprite fades in over when its character arrives, in seconds. A new expression of the same character does not fade. */
 	fadeIn: Partial<Record<Slot, number>>;
 	/** The sprite fading out of each slot it was removed from. */
@@ -153,9 +208,9 @@ export interface StageState {
 	/** The lit slot, or `all` when nobody is dimmed. */
 	focus: Slot | "all";
 	/** The full-screen fade. */
-	blocker: { color: string; alpha: number; fade: number };
+	blocker: Blocker;
 	/** The playing track, or null for silence. */
-	music: { intro: string | null; loop: string; volume: number; crossfade: number } | null;
+	music: { intro: string | null; loop: string; volume: number; crossfade: number; delay: number } | null;
 	/** The track's level as `musicvolume` last set it, and how long it fades there, or null for the track's own volume. */
 	musicVolume: { volume: number; fade: number } | null;
 	/** Narration over the scene, or null. */
@@ -168,13 +223,13 @@ export interface StageState {
 	blur: Partial<Record<"background" | "image" | "sprites", Blur>>;
 	/** The letterbox bar on each edge that has one. */
 	curtains: Partial<Record<Edge, Curtain>>;
-	/** Whether the scene is drawn in grey. */
-	grayscale: boolean;
+	/** The scene's colour treatment from `cameraeffect`. */
+	tint: Tint;
 }
 
 /** One sound cue: play a sound, or stop or set the volume of the sounds on one channel, or on every channel when `channel` is null. */
 export type SoundCue =
-	| { kind: "play"; key: string; volume: number; loop: boolean; channel: string | null }
+	| { kind: "play"; key: string; volume: number; loop: boolean; channel: string | null; delay: number }
 	| { kind: "stop"; channel: string | null; fade: number }
 	| { kind: "volume"; channel: string | null; volume: number; fade: number };
 
@@ -184,8 +239,8 @@ export interface Effects {
 	sounds: SoundCue[];
 	/** How long the music fades out over when a `stopmusic` was met, in seconds. */
 	musicFade: number;
-	/** How long the stage shakes, in seconds, or 0. */
-	shake: number;
+	/** The camera shake met, or null. */
+	shake: Shake | null;
 	/** Whether the text box was cleared. */
 	clearText: boolean;
 }
@@ -201,7 +256,7 @@ export interface Cursor {
 }
 
 /** Where a walk stopped. */
-export type Stop = { kind: "line"; line: LineStep } | { kind: "caption"; text: string } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
+export type Stop = { kind: "line"; line: LineStep } | { kind: "caption"; text: string; typeTime: number } | { kind: "decision"; decision: DecisionStep } | { kind: "end" };
 
 /** The stage at one wait on the way to a stop: what shows, the effects met since the last wait, and how long the game holds it. */
 export interface Beat {
@@ -252,16 +307,79 @@ const CAPTION_DEFAULTS = { x: 300, y: 370, width: 700, size: 24 };
 /** Where a location stamp sits when the script leaves out `pos`: every stamp in the data but two. */
 const STAMP_POS = { x: -400, y: -200 };
 
+/** How bright a sprite is while another has the focus, when the script does not say. */
+export const DEFAULT_DIM = 0.45;
+
 /** A sprite that has not moved. */
-const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, jump: null, shake: 0, cue: 0, gone: false };
+const STILL: Motion = { x: 0, y: 0, scale: 1, duration: 0, from: null, pivot: { x: 0.5, y: 0.5 }, jump: null, shake: 0, shakeSwing: { power: 6, times: 5 }, cue: 0, gone: false };
 
 /** How far an exiting sprite slides, in text-space units: far enough to leave the stage from any slot. */
 const EXIT_DISTANCE = 1600;
 
-/** Which layer each `focusout` type blurs. */
+/**
+ * The stage after a `cameraeffect`. Grayscale takes an amount and colour inversion switches on with its `amount` above 0 or with no amount.
+ *
+ * @param stage The stage before.
+ * @param a The command's arguments.
+ * @returns The stage after.
+ */
+function tintOf(stage: StageState, a: Record<string, unknown>): StageState {
+	const fade = num(a.fadetime, 0);
+	switch (text(a.effect)?.toLowerCase()) {
+		case "grayscale":
+			return { ...stage, tint: { ...stage.tint, grayscale: Math.min(1, Math.max(0, num(a.amount, 0))), fade } };
+		case "colorinverse":
+			return { ...stage, tint: { ...stage.tint, invert: a.keep !== false && num(a.amount, 1) > 0, fade } };
+		default:
+			return stage;
+	}
+}
+
+/**
+ * A shake from `camerashake` arguments.
+ *
+ * @param a The command's arguments.
+ * @returns The shake.
+ */
+function shakeOf(a: Record<string, unknown>): Shake {
+	const strength = num(a.strength, 0);
+	return {
+		duration: a.stop === true ? 0 : num(a.duration, 0.5),
+		delay: num(a.delay, 0),
+		x: num(a.xstrength, strength),
+		y: num(a.ystrength, strength),
+		vibrato: num(a.vibrato, 10),
+		randomness: num(a.randomness, 90),
+		fadeOut: a.fadeout === true
+	};
+}
+
+/**
+ * A sprite's brightness from its start and end arguments.
+ *
+ * @param start The brightness while it is out of focus.
+ * @param end The brightness while it has the focus.
+ * @returns The brightness, or null when the script gives neither.
+ */
+function lightOf(start: unknown, end: unknown): Light | null {
+	return start === undefined && end === undefined ? null : { dim: num(start, DEFAULT_DIM), lit: num(end, 1) };
+}
+
+/**
+ * A position argument such as `-100,0`.
+ *
+ * @param value The argument.
+ * @returns Its x and y, or null when it is not a pair of numbers.
+ */
+function pairOf(value: unknown): { x: number; y: number } | null {
+	const parts = typeof value === "string" ? value.split(",").map((part) => Number(part.trim())) : [];
+	return parts.length === 2 && parts.every(Number.isFinite) ? { x: parts[0] ?? 0, y: parts[1] ?? 0 } : null;
+}
+
 /** The charslot arguments that act on a sprite already in the slot, such as a focus change, a move, a fade or a zoom. */
 const CHARSLOT_MODIFIERS = ["focus", "posfrom", "posto", "afrom", "ato", "action"];
 
+/** Which layer each `focusout` type blurs. */
 const BLUR_TARGETS: Record<string, keyof StageState["blur"]> = { bg: "background", lbg: "background", cg: "image", cgitem: "image", char: "sprites" };
 
 /** Which edge each `curtain` direction comes in from. The odd directions, a few corner curtains, are not drawn. */
@@ -294,10 +412,12 @@ export function emptyStage(): StageState {
 		image: null,
 		sprites: {},
 		motion: {},
+		light: {},
+		alpha: {},
 		fadeIn: {},
 		leaving: {},
 		focus: "all",
-		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0 },
+		blocker: { color: "rgb(0, 0, 0)", alpha: 0, fade: 0, from: null, wipe: null, cue: 0 },
 		music: null,
 		musicVolume: null,
 		subtitle: null,
@@ -305,7 +425,7 @@ export function emptyStage(): StageState {
 		stamp: null,
 		blur: {},
 		curtains: {},
-		grayscale: false
+		tint: { grayscale: 0, invert: false, fade: 0 }
 	};
 }
 
@@ -315,7 +435,7 @@ export function emptyStage(): StageState {
  * @returns The effects.
  */
 export function emptyEffects(): Effects {
-	return { sounds: [], musicFade: 0, shake: 0, clearText: false };
+	return { sounds: [], musicFade: 0, shake: null, clearText: false };
 }
 
 /**
@@ -329,7 +449,7 @@ export function mergeEffects(list: Effects[]): Effects {
 	for (const effects of list) {
 		merged.sounds.push(...effects.sounds);
 		merged.musicFade = effects.musicFade || merged.musicFade;
-		merged.shake = Math.max(merged.shake, effects.shake);
+		merged.shake = effects.shake ?? merged.shake;
 		merged.clearText ||= effects.clearText;
 	}
 	return merged;
@@ -407,12 +527,35 @@ function slotOf(value: unknown): Slot | null {
  * A blocker's colour. The data writes channels as 0-1, and a few scripts write 0-255.
  *
  * @param a The blocker's arguments.
+ * @param from Whether to give the colour it starts at, which falls back to the colour it ends at, or that end colour.
  * @returns A CSS colour.
  */
-function colourOf(a: Record<string, unknown>): string {
+function colourOf(a: Record<string, unknown>, from = false): string {
 	const channels = [num(a.r, 0), num(a.g, 0), num(a.b, 0)];
 	const scale = channels.some((channel) => channel > 1) ? 1 : 255;
-	return `rgb(${channels.map((channel) => Math.round(channel * scale)).join(", ")})`;
+	const shown = from ? [num(a.rfrom, channels[0] ?? 0), num(a.gfrom, channels[1] ?? 0), num(a.bfrom, channels[2] ?? 0)] : channels;
+	return `rgb(${shown.map((channel) => Math.round(channel * scale)).join(", ")})`;
+}
+
+/**
+ * A blocker from its arguments. `rfrom`, `gfrom`, `bfrom` and `afrom` are where its colour and opacity start, and the `slider` style wipes
+ * across the stage in place of fading.
+ *
+ * @param before The blocker on stage.
+ * @param a The command's arguments.
+ * @returns The new blocker.
+ */
+function blockerOf(before: Blocker, a: Record<string, unknown>): Blocker {
+	const named = "rfrom" in a || "gfrom" in a || "bfrom" in a || "afrom" in a;
+	const to = colourOf(a);
+	return {
+		color: to,
+		alpha: num(a.a, 0),
+		fade: num(a.fadetime, 0),
+		from: named ? { color: colourOf(a, true), alpha: num(a.afrom, num(a.a, 0)) } : null,
+		wipe: text(a.style)?.toLowerCase() === "slider" ? (a.inverse === true ? "backward" : "forward") : null,
+		cue: before.cue + 1
+	};
 }
 
 /**
@@ -424,7 +567,29 @@ function colourOf(a: Record<string, unknown>): string {
  */
 function layerOf(a: Record<string, unknown>, kind: LayerState["kind"]): LayerState | null {
 	const name = text(a.image);
-	return name ? { name, kind, from: { x: num(a.x, 0), y: num(a.y, 0), xScale: num(a.xscale, 1), yScale: num(a.yscale, 1) }, to: null, duration: 0, fade: num(a.fadetime, 0) } : null;
+	if (!name) {
+		return null;
+	}
+	// A cgitem names where it starts and ends (`pfrom`, `pto`) and its scale (`sfrom`, `sto`), which it moves between over `pduration`.
+	const start = pairOf(a.pfrom);
+	const end = pairOf(a.pto);
+	const from = {
+		x: start?.x ?? num(a.x, 0),
+		y: start?.y ?? num(a.y, 0),
+		xScale: num(a.sfrom, num(a.xscale, 1)),
+		yScale: num(a.sfrom, num(a.yscale, 1))
+	};
+	const moves = end !== null || "sto" in a;
+	return {
+		name,
+		kind,
+		from,
+		to: moves ? { x: end?.x ?? from.x, y: end?.y ?? from.y, xScale: num(a.sto, from.xScale), yScale: num(a.sto, from.yScale) } : null,
+		duration: Math.max(num(a.pduration, 0), num(a.sduration, 0)),
+		fade: num(a.fadetime, 0),
+		ease: String(a.ease ?? ""),
+		fit: text(a.screenadapt)?.toLowerCase() === "showall" ? "contain" : "cover"
+	};
 }
 
 /**
@@ -434,12 +599,26 @@ function layerOf(a: Record<string, unknown>, kind: LayerState["kind"]): LayerSta
  * @param a The tween's arguments.
  * @returns The tweened layer, or null when nothing is on stage.
  */
-function tweenOf(layer: LayerState | null, a: Record<string, unknown>): LayerState | null {
-	if (!layer) {
+function tweenOf(layer: LayerState | null, a: Record<string, unknown>, kind: LayerState["kind"]): LayerState | null {
+	// A tween that names an image starts it at the tween's own placement.
+	const base = text(a.image) && text(a.image) !== layer?.name ? layerOf(a, kind) : layer;
+	if (!base) {
 		return null;
 	}
-	const from = { x: num(a.xfrom, layer.from.x), y: num(a.yfrom, layer.from.y), xScale: num(a.xscalefrom, layer.from.xScale), yScale: num(a.yscalefrom, layer.from.yScale) };
-	return { ...layer, from, to: { x: num(a.xto, from.x), y: num(a.yto, from.y), xScale: num(a.xscaleto, from.xScale), yScale: num(a.yscaleto, from.yScale) }, duration: num(a.duration, 0) };
+	const at = base.from;
+	const from = {
+		x: num(a.xfrom, num(a.x, at.x)),
+		y: num(a.yfrom, num(a.y, at.y)),
+		xScale: num(a.xscalefrom, num(a.xscale, at.xScale)),
+		yScale: num(a.yscalefrom, num(a.yscale, at.yScale))
+	};
+	return {
+		...base,
+		from,
+		to: { x: num(a.xto, from.x), y: num(a.yto, from.y), xScale: num(a.xscaleto, from.xScale), yScale: num(a.yscaleto, from.yScale) },
+		duration: num(a.duration, 0),
+		ease: String(a.ease ?? "")
+	};
 }
 
 /**
@@ -458,20 +637,21 @@ function captionFrom(a: Record<string, unknown>, line: string): Caption {
 		y: num(a.y, CAPTION_DEFAULTS.y),
 		width: num(a.width, CAPTION_DEFAULTS.width),
 		size: num(a.size, CAPTION_DEFAULTS.size),
-		align
+		align,
+		typing: Math.max(0, num(a.delay, 0))
 	};
 }
 
 /**
- * A sticker with more text added after it, as `multi` writes. It keeps its first placement, and its styled runs when either part has some.
+ * A caption with more text added after it, as `multi` writes. It keeps its first placement, and its styled runs when either part has some.
  *
- * @param sticker The sticker on stage.
+ * @param caption The sticker or subtitle on stage.
  * @param added The caption being added.
- * @returns The longer sticker.
+ * @returns The longer caption.
  */
-function appendSticker(sticker: Sticker, added: Caption): Sticker {
-	const spans = sticker.spans || added.spans ? [...(sticker.spans ?? [{ text: sticker.text }]), ...(added.spans ?? [{ text: added.text }])] : undefined;
-	return { ...sticker, text: sticker.text + added.text, ...(spans ? { spans } : {}) };
+function appendCaption<T extends Caption>(caption: T, added: Caption): T {
+	const spans = caption.spans || added.spans ? [...(caption.spans ?? [{ text: caption.text }]), ...(added.spans ?? [{ text: added.text }])] : undefined;
+	return { ...caption, text: caption.text + added.text, ...(spans ? { spans } : {}) };
 }
 
 /**
@@ -526,17 +706,17 @@ function recast(stage: StageState, sprites: Partial<Record<Slot, string>>, fade:
  */
 function actionOf(motion: Motion, slot: Slot, a: Record<string, unknown>): Motion {
 	// Each action replaces the last one's jump or shake.
-	const next = { ...motion, duration: timeOf(a), jump: null, shake: 0 };
+	const next = { ...motion, duration: timeOf(a), from: null, jump: null, shake: 0 };
 	const moved = { ...next, x: motion.x + num(a.xpos, 0), y: motion.y + num(a.ypos, 0) };
 	switch (text(a.type)?.toLowerCase()) {
 		case "move":
 			return moved;
 		case "zoom":
-			return { ...next, scale: num(a.scale, motion.scale) };
+			return { ...next, scale: num(a.scale, motion.scale), pivot: pairOf(a.poszoom) ?? motion.pivot };
 		case "jump":
 			return { ...moved, jump: { power: num(a.power, 20), times: Math.max(1, num(a.times, 1)), duration: next.duration || 0.3 }, cue: motion.cue + 1 };
 		case "shake":
-			return { ...next, shake: next.duration || 0.5, cue: motion.cue + 1 };
+			return { ...next, shake: next.duration || 0.5, shakeSwing: { power: num(a.power, 6), times: Math.max(1, num(a.times, 5)) }, cue: motion.cue + 1 };
 		case "exit": {
 			const direction = text(a.direction) ?? (slot === "r" ? "right" : "left");
 			return { ...next, x: motion.x + (direction === "right" ? EXIT_DISTANCE : -EXIT_DISTANCE), gone: true };
@@ -567,17 +747,20 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "gridbg":
 		case "verticalbg": {
 			const first = text(a.imagegroup)?.split("/")[0] ?? null;
-			return { ...stage, background: first ? { name: first, kind: "images", from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0) } : null };
+			return { ...stage, background: first ? { name: first, kind: "images", from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0), ease: "", fit: "cover" } : null };
 		}
 		case "backgroundtween":
-			return { ...stage, background: tweenOf(stage.background, a) };
+			return { ...stage, background: tweenOf(stage.background, a, "backgrounds") };
 		case "image":
 		case "cgitem":
 			return { ...stage, image: layerOf(a, "images") };
-		case "hidecgitem":
-			return { ...stage, image: null };
+		case "hidecgitem": {
+			// Hiding an art scene by name leaves a different one on stage.
+			const hidden = text(a.image);
+			return hidden && stage.image && stage.image.name !== hidden ? stage : { ...stage, image: null };
+		}
 		case "imagetween":
-			return { ...stage, image: tweenOf(stage.image, a) };
+			return { ...stage, image: tweenOf(stage.image, a, "images") };
 		case "character": {
 			const names = [a.name, a.name2, a.name3].map(text).filter((name): name is string => name !== null);
 			const slots = CHARACTER_SLOTS[names.length] ?? [];
@@ -590,7 +773,27 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			});
 			const focusIndex = num(a.focus, 0);
 			const focus = names.length > 1 && focusIndex >= 1 && focusIndex <= names.length ? (slots[focusIndex - 1] ?? "all") : "all";
-			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion: {}, focus };
+			const light: Partial<Record<Slot, Light>> = {};
+			const motion: Partial<Record<Slot, Motion>> = {};
+			slots.slice(0, names.length).forEach((slot, index) => {
+				const suffix = index === 0 ? "" : String(index + 1);
+				// A character already standing there keeps where it moved to, so a new expression does not cut a slide short.
+				const kept = stage.motion[slot];
+				const before = stage.sprites[slot];
+				if (kept && !kept.gone && before && characterOf(before) === characterOf(names[index] ?? "")) {
+					motion[slot] = kept;
+				}
+				// A sprite that enters slides in from the edge it names over the command's fade.
+				const enter = text(a[`enter${suffix}`])?.toLowerCase();
+				if (enter === "left" || enter === "right") {
+					motion[slot] = { ...STILL, from: { x: enter === "right" ? EXIT_DISTANCE : -EXIT_DISTANCE, y: 0 }, duration: num(a.fadetime, 0.6), cue: 1 };
+				}
+				const lit = lightOf(a[`blackstart${suffix}`] ?? (index === 0 ? a.blackstart1 : undefined), a[`blackend${suffix}`] ?? (index === 0 ? a.blackend1 : undefined));
+				if (lit) {
+					light[slot] = lit;
+				}
+			});
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.fadetime, 0)), motion, light, alpha: {}, focus };
 		}
 		case "charslot": {
 			// A charslot naming a slot only acts on the sprite there when it carries one of these. Otherwise it empties the slot.
@@ -598,25 +801,69 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			const name = text(a.name);
 			let sprites = stage.sprites;
 			let motion = stage.motion;
+			let light = stage.light;
+			let alpha = stage.alpha;
 			if (!slot && !name) {
 				sprites = {};
 				motion = {};
+				light = {};
+				alpha = {};
 			} else if (slot) {
 				const before = sprites[slot];
 				sprites = { ...sprites };
-				// A new expression keeps the sprite where it moved to. A new character, an empty slot or an exited sprite coming back starts still.
-				if (name) {
-					sprites[slot] = name;
-				} else if (a.ato === 0 || !CHARSLOT_MODIFIERS.some((key) => key in a)) {
+				// Fading to nothing takes the sprite off even when the line names it.
+				if (a.ato === 0 || (!name && !CHARSLOT_MODIFIERS.some((key) => key in a))) {
 					delete sprites[slot];
+				} else if (name) {
+					sprites[slot] = name;
 				}
+				// A new expression keeps the sprite where it moved to. A new character, an empty slot or an exited sprite coming back starts still.
 				if (motion[slot] && name && (motion[slot].gone || !(before && characterOf(name) === characterOf(before)))) {
 					motion = { ...motion };
 					delete motion[slot];
 				}
+				const lit = lightOf(a.bstart, a.bend);
+				if (lit && sprites[slot]) {
+					light = { ...light, [slot]: lit };
+				} else if (light[slot] && (!sprites[slot] || (name && !(before && characterOf(name) === characterOf(before))))) {
+					light = { ...light };
+					delete light[slot];
+				}
+				// A sprite left part see-through keeps it until the script sets another opacity, or a new character or an empty slot clears it.
+				const ato = typeof a.ato === "number" ? a.ato : null;
+				if (sprites[slot] && ato !== null && ato > 0 && ato < 1) {
+					alpha = { ...alpha, [slot]: ato };
+				} else if (alpha[slot] && (ato !== null || !sprites[slot] || (name && !(before && characterOf(name) === characterOf(before))))) {
+					alpha = { ...alpha };
+					delete alpha[slot];
+				}
+				const to = pairOf(a.posto);
+				if (sprites[slot] && to) {
+					const from = pairOf(a.posfrom) ?? to;
+					const slid = from.x !== to.x || from.y !== to.y;
+					motion = {
+						...motion,
+						[slot]: {
+							...(motion[slot] ?? STILL),
+							...to,
+							duration: num(a.duration, 0),
+							from: slid ? from : null,
+							jump: null,
+							shake: 0,
+							gone: false,
+							cue: (motion[slot]?.cue ?? 0) + (slid ? 1 : 0)
+						}
+					};
+				}
+			}
+			const action = text(a.action);
+			if (slot && action && sprites[slot]) {
+				// The action keeps the slide the same command may have started.
+				const before = motion[slot] ?? STILL;
+				motion = { ...motion, [slot]: { ...actionOf(before, slot, { ...a, type: action, fadetime: a.duration }), from: before.from } };
 			}
 			const focus = "focus" in a ? (slotOf(a.focus) ?? "all") : stage.focus;
-			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, focus };
+			return { ...stage, sprites, ...recast(stage, sprites, num(a.duration, 0)), motion, light, alpha, focus };
 		}
 		case "characteraction": {
 			const slot = slotOf(a.name);
@@ -624,7 +871,8 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		}
 		case "focusout": {
 			const target = BLUR_TARGETS[text(a.type)?.toLowerCase() ?? ""];
-			return target ? { ...stage, blur: { ...stage.blur, [target]: { amount: num(a.to, 0), duration: timeOf(a) } } } : stage;
+			const to = num(a.to, 0);
+			return target ? { ...stage, blur: { ...stage.blur, [target]: { amount: to, duration: timeOf(a), from: num(a.from, to), cue: (stage.blur[target]?.cue ?? 0) + 1 } } } : stage;
 		}
 		case "curtain": {
 			if (!("direction" in a)) {
@@ -639,13 +887,13 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return { ...stage, curtains: { ...stage.curtains, [edge]: curtain } };
 		}
 		case "blocker":
-			return { ...stage, blocker: { color: colourOf(a), alpha: num(a.a, 0), fade: num(a.fadetime, 0) } };
+			return { ...stage, blocker: blockerOf(stage.blocker, a) };
 		case "dialog":
 			effects.clearText = true;
 			return stage;
 		case "playmusic": {
 			const loop = text(a.key);
-			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0) }, musicVolume: null } : stage;
+			return loop ? { ...stage, music: { intro: text(a.intro), loop, volume: num(a.volume, 1), crossfade: num(a.crossfade, 0), delay: num(a.delay, 0) }, musicVolume: null } : stage;
 		}
 		case "stopmusic":
 			effects.musicFade = num(a.fadetime, 0);
@@ -658,7 +906,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "playsound": {
 			const key = text(a.key);
 			if (key) {
-				effects.sounds.push({ kind: "play", key, volume: num(a.volume, 1), loop: a.loop === true, channel: channelOf(a.channel) });
+				effects.sounds.push({ kind: "play", key, volume: num(a.volume, 1), loop: a.loop === true, channel: channelOf(a.channel), delay: Math.max(0, num(a.delay, 0)) });
 			}
 			return stage;
 		}
@@ -667,7 +915,8 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return stage;
 		case "subtitle": {
 			const line = text(a.text);
-			return { ...stage, subtitle: line ? captionFrom(a, line) : null };
+			const caption = line ? captionFrom(a, line) : null;
+			return { ...stage, subtitle: caption && a.multi === true && stage.subtitle ? appendCaption(stage.subtitle, caption) : caption };
 		}
 		case "sticker": {
 			const id = text(a.id) ?? "";
@@ -679,7 +928,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			if (!stage.stickers.some((entry) => entry.id === id)) {
 				return { ...stage, stickers: [...stage.stickers, { id, ...caption }] };
 			}
-			return { ...stage, stickers: stage.stickers.map((entry) => (entry.id !== id ? entry : a.multi === true ? appendSticker(entry, caption) : { id, ...caption })) };
+			return { ...stage, stickers: stage.stickers.map((entry) => (entry.id !== id ? entry : a.multi === true ? appendCaption(entry, caption) : { id, ...caption })) };
 		}
 		case "stickerclear":
 			return { ...stage, stickers: [] };
@@ -696,10 +945,10 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "animtextclean":
 			return { ...stage, stamp: stage.stamp ? { ...stage.stamp, leaving: true } : null };
 		case "camerashake":
-			effects.shake = Math.max(effects.shake, num(a.duration, 0.5));
+			effects.shake = shakeOf(a);
 			return stage;
 		case "cameraeffect":
-			return text(a.effect)?.toLowerCase() === "grayscale" ? { ...stage, grayscale: num(a.amount, 0) > 0 } : stage;
+			return tintOf(stage, a);
 		default:
 			return stage;
 	}
@@ -719,6 +968,21 @@ function waitOf(step: CommandStep): number {
 	}
 	const blocks = step.c === "blocker" ? a.block !== false : a.block === true || a.isblock === true;
 	return blocks ? Math.max(0, timeOf(a)) : 0;
+}
+
+/** Typing slower than a frame is worth drawing. Anything quicker shows all at once. */
+export const MIN_TYPING = 0.016;
+
+/**
+ * How long a caption takes to type out.
+ *
+ * @param text The caption's new text.
+ * @param a The command's arguments, whose `delay` is the time each character takes.
+ * @returns The time in seconds, or 0 when it shows all at once.
+ */
+function typeTimeOf(text: string, a: Record<string, unknown>): number {
+	const each = num(a.delay, 0);
+	return each >= MIN_TYPING ? each * text.length : 0;
 }
 
 /**
@@ -774,7 +1038,7 @@ export function advance(steps: Step[], cursor: Cursor, stage: StageState): Advan
 		next = applyCommand(next, step, effects);
 		const caption = captionOf(step);
 		if (caption !== null) {
-			return finish({ kind: "caption", text: caption });
+			return finish({ kind: "caption", text: caption, typeTime: typeTimeOf(caption, step.a) });
 		}
 		const wait = waitOf(step);
 		if (wait > 0) {

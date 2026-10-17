@@ -43,7 +43,7 @@ interface MobilePlayerProps {
  * @returns The player.
  */
 export default function MobilePlayer({ reader, group, title, presence }: MobilePlayerProps) {
-	const { stage, ended, lines, corner, typed, shown, caption, decision, length, reading, canBack, ending, auto, logOpen, soundOn, nickname, settings, shakeKey } = reader;
+	const { stage, ended, lines, corner, typed, shown, caption, decision, length, reading, canBack, ending, auto, logOpen, soundOn, nickname, settings, shakeKey, finishKey, shake } = reader;
 	const { back, restart, pick, skip, onStage, openLog, closeLog, toggleAuto, toggleSound, setNickname, interact, setCovered } = reader;
 
 	// Built once per change rather than per render, since the reader re-renders on every typed character.
@@ -70,7 +70,7 @@ export default function MobilePlayer({ reader, group, title, presence }: MobileP
 
 	return (
 		<MobileStoryReader
-			scene={<StoryStage stage={stage} nickname={nickname} presence={presence} hideText shakeKey={shakeKey} />}
+			scene={<StoryStage stage={stage} nickname={nickname} presence={presence} hideText shakeKey={shakeKey} finishKey={finishKey} shake={shake} />}
 			corner={corner}
 			controls={controls}
 			lines={lines}

@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { shakeFrames } from "../../../src/pages/story/shake.ts";
+import { easeOf } from "../../../src/pages/story/ease.ts";
 import { START, advance, applyCommand, choose, emptyEffects, emptyStage, fillNickname, linesAhead, skipToStop, upcomingArt } from "../../../src/pages/story/engine.ts";
 
 /**
@@ -27,7 +29,7 @@ test("advance applies commands up to the next line and stops there, then reaches
 	assert.equal(first.stop.kind, "line");
 	assert.equal(first.stop.line.text, "Hi.");
 	assert.equal(first.stage.background.name, "bg_a");
-	assert.deepEqual(first.stage.music, { intro: "m_i", loop: "m_l", volume: 0.8, crossfade: 0 });
+	assert.deepEqual(first.stage.music, { intro: "m_i", loop: "m_l", volume: 0.8, crossfade: 0, delay: 0 });
 	const second = advance(steps, first.cursor, first.stage);
 	assert.equal(second.stop.line.text, "Next.");
 	assert.equal(advance(steps, second.cursor, second.stage).stop.kind, "end");
@@ -94,18 +96,32 @@ test("a predicate listing every value shows its lines whatever was picked", () =
 test("effects collect sounds, shakes and a cleared box on the way to a line, across a pause", () => {
 	const steps = [cmd("playsound", { key: "s_a", volume: 0.5 }), cmd("camerashake", { duration: 1 }), cmd("delay", { time: 0.6 }), cmd("dialog"), line(null, "x")];
 	const { effects } = advance(steps, START, emptyStage());
-	assert.deepEqual(effects, { sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null }], musicFade: 0, shake: 1, clearText: true });
+	assert.deepEqual(effects, {
+		sounds: [{ kind: "play", key: "s_a", volume: 0.5, loop: false, channel: null, delay: 0 }],
+		musicFade: 0,
+		shake: { duration: 1, delay: 0, x: 0, y: 0, vibrato: 10, randomness: 90, fadeOut: false },
+		clearText: true
+	});
 });
 
 test("blockers, art scenes with their tween, grayscale and unknown commands fold into the stage", () => {
 	const effects = emptyEffects();
 	let stage = applyCommand(emptyStage(), cmd("blocker", { a: 1, r: 0, g: 0, b: 0, fadetime: 0.6 }), effects);
-	assert.deepEqual(stage.blocker, { color: "rgb(0, 0, 0)", alpha: 1, fade: 0.6 });
+	assert.deepEqual(stage.blocker, { color: "rgb(0, 0, 0)", alpha: 1, fade: 0.6, from: null, wipe: null, cue: 1 });
 	stage = applyCommand(stage, cmd("image", { image: "avg_1_3", x: 0, y: -20, xscale: 1.1, yscale: 1.1, fadetime: 1 }), effects);
 	stage = applyCommand(stage, cmd("imagetween", { xfrom: 0, yfrom: -20, xto: 0, yto: 0, xscalefrom: 1.1, yscalefrom: 1.1, xscaleto: 1, yscaleto: 1, duration: 4 }), effects);
-	assert.deepEqual(stage.image, { name: "avg_1_3", kind: "images", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1 });
+	assert.deepEqual(stage.image, {
+		name: "avg_1_3",
+		kind: "images",
+		from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 },
+		to: { x: 0, y: 0, xScale: 1, yScale: 1 },
+		duration: 4,
+		fade: 1,
+		ease: "",
+		fit: "cover"
+	});
 	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0.8 }), effects);
-	assert.equal(stage.grayscale, true);
+	assert.equal(stage.tint.grayscale, 0.8);
 	assert.equal(applyCommand(stage, { t: "unknown", c: "video", a: {} }, effects), stage);
 	assert.equal(applyCommand(stage, cmd("image"), effects).image, null);
 });
@@ -137,12 +153,12 @@ test("each layer records the asset kind its art is published under, so a large b
 test("subtitles and stickers keep their placement, a multi sticker keeps its first placement, and styled runs append", () => {
 	const effects = emptyEffects();
 	const subtitle = applyCommand(emptyStage(), cmd("subtitle", { text: "Hi.", x: 200, y: 360, width: 900, size: 26, alignment: "left" }), effects).subtitle;
-	assert.deepEqual(subtitle, { text: "Hi.", x: 200, y: 360, width: 900, size: 26, align: "left" });
-	assert.deepEqual(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi." }), effects).subtitle, { text: "Hi.", x: 300, y: 370, width: 700, size: 24, align: "center" });
+	assert.deepEqual(subtitle, { text: "Hi.", x: 200, y: 360, width: 900, size: 26, align: "left", typing: 0 });
+	assert.deepEqual(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi." }), effects).subtitle, { text: "Hi.", x: 300, y: 370, width: 700, size: 24, align: "center", typing: 0 });
 	let stage = applyCommand(emptyStage(), cmd("sticker", { id: "st1", multi: true, text: "Dear K,", x: 180, y: 170, width: 700, size: 24, alignment: "left" }), effects);
 	stage = applyCommand(stage, cmd("sticker", { id: "st1", multi: true, text: "\n\nRed.", x: 380, spans: [{ text: "\n\n" }, { text: "Red.", color: "#ff0000" }] }), effects);
 	assert.deepEqual(stage.stickers, [
-		{ id: "st1", text: "Dear K,\n\nRed.", spans: [{ text: "Dear K," }, { text: "\n\n" }, { text: "Red.", color: "#ff0000" }], x: 180, y: 170, width: 700, size: 24, align: "left" }
+		{ id: "st1", text: "Dear K,\n\nRed.", spans: [{ text: "Dear K," }, { text: "\n\n" }, { text: "Red.", color: "#ff0000" }], x: 180, y: 170, width: 700, size: 24, align: "left", typing: 0 }
 	]);
 });
 
@@ -171,7 +187,7 @@ test("a walk keeps the stage at each wait as a beat, so fades and pauses play in
 		[0.6, "bg_ship", "m_dark", 0]
 	]);
 	assert.equal(walk.beats.at(-1).stage, walk.stage);
-	assert.deepEqual([walk.beats[0].effects.musicFade, walk.beats[5].effects.shake, walk.effects.musicFade, walk.effects.shake], [2, 0.5, 2, 0.5]);
+	assert.deepEqual([walk.beats[0].effects.musicFade, walk.beats[5].effects.shake?.duration, walk.effects.musicFade, walk.effects.shake?.duration], [2, 0.5, 2, 0.5]);
 	assert.equal(advance([line(null, "a")], START, emptyStage()).beats.length, 1);
 });
 
@@ -204,7 +220,7 @@ test("characteraction moves by deltas, zooms, jumps, shakes and exits a slot's s
 	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1" }), effects);
 	stage = act(stage, { name: "middle", type: "move", xpos: -100, fadetime: 0.05 });
 	stage = act(stage, { name: "middle", type: "move", xpos: 200, ypos: 30, fadetime: 0.1 });
-	assert.deepEqual(stage.motion.m, { x: 100, y: 30, scale: 1, duration: 0.1, jump: null, shake: 0, cue: 0, gone: false });
+	assert.deepEqual(stage.motion.m, { x: 100, y: 30, scale: 1, duration: 0.1, from: null, pivot: { x: 0.5, y: 0.5 }, jump: null, shake: 0, shakeSwing: { power: 6, times: 5 }, cue: 0, gone: false });
 	stage = act(stage, { name: "middle", type: "zoom", scale: 1.2, fadetime: 1 });
 	stage = act(stage, { name: "middle", type: "jump", power: 20, times: 2, fadetime: 0.5 });
 	assert.deepEqual([stage.motion.m.scale, stage.motion.m.jump, stage.motion.m.cue], [1.2, { power: 20, times: 2, duration: 0.5 }, 1]);
@@ -223,8 +239,8 @@ test("focusout blurs its layer over its duration, and curtain draws, resizes and
 	const effects = emptyEffects();
 	let stage = applyCommand(emptyStage(), cmd("focusout", { type: "bg", from: 0, to: 1, duration: 1.5 }), effects);
 	stage = applyCommand(stage, cmd("focusout", { type: "char", from: 0, to: 0.5, duration: 1 }), effects);
-	assert.deepEqual(stage.blur, { background: { amount: 1, duration: 1.5 }, sprites: { amount: 0.5, duration: 1 } });
-	assert.deepEqual(applyCommand(stage, cmd("focusout", { type: "cgitem", to: 0.3 }), effects).blur.image, { amount: 0.3, duration: 0 });
+	assert.deepEqual(stage.blur, { background: { amount: 1, duration: 1.5, from: 0, cue: 1 }, sprites: { amount: 0.5, duration: 1, from: 0, cue: 1 } });
+	assert.deepEqual(applyCommand(stage, cmd("focusout", { type: "cgitem", to: 0.3 }), effects).blur.image, { amount: 0.3, duration: 0, from: 0.3, cue: 1 });
 	stage = applyCommand(stage, cmd("curtain", { direction: 0, fillfrom: 0.2, fillto: 0.05, fadetime: 2, grad: true }), effects);
 	stage = applyCommand(stage, cmd("curtain", { direction: 4, fillfrom: 0.2, fillto: 0.05, fadetime: 2 }), effects);
 	stage = applyCommand(stage, cmd("curtain", { direction: 0, fillfrom: 0.05, fillto: 0.1, fadetime: 1 }), effects);
@@ -314,14 +330,14 @@ test("sound cues keep their order, loop flag and channel, and stopsound stops on
 	const steps = [
 		cmd("playsound", { key: "rain", loop: true, channel: "bgs", volume: 0.4 }),
 		cmd("stopsound", { channel: "bgs", fadetime: 1.5 }),
-		cmd("playsound", { key: "door" }),
+		cmd("playsound", { key: "door", delay: 0.3 }),
 		cmd("stopsound"),
 		line(null, "x")
 	];
 	assert.deepEqual(advance(steps, START, emptyStage()).effects.sounds, [
-		{ kind: "play", key: "rain", volume: 0.4, loop: true, channel: "bgs" },
+		{ kind: "play", key: "rain", volume: 0.4, loop: true, channel: "bgs", delay: 0 },
 		{ kind: "stop", channel: "bgs", fade: 1.5 },
-		{ kind: "play", key: "door", volume: 1, loop: false, channel: null },
+		{ kind: "play", key: "door", volume: 1, loop: false, channel: null, delay: 0.3 },
 		{ kind: "stop", channel: null, fade: 0 }
 	]);
 });
@@ -330,6 +346,7 @@ test("stopmusic records its fade-out time", () => {
 	const steps = [cmd("playmusic", { key: "m_loop", crossfade: 2 }), line(null, "a"), cmd("stopmusic", { fadetime: 3 }), line(null, "b")];
 	const first = advance(steps, START, emptyStage());
 	assert.equal(first.stage.music.crossfade, 2);
+	assert.equal(advance([cmd("playmusic", { key: "m_loop", delay: 0.5 }), line(null, "a")], START, emptyStage()).stage.music.delay, 0.5);
 	const second = advance(steps, first.cursor, first.stage);
 	assert.deepEqual([second.stage.music, second.effects.musicFade], [null, 3]);
 });
@@ -417,4 +434,163 @@ test("skipToStop reports the last line it passed, or null when a caption came af
 	assert.deepEqual(onLine.last, line("Kal'tsit", "Two."));
 	const onCaption = skipToStop([line("Amiya", "One."), line(null, "Two."), cmd("subtitle", { text: "Three." }), decision], START, emptyStage());
 	assert.equal(onCaption.last, null);
+});
+
+test("background and image fit the stage by their screenadapt: showall shows all of the art, anything else covers", () => {
+	const effects = emptyEffects();
+	const fit = (command, args) => applyCommand(emptyStage(), cmd(command, args), effects)[command].fit;
+	assert.equal(fit("background", { image: "bg_a", screenadapt: "showall" }), "contain");
+	assert.equal(fit("background", { image: "bg_a", screenadapt: "coverall" }), "cover");
+	assert.equal(fit("background", { image: "bg_a" }), "cover");
+	assert.equal(fit("image", { image: "cg_a", screenadapt: "showall" }), "contain");
+});
+
+test("charslot places a sprite at posto, sliding from posfrom, and fades one out to nothing even when it names the sprite", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1", posfrom: "300,0", posto: "0,0", duration: 1 }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.motion.m.from, stage.motion.m.duration], [0, { x: 300, y: 0 }, 1]);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#2$1", posfrom: "-350,0", posto: "-350,0", duration: 0 }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.motion.m.from], [-350, null]);
+	assert.equal(stage.sprites.m, "avg_a_1#2$1");
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", posfrom: "0,0", posto: "0,0", focus: "m" }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.sprites.m], [0, "avg_a_1#2$1"]);
+	const faded = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#2$1", afrom: 1, ato: 0, duration: 0.5 }), effects);
+	assert.deepEqual([faded.sprites, faded.leaving.m.fade], [{}, 0.5]);
+	const partial = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a_1#2$1", afrom: 1, ato: 0.7, duration: 0.5 }), effects);
+	assert.equal(partial.sprites.m, "avg_a_1#2$1");
+});
+
+test("camerashake keeps its strengths, jolts and fade, and shakeFrames makes a repeatable shake that comes to rest", () => {
+	const effects = emptyEffects();
+	applyCommand(emptyStage(), cmd("camerashake", { duration: 0.3, xstrength: 10, ystrength: 12, vibrato: 30, randomness: 90, fadeout: true }), effects);
+	assert.deepEqual(effects.shake, { duration: 0.3, delay: 0, x: 10, y: 12, vibrato: 30, randomness: 90, fadeOut: true });
+	const frames = shakeFrames(effects.shake, 3);
+	assert.equal(frames.length, 10);
+	assert.deepEqual([frames[0].transform, frames.at(-1).transform], ["translate(0, 0)", "translate(0, 0)"]);
+	assert.deepEqual(shakeFrames(effects.shake, 3), frames);
+	assert.notDeepEqual(shakeFrames(effects.shake, 4), frames);
+});
+
+test("a subtitle or sticker's delay is how long each of its characters takes to appear", () => {
+	const effects = emptyEffects();
+	assert.equal(applyCommand(emptyStage(), cmd("subtitle", { text: "Hi.", delay: 0.04 }), effects).subtitle.typing, 0.04);
+	assert.equal(applyCommand(emptyStage(), cmd("sticker", { id: "s", text: "Hi.", delay: 0 }), effects).stickers[0].typing, 0);
+});
+
+test("a caption stop says how long its text takes to type, and 0 when it shows at once", () => {
+	const typed = advance([cmd("sticker", { id: "s", text: "Hello", delay: 0.04 })], START, emptyStage());
+	assert.ok(Math.abs(typed.stop.typeTime - 0.2) < 1e-9);
+	assert.equal(advance([cmd("sticker", { id: "s", text: "Hello", delay: 0.001 })], START, emptyStage()).stop.typeTime, 0);
+	assert.equal(advance([cmd("subtitle", { text: "Hello" })], START, emptyStage()).stop.typeTime, 0);
+});
+
+test("bstart and bend give a sprite its own out-of-focus and in-focus brightness, and a new character or an empty slot loses them", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "l", name: "avg_a_1#1$1", bstart: 0.2, bend: 0.7, focus: "l" }), effects);
+	assert.deepEqual(stage.light, { l: { dim: 0.2, lit: 0.7 } });
+	stage = applyCommand(stage, cmd("charslot", { slot: "l", name: "avg_a_1#2$1", focus: "l" }), effects);
+	assert.deepEqual(stage.light.l, { dim: 0.2, lit: 0.7 });
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l", name: "avg_b_1#1$1" }), effects).light, {});
+	assert.deepEqual(applyCommand(stage, cmd("charslot", { slot: "l" }), effects).light, {});
+	const pair = applyCommand(emptyStage(), cmd("character", { name: "avg_a", name2: "avg_b", blackstart: 0.2, blackend: 0.7, blackstart2: 0.3, blackend2: 0.9 }), effects);
+	assert.deepEqual(pair.light, { l: { dim: 0.2, lit: 0.7 }, r: { dim: 0.3, lit: 0.9 } });
+});
+
+test("a charslot action zooms about its pivot, jumps to posto, and shakes by its power and times", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a_1#1$1" }), effects);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", action: "zoom", poszoom: "0.5,0.65", scale: 1.4, duration: 0.5 }), effects);
+	assert.deepEqual([stage.motion.m.scale, stage.motion.m.pivot, stage.motion.m.duration], [1.4, { x: 0.5, y: 0.65 }, 0.5]);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", action: "jump", posfrom: "0,0", posto: "-80,0", power: 5, times: 2, duration: 0.4 }), effects);
+	assert.deepEqual([stage.motion.m.x, stage.motion.m.from, stage.motion.m.jump], [-80, { x: 0, y: 0 }, { power: 5, times: 2, duration: 0.4 }]);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", action: "shake", power: 8, times: 100, duration: 0.5 }), effects);
+	assert.deepEqual([stage.motion.m.jump, stage.motion.m.shake, stage.motion.m.shakeSwing], [null, 0.5, { power: 8, times: 100 }]);
+	assert.equal(applyCommand(emptyStage(), cmd("charslot", { slot: "m", action: "shake", power: 8 }), effects).motion.m, undefined);
+});
+
+test("a blocker keeps the colour and opacity it starts from, and the slider style wipes in the direction the script sweeps", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("blocker", { a: 1, r: 1, g: 1, b: 1, afrom: 0, rfrom: 0.8, gfrom: 0.8, bfrom: 0.8, fadetime: 0.3 }), effects);
+	assert.deepEqual([stage.blocker.color, stage.blocker.from, stage.blocker.wipe], ["rgb(255, 255, 255)", { color: "rgb(204, 204, 204)", alpha: 0 }, null]);
+	stage = applyCommand(stage, cmd("blocker", { a: 1, r: 0, g: 0, b: 0, style: "slider", inverse: true, fadetime: 2 }), effects);
+	assert.deepEqual([stage.blocker.wipe, stage.blocker.from, stage.blocker.cue], ["backward", null, 2]);
+	assert.equal(applyCommand(stage, cmd("blocker", { a: 0, r: 0, g: 0, b: 0, style: "slider", inverse: false, fadetime: 1 }), effects).blocker.wipe, "forward");
+});
+
+test("camerashake waits out its delay and a stop shake has no duration", () => {
+	const effects = emptyEffects();
+	applyCommand(emptyStage(), cmd("camerashake", { duration: 0.3, delay: 0.5 }), effects);
+	assert.deepEqual([effects.shake.duration, effects.shake.delay], [0.3, 0.5]);
+	applyCommand(emptyStage(), cmd("camerashake", { stop: true }), effects);
+	assert.deepEqual([effects.shake.duration, effects.shake.delay], [0, 0]);
+});
+
+test("cameraeffect keeps a partial grayscale and its fade, and colour inversion switches on and off", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("cameraeffect", { effect: "Grayscale", amount: 0.5, fadetime: 2 }), effects);
+	assert.deepEqual(stage.tint, { grayscale: 0.5, invert: false, fade: 2 });
+	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Colorinverse", keep: true }), effects);
+	assert.equal(stage.tint.invert, true);
+	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Colorinverse", keep: false }), effects);
+	assert.equal(stage.tint.invert, false);
+	assert.equal(applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0 }), effects).tint.grayscale, 0);
+});
+
+test("a charslot opacity between 0 and 1 stays on the sprite until the script changes it or the slot empties", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("charslot", { slot: "m", name: "avg_a#1$1", afrom: 0.6, ato: 0.6 }), effects);
+	assert.equal(stage.alpha.m, 0.6);
+	stage = applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a#2$1" }), effects);
+	assert.equal(stage.alpha.m, 0.6);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_a#2$1", afrom: 0.6, ato: 1 }), effects).alpha.m, undefined);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", name: "avg_b#1$1" }), effects).alpha.m, undefined);
+	assert.equal(applyCommand(stage, cmd("charslot", { slot: "m", afrom: 0.6, ato: 0 }), effects).alpha.m, undefined);
+});
+
+test("easeOf reads curve names and numbers, and tweens and cgitems take their easing, start image and motion", () => {
+	assert.deepEqual([easeOf("OutQuad"), easeOf("6"), easeOf(undefined), easeOf("Nonsense")], [easeOf(6), easeOf(6), "linear", "linear"]);
+	assert.notEqual(easeOf("OutQuad"), "linear");
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("backgroundtween", { image: "bg_a", x: 5, xscale: 1.2, xto: 60, duration: 2, ease: "OutQuad" }), effects);
+	assert.deepEqual([stage.background.name, stage.background.from.x, stage.background.from.xScale, stage.background.to.x, easeOf(stage.background.ease)], ["bg_a", 5, 1.2, 60, easeOf("OutQuad")]);
+	stage = applyCommand(stage, cmd("cgitem", { image: "cg_a", pfrom: "-200,0", pto: "0,0", pduration: 10, sfrom: 1, sto: 1.3 }), effects);
+	assert.deepEqual([stage.image.from.x, stage.image.to.x, stage.image.to.xScale, stage.image.duration], [-200, 0, 1.3, 10]);
+});
+
+test("a character that enters slides in from the edge it names", () => {
+	const stage = applyCommand(emptyStage(), cmd("character", { name: "avg_a", enter: "left", name2: "avg_b", enter2: "right", fadetime: 1.5 }), emptyEffects());
+	const slots = Object.keys(stage.sprites);
+	assert.equal(slots.length, 2);
+	assert.deepEqual(
+		slots.map((slot) => [Math.sign(stage.motion[slot].from.x), stage.motion[slot].duration, stage.motion[slot].x]),
+		[
+			[-1, 1.5, 0],
+			[1, 1.5, 0]
+		]
+	);
+});
+
+test("a character command re-casting the same character keeps its slide", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("character", { name: "avg_a#1$1", enter: "left", fadetime: 1 }), effects);
+	const slot = Object.keys(stage.sprites)[0];
+	stage = applyCommand(stage, cmd("character", { name: "avg_a#2$1" }), effects);
+	assert.equal(stage.motion[slot].duration, 1);
+	assert.equal(applyCommand(stage, cmd("character", { name: "avg_b#1$1" }), effects).motion[slot], undefined);
+});
+
+test("a subtitle with multi adds its text to the one on stage", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("subtitle", { text: "Hello" }), effects);
+	stage = applyCommand(stage, cmd("subtitle", { text: ", you.", multi: true }), effects);
+	assert.equal(stage.subtitle.text, "Hello, you.");
+	assert.equal(applyCommand(stage, cmd("subtitle", { text: "New" }), effects).subtitle.text, "New");
+});
+
+test("hidecgitem clears the art scene unless it names a different one", () => {
+	const effects = emptyEffects();
+	const stage = applyCommand(emptyStage(), cmd("image", { image: "cg_a" }), effects);
+	assert.equal(applyCommand(stage, cmd("hidecgitem", { image: "cg_b" }), effects).image.name, "cg_a");
+	assert.equal(applyCommand(stage, cmd("hidecgitem", { image: "cg_a" }), effects).image, null);
+	assert.equal(applyCommand(stage, cmd("hidecgitem", {}), effects).image, null);
 });

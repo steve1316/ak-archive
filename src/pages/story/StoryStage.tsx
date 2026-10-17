@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { Box, GlobalStyles } from "@mui/material";
@@ -7,9 +7,12 @@ import type { SxProps, Theme } from "@mui/material";
 import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
 import type { Span } from "../../types/story.js";
-import { characterOf, fillNickname } from "./engine.js";
+import { easeOf } from "./ease.js";
+import { DEFAULT_DIM, MIN_TYPING, characterOf, fillNickname } from "./engine.js";
+import { shakeFrames } from "./shake.js";
+import type { Shake } from "./shake.js";
 import { SLOT_CENTRES, spriteSize } from "./spriteLayout.js";
-import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker } from "./engine.js";
+import type { Blocker, Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState, Stamp, Sticker, Tint } from "./engine.js";
 
 /**
  * The text box, as % of the stage. Font sizes are % of the stage height. Tuned against `9.png`. The floor is not the game's: it is how low a
@@ -17,17 +20,10 @@ import type { Blur, Caption, Curtain, Edge, LayerState, Motion, Slot, StageState
  */
 const TEXT_BOX = { nameRight: 26.1, nameTop: 86.9, nameFont: 3.6, lineLeft: 29.9, lineTop: 86.8, lineWidth: 55, lineFont: 2.65, lineHeight: 1.4, lineFloor: 98 };
 
-/** One camera shake. */
-const SHAKE_FRAMES = {
-	"0%, 100%": { transform: "translate(0, 0)" },
-	"20%": { transform: "translate(-0.6%, 0.4%)" },
-	"40%": { transform: "translate(0.6%, -0.4%)" },
-	"60%": { transform: "translate(-0.4%, -0.3%)" },
-	"80%": { transform: "translate(0.4%, 0.3%)" }
-};
-
-/** The keyframes the stage uses for fades and shakes. The shake has two identical names, so switching between them restarts it without a remount. */
+/** The keyframes the stage uses for fades, slides and sprite motion. */
 const KEYFRAMES = {
+	"@keyframes storySlideA": { from: { transform: "translate(var(--slide-x), var(--slide-y))" } },
+	"@keyframes storySlideB": { from: { transform: "translate(var(--slide-x), var(--slide-y))" } },
 	"@keyframes storyFadeIn": { from: { opacity: 0 }, to: { opacity: 1 } },
 	"@keyframes storyStampIn": { from: { opacity: 0, translate: "-2cqh 0" }, to: { opacity: 1, translate: "0 0" } },
 	"@keyframes storyFadeOnly": { from: { opacity: 0 }, to: { opacity: 1 } },
@@ -43,17 +39,18 @@ const KEYFRAMES = {
 	"@keyframes storyJump": { "0%, 100%": { translate: "0 0" }, "50%": { translate: "0 calc(var(--jump) * -1)" } },
 	"@keyframes storySpriteShake": {
 		"0%, 100%": { translate: "0 0" },
-		"10%, 50%, 90%": { translate: "-0.8cqh 0" },
-		"30%, 70%": { translate: "0.8cqh 0" }
+		"25%": { translate: "calc(var(--power) * -1) 0" },
+		"75%": { translate: "var(--power) 0" }
 	},
+	"@keyframes storyBlockFadeA": { from: { backgroundColor: "var(--from-color)", opacity: "var(--from-alpha)" } },
+	"@keyframes storyBlockFadeB": { from: { backgroundColor: "var(--from-color)", opacity: "var(--from-alpha)" } },
+	"@keyframes storyWipeA": { from: { transform: "translateX(var(--wipe-from))" } },
+	"@keyframes storyWipeB": { from: { transform: "translateX(var(--wipe-from))" } },
+	"@keyframes storyBlurA": { from: { filter: "blur(var(--blur-from))" } },
+	"@keyframes storyBlurB": { from: { filter: "blur(var(--blur-from))" } },
 	"@keyframes storyCurtainV": { from: { height: "var(--from)" }, to: { height: "var(--to)" } },
-	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } },
-	"@keyframes storyShake0": SHAKE_FRAMES,
-	"@keyframes storyShake1": SHAKE_FRAMES
+	"@keyframes storyCurtainH": { from: { width: "var(--from)" }, to: { width: "var(--to)" } }
 };
-
-/** How a sprite that is not speaking is drawn. */
-const DIMMED = "brightness(0.45)";
 
 /** The game's layout size, which layer offsets are written in. */
 const GAME_WIDTH = 1920;
@@ -114,7 +111,16 @@ const SPRITE_FRAME_SX: SxProps<Theme> = { position: "absolute", inset: 0, pointe
 const SPRITE_SX: SxProps<Theme> = { position: "absolute", transformOrigin: "50% 100%", pointerEvents: "none" };
 
 /** A sprite jump's inline style: its height as a custom property the keyframes read. */
-type JumpStyle = CSSProperties & { "--jump"?: string };
+type JumpStyle = CSSProperties & {
+	"--jump"?: string;
+	"--power"?: string;
+	"--from-color"?: string;
+	"--from-alpha"?: number;
+	"--wipe-from"?: string;
+	"--blur-from"?: string;
+	"--slide-x"?: string;
+	"--slide-y"?: string;
+};
 
 /** How strong a full `focusout` blur is, as % of the stage height. */
 const BLUR_MAX = 1.2;
@@ -215,6 +221,10 @@ interface StoryStageProps {
 	hideText: boolean;
 	/** Changes each time the stage should shake. */
 	shakeKey: number;
+	/** Changes when the reader clicks, which types out any caption still typing. */
+	finishKey: number;
+	/** The shake to play when `shakeKey` changes. */
+	shake: Shake | null;
 	/** Anything drawn over the stage, such as the controls and choices. */
 	children?: ReactNode;
 	/** Called when the stage is clicked. The phone reader handles taps around the stage itself, so it passes none. */
@@ -235,19 +245,23 @@ function layerStyle(layer: LayerState, moved: boolean): CSSProperties {
 	const at = moved && layer.to ? layer.to : layer.from;
 	return {
 		transform: `translate(${(at.x / GAME_WIDTH) * 100}%, ${(-at.y / GAME_HEIGHT) * 100}%) scale(${at.xScale}, ${at.yScale})`,
-		transition: moved && layer.to ? `transform ${layer.duration}s linear` : "none",
+		transition: moved && layer.to ? `transform ${layer.duration}s ${easeOf(layer.ease)}` : "none",
 		animation: layer.fade > 0 ? `storyFadeIn ${layer.fade}s ease-out` : "none"
 	};
 }
 
 /**
- * The filter for a blurred layer, easing between sharp and blurred. A sharp layer has no filter, so it costs nothing to draw.
+ * The filter for a blurred layer, easing from where the script starts it to where it ends. A sharp layer has no filter, so it costs nothing to draw.
  *
  * @param blur The layer's blur, if it has one.
  * @returns The style.
  */
-function blurStyle(blur: Blur | undefined): CSSProperties {
-	return blur ? { filter: blur.amount > 0 ? `blur(${blur.amount * BLUR_MAX}cqh)` : "none", transition: `filter ${blur.duration}s ease-in-out` } : {};
+function blurStyle(blur: Blur | undefined): JumpStyle {
+	if (!blur) {
+		return {};
+	}
+	const filter = blur.amount > 0 ? `blur(${blur.amount * BLUR_MAX}cqh)` : "none";
+	return blur.duration > 0 ? { filter, "--blur-from": `${blur.from * BLUR_MAX}cqh`, animation: `storyBlur${blur.cue % 2 ? "A" : "B"} ${blur.duration}s ease-in-out` } : { filter };
 }
 
 /**
@@ -291,11 +305,71 @@ function captionStyle(caption: Caption): CSSProperties {
  * @param motion The sprite's motion, if it has moved.
  * @returns The style.
  */
-function motionStyle(motion: Motion | undefined): CSSProperties {
+function motionStyle(motion: Motion | undefined): JumpStyle {
 	if (!motion) {
 		return {};
 	}
-	return { transform: `translate(${(motion.x / TEXT_WIDTH) * 100}%, ${(-motion.y / TEXT_HEIGHT) * 100}%)`, transition: `transform ${motion.duration}s ease-in-out` };
+	const style: JumpStyle = { transform: `translate(${(motion.x / TEXT_WIDTH) * 100}%, ${(-motion.y / TEXT_HEIGHT) * 100}%)`, transition: `transform ${motion.duration}s ease-in-out` };
+	if (motion.from && motion.duration > 0) {
+		// The two keyframes take turns, so a second slide restarts the animation.
+		style["--slide-x"] = `${(motion.from.x / TEXT_WIDTH) * 100}%`;
+		style["--slide-y"] = `${(-motion.from.y / TEXT_HEIGHT) * 100}%`;
+		style.animation = `storySlide${motion.cue % 2 ? "A" : "B"} ${motion.duration}s ease-in-out`;
+	}
+	return style;
+}
+
+/**
+ * The filter and its fade for the scene's colour treatment.
+ *
+ * @param tint The tint.
+ * @returns The style.
+ */
+function tintStyle(tint: Tint): CSSProperties {
+	const filters = [tint.grayscale > 0 ? `grayscale(${tint.grayscale})` : "", tint.invert ? "invert(1)" : ""].filter(Boolean).join(" ");
+	return { filter: filters || undefined, transition: tint.fade > 0 ? `filter ${tint.fade}s linear` : undefined };
+}
+
+/**
+ * How the blocker is drawn. A fade moves its opacity, from the script's starting colour and opacity when it names them. A wipe slides it
+ * across the stage in the direction the script sweeps. The two keyframes take turns, so each new blocker restarts the animation.
+ *
+ * @param blocker The blocker.
+ * @returns The style.
+ */
+function blockerStyle(blocker: Blocker): JumpStyle {
+	const turn = blocker.cue % 2 ? "A" : "B";
+	if (blocker.wipe) {
+		const sweep = blocker.wipe === "forward" ? 1 : -1;
+		const covering = blocker.alpha > 0;
+		return {
+			background: blocker.color,
+			transform: covering ? "translateX(0)" : `translateX(${sweep * 100}%)`,
+			"--wipe-from": covering ? `${-sweep * 100}%` : "0%",
+			animation: blocker.fade > 0 ? `storyWipe${turn} ${blocker.fade}s ease-in-out` : undefined
+		};
+	}
+	return {
+		background: blocker.color,
+		opacity: blocker.alpha,
+		transition: `opacity ${blocker.fade}s linear`,
+		...(blocker.from && blocker.fade > 0 ? { "--from-color": blocker.from.color, "--from-alpha": blocker.from.alpha, animation: `storyBlockFade${turn} ${blocker.fade}s linear` } : {})
+	};
+}
+
+/**
+ * A sprite frame's style with its fade-in added to any slide it plays.
+ *
+ * @param style The frame's motion style.
+ * @param fade How long it fades in, in seconds, or 0 for no fade.
+ * @returns The style.
+ */
+function withFade(style: JumpStyle, fade: number): JumpStyle {
+	if (fade <= 0) {
+		return style;
+	}
+	const fadeIn = `storyFadeIn ${fade}s ease-out`;
+	return { ...style, animation: style.animation ? `${fadeIn}, ${style.animation}` : fadeIn };
 }
 
 /**
@@ -309,7 +383,11 @@ function cueStyle(motion: Motion | undefined): JumpStyle {
 		const { power, times, duration } = motion.jump;
 		return { "--jump": `${(power / TEXT_HEIGHT) * 100}cqh`, animation: `storyJump ${duration / times}s ease-in-out ${times}` };
 	}
-	return motion?.shake ? { animation: `storySpriteShake ${motion.shake}s linear` } : {};
+	if (motion?.shake) {
+		const { power, times } = motion.shakeSwing;
+		return { "--power": `${(power / TEXT_HEIGHT) * 100}cqh`, animation: `storySpriteShake ${motion.shake / times}s linear ${times}` };
+	}
+	return {};
 }
 
 /**
@@ -329,7 +407,7 @@ function Layer({ layer, presence }: { layer: LayerState; presence: StoryPresence
 	if (!url) {
 		return null;
 	}
-	return <Box sx={{ ...FILL_SX, backgroundImage: `url(${url})`, backgroundSize: "cover", backgroundPosition: "center" }} style={layerStyle(layer, moved)} />;
+	return <Box sx={{ ...FILL_SX, backgroundImage: `url(${url})`, backgroundSize: layer.fit, backgroundRepeat: "no-repeat", backgroundPosition: "center" }} style={layerStyle(layer, moved)} />;
 }
 
 /**
@@ -387,13 +465,13 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 					}
 					const size = spriteSize(spriteName);
 					const centre = alone ? SLOT_CENTRES.m : SLOT_CENTRES[slot];
-					const dimmed = stage.focus !== "all" && stage.focus !== slot;
+					const brightness = stage.focus === "all" || stage.focus === slot ? (stage.light[slot]?.lit ?? 1) : (stage.light[slot]?.dim ?? DEFAULT_DIM);
 					const motion = stage.motion[slot];
 					const scale = motion?.scale ?? 1;
 					const fade = stage.fadeIn[slot] ?? 0;
 					return (
 						// Keyed on the character, so one arriving fades in while a new expression of the same one changes at once.
-						<Box key={`${slot}:${characterOf(spriteName)}`} sx={SPRITE_FRAME_SX} style={{ ...motionStyle(motion), animation: fade > 0 ? `storyFadeIn ${fade}s ease-out` : undefined }}>
+						<Box key={`${slot}:${characterOf(spriteName)}`} sx={SPRITE_FRAME_SX} style={withFade(motionStyle(motion), fade)}>
 							{/* Keyed on the cue, so each new jump or shake plays from its start. */}
 							<Box key={motion?.cue ?? 0} sx={SPRITE_FRAME_SX} style={cueStyle(motion)}>
 								<Box
@@ -405,8 +483,10 @@ const StageArt = memo(function StageArt({ stage, presence }: { stage: StageState
 										height: `${size.height}%`,
 										top: `${size.top}%`,
 										left: `${centre}%`,
-										filter: dimmed ? DIMMED : "none",
+										filter: brightness === 1 ? "none" : `brightness(${brightness})`,
+										opacity: stage.alpha[slot],
 										transform: `translateX(-50%) scale(${scale})`,
+										transformOrigin: motion ? `${motion.pivot.x * 100}% ${(1 - motion.pivot.y) * 100}%` : undefined,
 										transition: `filter 0.3s, transform ${motion?.duration ?? 0}s ease-in-out`
 									}}
 								/>
@@ -512,25 +592,76 @@ function StampView({ stamp }: { stamp: Stamp }) {
 }
 
 /**
+ * One caption, typed out a character at a time at the script's pace. The whole text sits unseen underneath, so the box keeps its size and the
+ * words do not shift as they appear. More text added to the same caption carries on from where it had got to.
+ *
+ * @param props Component props.
+ * @param props.caption The caption, with the reader's name filled in.
+ * @param props.finishKey Changes when the reader clicks, which types out whatever is left.
+ * @returns The caption.
+ */
+function CaptionView({ caption, finishKey }: { caption: Caption; finishKey: number }) {
+	const total = caption.text.length;
+	const full = useMemo(() => typedRuns(caption, Number.MAX_SAFE_INTEGER), [caption]);
+	const instant = caption.typing < MIN_TYPING;
+	const [typed, setTyped] = useState(instant ? total : 0);
+	const last = useRef(caption.text);
+	useEffect(() => {
+		if (!caption.text.startsWith(last.current)) {
+			setTyped(0);
+		}
+		last.current = caption.text;
+	}, [caption.text]);
+	// A caption that arrives after a click starts typing, so only a change after it mounted finishes it.
+	const seenKey = useRef(finishKey);
+	useEffect(() => {
+		if (finishKey !== seenKey.current) {
+			seenKey.current = finishKey;
+			setTyped(Number.MAX_SAFE_INTEGER);
+		}
+	}, [finishKey]);
+	useEffect(() => {
+		if (instant || typed >= total) {
+			return;
+		}
+		const timer = window.setTimeout(() => setTyped((count) => count + 1), caption.typing * 1000);
+		return () => window.clearTimeout(timer);
+	}, [instant, typed, total, caption.typing]);
+	const shown = instant ? total : Math.min(typed, total);
+	return (
+		<Box sx={CAPTION_SX} style={captionStyle(caption)}>
+			<Box sx={{ visibility: instant ? "visible" : "hidden" }}>{full}</Box>
+			{instant ? null : <Box sx={{ position: "absolute", inset: 0 }}>{typedRuns(caption, shown)}</Box>}
+		</Box>
+	);
+}
+
+/**
  * The location stamp, subtitle and stickers, each where its script puts it. Drawn over the fade, so narration over a darkened scene stays readable.
  *
  * @param props Component props.
  * @returns The captions.
  */
-const Captions = memo(function Captions({ subtitle, stickers, stamp, nickname }: { subtitle: Caption | null; stickers: Sticker[]; stamp: Stamp | null; nickname: string }) {
+const Captions = memo(function Captions({
+	subtitle,
+	stickers,
+	stamp,
+	nickname,
+	finishKey
+}: {
+	subtitle: Caption | null;
+	stickers: Sticker[];
+	stamp: Stamp | null;
+	nickname: string;
+	finishKey: number;
+}) {
 	return (
 		<>
 			{/* Keyed on the text, so a new stamp slides in again. */}
 			{stamp ? <StampView key={`${stamp.place}|${stamp.time}`} stamp={stamp} /> : null}
-			{subtitle ? (
-				<Box sx={CAPTION_SX} style={captionStyle(subtitle)}>
-					{typedRuns(fillNickname(subtitle, nickname), Number.MAX_SAFE_INTEGER)}
-				</Box>
-			) : null}
+			{subtitle ? <CaptionView caption={fillNickname(subtitle, nickname)} finishKey={finishKey} /> : null}
 			{stickers.map((entry) => (
-				<Box key={entry.id} sx={CAPTION_SX} style={captionStyle(entry)}>
-					{typedRuns(fillNickname(entry, nickname), Number.MAX_SAFE_INTEGER)}
-				</Box>
+				<CaptionView key={entry.id} caption={fillNickname(entry, nickname)} finishKey={finishKey} />
 			))}
 		</>
 	);
@@ -542,22 +673,28 @@ const Captions = memo(function Captions({ subtitle, stickers, stamp, nickname }:
  * @param props Component props.
  * @returns The stage.
  */
-function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, nickname, presence, hideText, shakeKey, children, onClick }: StoryStageProps) {
+function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, nickname, presence, hideText, shakeKey, finishKey, shake, children, onClick }: StoryStageProps) {
+	const shaker = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (shakeKey && shake) {
+			if (shake.duration > 0) {
+				shaker.current?.animate?.(shakeFrames(shake, shakeKey), { duration: shake.duration * 1000, delay: shake.delay * 1000, easing: "linear" });
+			} else {
+				shaker.current?.getAnimations?.().forEach((animation) => animation.cancel());
+			}
+		}
+		// Only a new shakeKey starts a shake.
+	}, [shakeKey]);
 	const textStyle = useMemo<TextSizeStyle>(() => ({ "--text-size": textSize }), [textSize]);
 	// The whole line for the unseen copy. It changes with the line, not with each character the typewriter adds.
 	const fullLine = useMemo(() => (line ? typedRuns(line, Number.MAX_SAFE_INTEGER) : null), [line]);
 	return (
-		<Box
-			sx={{ ...STAGE_SX, filter: stage.grayscale ? "grayscale(1)" : undefined }}
-			style={{ animation: shakeKey ? `storyShake${shakeKey % 2} 0.5s linear` : undefined }}
-			onClick={onClick}
-			data-region="story-stage"
-		>
+		<Box sx={STAGE_SX} style={tintStyle(stage.tint)} ref={shaker} onClick={onClick} data-region="story-stage">
 			<GlobalStyles styles={KEYFRAMES} />
 			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
-			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={{ background: stage.blocker.color, opacity: stage.blocker.alpha, transition: `opacity ${stage.blocker.fade}s linear` }} />
-			<Captions subtitle={stage.subtitle} stickers={stage.stickers} stamp={stage.stamp} nickname={nickname} />
+			<Box sx={{ ...FILL_SX, pointerEvents: "none" }} style={blockerStyle(stage.blocker)} />
+			<Captions subtitle={stage.subtitle} stickers={stage.stickers} stamp={stage.stamp} nickname={nickname} finishKey={finishKey} />
 			{!hideText && line ? (
 				<>
 					<Box sx={VIGNETTE_SX} />

@@ -13,11 +13,11 @@
 	},
 	"background": {
 		"handled": true,
-		"ignored": ["height", "screenadapt", "tiled", "width", "xscaleto", "xsclae", "yfrom", "ypos", "yscaleto", "ysclae"]
+		"ignored": ["height", "tiled", "width", "xscaleto", "xsclae", "yfrom", "ypos", "yscaleto", "ysclae"]
 	},
 	"backgroundtween": {
 		"handled": true,
-		"ignored": ["ease", "else", "image", "screenadapt", "x", "xscale", "y", "yscale"]
+		"ignored": ["else"]
 	},
 	"bgeffect": {
 		"handled": false,
@@ -25,35 +25,27 @@
 	},
 	"blocker": {
 		"handled": true,
-		"ignored": ["afrom", "bfrom", "ease", "gfrom", "image", "initr", "inverse", "rfrom", "style"]
+		"ignored": ["ease", "image", "initr"]
 	},
 	"cameraeffect": {
 		"handled": true,
-		"ignored": ["from", "initamount", "keep", "to"]
+		"ignored": ["from", "initamount", "to"]
 	},
 	"camerashake": {
 		"handled": true,
-		"ignored": ["delay", "fadeout", "focus", "randomness", "stop", "strength", "vibrato", "xstrength", "ystrength"]
+		"ignored": ["focus"]
 	},
 	"cgitem": {
 		"handled": true,
-		"ignored": ["aduration", "afrom", "ato", "ease", "layer", "pdelay", "pduration", "pfrom", "pto", "rduration", "rfrom", "rto", "sduration", "sfrom", "sto", "style"]
+		"ignored": ["aduration", "afrom", "ato", "layer", "pdelay", "rduration", "rfrom", "rto", "style"]
 	},
 	"character": {
 		"handled": true,
 		"ignored": [
-			"blackend",
-			"blackend1",
-			"blackend2",
-			"blackstart",
-			"blackstart1",
-			"blackstart2",
 			"blo",
 			"blockl",
 			"blok",
 			"delay",
-			"enter",
-			"enter2",
 			"exit2",
 			"fadeitme",
 			"fadeout",
@@ -78,16 +70,12 @@
 	"charslot": {
 		"handled": true,
 		"ignored": [
-			"action",
 			"aduration",
 			"afrom",
-			"bend",
 			"blocker",
-			"bstart",
 			"bstrart",
 			"charslot",
 			"delay",
-			"direction",
 			"duraiton",
 			"duratin",
 			"duratio",
@@ -103,13 +91,7 @@
 			"pfrom",
 			"poasfrom",
 			"posform",
-			"posfrom",
-			"posto",
-			"poszoom",
-			"power",
-			"random",
-			"scale",
-			"times"
+			"random"
 		]
 	},
 	"curtain": {
@@ -130,7 +112,7 @@
 	},
 	"focusout": {
 		"handled": true,
-		"ignored": ["from", "id"]
+		"ignored": ["id"]
 	},
 	"gridbg": {
 		"handled": true,
@@ -142,7 +124,7 @@
 	},
 	"hidecgitem": {
 		"handled": true,
-		"ignored": ["image"]
+		"ignored": []
 	},
 	"hideitem": {
 		"handled": false,
@@ -150,7 +132,7 @@
 	},
 	"image": {
 		"handled": true,
-		"ignored": ["ease", "height", "layer", "screenadapt", "tiled", "width", "xfrom", "xpos", "xscalefrom", "xscaleto", "xto", "yfrom", "ypos", "yscalefrom", "yscalet", "yscaleto", "yto"]
+		"ignored": ["height", "layer", "tiled", "width", "xfrom", "xpos", "xscalefrom", "xscaleto", "xto", "yfrom", "ypos", "yscalefrom", "yscalet", "yscaleto", "yto"]
 	},
 	"imagerotate": {
 		"handled": false,
@@ -158,7 +140,7 @@
 	},
 	"imagetween": {
 		"handled": true,
-		"ignored": ["ease", "image", "screenadapt", "tiled", "x", "xfromscale", "xscale", "y", "yfromscale", "yscale", "yt"]
+		"ignored": ["tiled", "xfromscale", "yfromscale", "yt"]
 	},
 	"interlude": {
 		"handled": false,
@@ -206,11 +188,11 @@
 	},
 	"playmusic": {
 		"handled": true,
-		"ignored": ["crosstime", "delay", "volu7me"]
+		"ignored": ["crosstime", "volu7me"]
 	},
 	"playsound": {
 		"handled": true,
-		"ignored": ["crossfade", "crosstime", "delai", "delay", "volum", "voluyme"]
+		"ignored": ["crossfade", "crosstime", "delai", "volum", "voluyme"]
 	},
 	"showitem": {
 		"handled": false,
@@ -222,7 +204,7 @@
 	},
 	"sticker": {
 		"handled": true,
-		"ignored": ["afrom", "ato", "delay", "hidelog"]
+		"ignored": ["afrom", "ato", "hidelog"]
 	},
 	"stopmusic": {
 		"handled": true,
@@ -234,7 +216,7 @@
 	},
 	"subtitle": {
 		"handled": true,
-		"ignored": ["afrom", "ato", "delay", "multi"]
+		"ignored": ["afrom", "ato"]
 	},
 	"theater": {
 		"handled": false,
