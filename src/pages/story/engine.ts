@@ -643,15 +643,15 @@ function captionFrom(a: Record<string, unknown>, line: string): Caption {
 }
 
 /**
- * A sticker with more text added after it, as `multi` writes. It keeps its first placement, and its styled runs when either part has some.
+ * A caption with more text added after it, as `multi` writes. It keeps its first placement, and its styled runs when either part has some.
  *
- * @param sticker The sticker on stage.
+ * @param caption The sticker or subtitle on stage.
  * @param added The caption being added.
- * @returns The longer sticker.
+ * @returns The longer caption.
  */
-function appendSticker(sticker: Sticker, added: Caption): Sticker {
-	const spans = sticker.spans || added.spans ? [...(sticker.spans ?? [{ text: sticker.text }]), ...(added.spans ?? [{ text: added.text }])] : undefined;
-	return { ...sticker, text: sticker.text + added.text, ...(spans ? { spans } : {}) };
+function appendCaption<T extends Caption>(caption: T, added: Caption): T {
+	const spans = caption.spans || added.spans ? [...(caption.spans ?? [{ text: caption.text }]), ...(added.spans ?? [{ text: added.text }])] : undefined;
+	return { ...caption, text: caption.text + added.text, ...(spans ? { spans } : {}) };
 }
 
 /**
@@ -754,8 +754,11 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "image":
 		case "cgitem":
 			return { ...stage, image: layerOf(a, "images") };
-		case "hidecgitem":
-			return { ...stage, image: null };
+		case "hidecgitem": {
+			// Hiding an art scene by name leaves a different one on stage.
+			const hidden = text(a.image);
+			return hidden && stage.image && stage.image.name !== hidden ? stage : { ...stage, image: null };
+		}
 		case "imagetween":
 			return { ...stage, image: tweenOf(stage.image, a, "images") };
 		case "character": {
@@ -912,7 +915,8 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			return stage;
 		case "subtitle": {
 			const line = text(a.text);
-			return { ...stage, subtitle: line ? captionFrom(a, line) : null };
+			const caption = line ? captionFrom(a, line) : null;
+			return { ...stage, subtitle: caption && a.multi === true && stage.subtitle ? appendCaption(stage.subtitle, caption) : caption };
 		}
 		case "sticker": {
 			const id = text(a.id) ?? "";
@@ -924,7 +928,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 			if (!stage.stickers.some((entry) => entry.id === id)) {
 				return { ...stage, stickers: [...stage.stickers, { id, ...caption }] };
 			}
-			return { ...stage, stickers: stage.stickers.map((entry) => (entry.id !== id ? entry : a.multi === true ? appendSticker(entry, caption) : { id, ...caption })) };
+			return { ...stage, stickers: stage.stickers.map((entry) => (entry.id !== id ? entry : a.multi === true ? appendCaption(entry, caption) : { id, ...caption })) };
 		}
 		case "stickerclear":
 			return { ...stage, stickers: [] };

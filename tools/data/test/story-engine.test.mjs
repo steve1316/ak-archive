@@ -578,3 +578,19 @@ test("a character command re-casting the same character keeps its slide", () => 
 	assert.equal(stage.motion[slot].duration, 1);
 	assert.equal(applyCommand(stage, cmd("character", { name: "avg_b#1$1" }), effects).motion[slot], undefined);
 });
+
+test("a subtitle with multi adds its text to the one on stage", () => {
+	const effects = emptyEffects();
+	let stage = applyCommand(emptyStage(), cmd("subtitle", { text: "Hello" }), effects);
+	stage = applyCommand(stage, cmd("subtitle", { text: ", you.", multi: true }), effects);
+	assert.equal(stage.subtitle.text, "Hello, you.");
+	assert.equal(applyCommand(stage, cmd("subtitle", { text: "New" }), effects).subtitle.text, "New");
+});
+
+test("hidecgitem clears the art scene unless it names a different one", () => {
+	const effects = emptyEffects();
+	const stage = applyCommand(emptyStage(), cmd("image", { image: "cg_a" }), effects);
+	assert.equal(applyCommand(stage, cmd("hidecgitem", { image: "cg_b" }), effects).image.name, "cg_a");
+	assert.equal(applyCommand(stage, cmd("hidecgitem", { image: "cg_a" }), effects).image, null);
+	assert.equal(applyCommand(stage, cmd("hidecgitem", {}), effects).image, null);
+});

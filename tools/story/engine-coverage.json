@@ -124,7 +124,7 @@
 	},
 	"hidecgitem": {
 		"handled": true,
-		"ignored": ["image"]
+		"ignored": []
 	},
 	"hideitem": {
 		"handled": false,
@@ -216,7 +216,7 @@
 	},
 	"subtitle": {
 		"handled": true,
-		"ignored": ["afrom", "ato", "multi"]
+		"ignored": ["afrom", "ato"]
 	},
 	"theater": {
 		"handled": false,
