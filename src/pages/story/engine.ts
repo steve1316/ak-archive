@@ -88,6 +88,8 @@ export interface LayerState {
 	duration: number;
 	/** How long it fades in, in seconds. */
 	fade: number;
+	/** How the art fits the stage: `cover` fills it and crops the overflow, `contain` shows all of it with bars where it falls short. */
+	fit: "cover" | "contain";
 }
 
 /** Text the script places over the scene: a subtitle or a sticker. Positions are in the game's 1280x720 text space, from the top-left. */
@@ -424,7 +426,17 @@ function colourOf(a: Record<string, unknown>): string {
  */
 function layerOf(a: Record<string, unknown>, kind: LayerState["kind"]): LayerState | null {
 	const name = text(a.image);
-	return name ? { name, kind, from: { x: num(a.x, 0), y: num(a.y, 0), xScale: num(a.xscale, 1), yScale: num(a.yscale, 1) }, to: null, duration: 0, fade: num(a.fadetime, 0) } : null;
+	return name
+		? {
+				name,
+				kind,
+				from: { x: num(a.x, 0), y: num(a.y, 0), xScale: num(a.xscale, 1), yScale: num(a.yscale, 1) },
+				to: null,
+				duration: 0,
+				fade: num(a.fadetime, 0),
+				fit: text(a.screenadapt)?.toLowerCase() === "showall" ? "contain" : "cover"
+			}
+		: null;
 }
 
 /**
@@ -567,7 +579,7 @@ export function applyCommand(stage: StageState, step: CommandStep, effects: Effe
 		case "gridbg":
 		case "verticalbg": {
 			const first = text(a.imagegroup)?.split("/")[0] ?? null;
-			return { ...stage, background: first ? { name: first, kind: "images", from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0) } : null };
+			return { ...stage, background: first ? { name: first, kind: "images", from: PLACEMENT, to: null, duration: 0, fade: num(a.fadetime, 0), fit: "cover" } : null };
 		}
 		case "backgroundtween":
 			return { ...stage, background: tweenOf(stage.background, a) };

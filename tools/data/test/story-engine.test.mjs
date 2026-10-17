@@ -103,7 +103,7 @@ test("blockers, art scenes with their tween, grayscale and unknown commands fold
 	assert.deepEqual(stage.blocker, { color: "rgb(0, 0, 0)", alpha: 1, fade: 0.6 });
 	stage = applyCommand(stage, cmd("image", { image: "avg_1_3", x: 0, y: -20, xscale: 1.1, yscale: 1.1, fadetime: 1 }), effects);
 	stage = applyCommand(stage, cmd("imagetween", { xfrom: 0, yfrom: -20, xto: 0, yto: 0, xscalefrom: 1.1, yscalefrom: 1.1, xscaleto: 1, yscaleto: 1, duration: 4 }), effects);
-	assert.deepEqual(stage.image, { name: "avg_1_3", kind: "images", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1 });
+	assert.deepEqual(stage.image, { name: "avg_1_3", kind: "images", from: { x: 0, y: -20, xScale: 1.1, yScale: 1.1 }, to: { x: 0, y: 0, xScale: 1, yScale: 1 }, duration: 4, fade: 1, fit: "cover" });
 	stage = applyCommand(stage, cmd("cameraeffect", { effect: "Grayscale", amount: 0.8 }), effects);
 	assert.equal(stage.grayscale, true);
 	assert.equal(applyCommand(stage, { t: "unknown", c: "video", a: {} }, effects), stage);
@@ -417,4 +417,13 @@ test("skipToStop reports the last line it passed, or null when a caption came af
 	assert.deepEqual(onLine.last, line("Kal'tsit", "Two."));
 	const onCaption = skipToStop([line("Amiya", "One."), line(null, "Two."), cmd("subtitle", { text: "Three." }), decision], START, emptyStage());
 	assert.equal(onCaption.last, null);
+});
+
+test("background and image fit the stage by their screenadapt: showall shows all of the art, anything else covers", () => {
+	const effects = emptyEffects();
+	const fit = (command, args) => applyCommand(emptyStage(), cmd(command, args), effects)[command].fit;
+	assert.equal(fit("background", { image: "bg_a", screenadapt: "showall" }), "contain");
+	assert.equal(fit("background", { image: "bg_a", screenadapt: "coverall" }), "cover");
+	assert.equal(fit("background", { image: "bg_a" }), "cover");
+	assert.equal(fit("image", { image: "cg_a", screenadapt: "showall" }), "contain");
 });

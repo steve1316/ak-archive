@@ -13,7 +13,7 @@
 	},
 	"background": {
 		"handled": true,
-		"ignored": ["height", "screenadapt", "tiled", "width", "xscaleto", "xsclae", "yfrom", "ypos", "yscaleto", "ysclae"]
+		"ignored": ["height", "tiled", "width", "xscaleto", "xsclae", "yfrom", "ypos", "yscaleto", "ysclae"]
 	},
 	"backgroundtween": {
 		"handled": true,
@@ -150,7 +150,7 @@
 	},
 	"image": {
 		"handled": true,
-		"ignored": ["ease", "height", "layer", "screenadapt", "tiled", "width", "xfrom", "xpos", "xscalefrom", "xscaleto", "xto", "yfrom", "ypos", "yscalefrom", "yscalet", "yscaleto", "yto"]
+		"ignored": ["ease", "height", "layer", "tiled", "width", "xfrom", "xpos", "xscalefrom", "xscaleto", "xto", "yfrom", "ypos", "yscalefrom", "yscalet", "yscaleto", "yto"]
 	},
 	"imagerotate": {
 		"handled": false,

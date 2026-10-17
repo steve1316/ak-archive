@@ -329,7 +329,7 @@ function Layer({ layer, presence }: { layer: LayerState; presence: StoryPresence
 	if (!url) {
 		return null;
 	}
-	return <Box sx={{ ...FILL_SX, backgroundImage: `url(${url})`, backgroundSize: "cover", backgroundPosition: "center" }} style={layerStyle(layer, moved)} />;
+	return <Box sx={{ ...FILL_SX, backgroundImage: `url(${url})`, backgroundSize: layer.fit, backgroundRepeat: "no-repeat", backgroundPosition: "center" }} style={layerStyle(layer, moved)} />;
 }
 
 /**
