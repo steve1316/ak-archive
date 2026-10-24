@@ -8,14 +8,16 @@ build
 
 # The asset pipeline's staging trees and caches, which run to tens of GB, plus local scratch and run logs.
 tools/assets/.staging*
-tools/assets/.cache
-tools/assets/.tools
-tools/assets/.pytest_cache
 tools/data/.cache
 **/__pycache__
+**/.pytest_cache
 .superpowers
 .playwright-mcp
 .claude
 .vscode
 docs
 *.log
+
+# Vite loads `.env.local` and `.env.production.local` in a production build, so a developer's local overrides would reach the image
+# and make it differ from the Pages build.
+.env*.local
