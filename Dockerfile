@@ -23,6 +23,9 @@ COPY . .
 
 # Pages serves the site from a subpath, a container serves it from the root. Same source, one switch.
 ENV VITE_BASE=/
+# Unset unless a `docker-compose.local-*.yml` override passes them. Vite lets a real environment variable override `.env`.
+ARG VITE_ASSET_BASE_URL
+ARG VITE_STORY_ASSET_BASE_URL
 RUN pnpm build
 
 # Serve stage.

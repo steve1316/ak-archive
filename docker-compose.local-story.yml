@@ -1,0 +1,9 @@
+# Optional override that serves the local ak-archive-story folder in `AK_STORY_DIR` at /ak-story/. See the README.
+# It stands alone, so stack it with or without `docker-compose.local-assets.yml`.
+services:
+  archive:
+    build:
+      args:
+        VITE_STORY_ASSET_BASE_URL: /ak-story/
+    volumes:
+      - ${AK_STORY_DIR:?set AK_STORY_DIR in .env to your ak-archive-story folder}:/usr/share/nginx/html/ak-story:ro

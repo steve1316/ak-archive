@@ -45,6 +45,12 @@ To serve the production build the way GitHub Pages does, but from the site root,
 
 Art is not in this repo. Operator and enemy art loads from [ak-archive-assets](https://github.com/steve1316/ak-archive-assets), set by `VITE_ASSET_BASE_URL` in `.env`, and the story's art and audio from [ak-archive-story](https://github.com/steve1316/ak-archive-story), set by `VITE_STORY_ASSET_BASE_URL`.
 
+To have the Docker container serve a local copy instead, set `AK_ASSETS_DIR` and `AK_STORY_DIR` in `.env` (see the comments there) and run the command below. Leave out the story file if you only have the art.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.local-assets.yml -f docker-compose.local-story.yml up --build
+```
+
 ## How it works
 
 - **`src/`** - the site: React 19, TypeScript and MUI, built with Vite on [archive-kit](https://github.com/steve1316/archive-kit). Game data ships as generated JSON, and each page loads only what it needs.

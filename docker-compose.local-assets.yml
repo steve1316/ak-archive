@@ -1,0 +1,8 @@
+# Optional override that serves the local ak-archive-assets folder in `AK_ASSETS_DIR` at /ak-assets/. See the README.
+services:
+  archive:
+    build:
+      args:
+        VITE_ASSET_BASE_URL: /ak-assets/
+    volumes:
+      - ${AK_ASSETS_DIR:?set AK_ASSETS_DIR in .env to your ak-archive-assets folder}:/usr/share/nginx/html/ak-assets:ro
