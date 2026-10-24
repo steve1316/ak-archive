@@ -54,6 +54,13 @@ Art is not in this repo. Operator and enemy art loads from [ak-archive-assets](h
 - **`tools/assets/`** - Python tools (Python 3.12) that fetch art, chibi rigs and story assets from community mirrors, encode them to WebP, and publish them to the asset repos.
 - **`.github/workflows/`** - `deploy.yml` publishes the site on every push to `master`. `refresh.yml` runs daily, imports anything new, and deploys only if something changed.
 
+## Part of a family
+
+Arknights Archive is one of a family of game-archive sites built on the same shared front end.
+
+- **[archive-kit](https://github.com/steve1316/archive-kit)** - the parent framework: the index, detail page, art viewer, search, theme and story player parts every site shares.
+- **[Griffin Archive](https://github.com/steve1316/gfl-archive)** - the sibling site for _Girls' Frontline_.
+
 ## Data sources
 
 - **Game data** - [ArknightsGamedata](https://github.com/ArknightsAssets/ArknightsGamedata) (Global), with [ArknightsGameData](https://github.com/Kengxxiao/ArknightsGameData) (CN) for old event stages the Global client no longer ships.
