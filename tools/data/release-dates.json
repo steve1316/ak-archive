@@ -1,7 +1,7 @@
 {
-	"wikiFetchedAt": "2026-10-14",
-	"gameDataSha": "3aaa25b649fed5dedad9527602826dc487ea07d8",
-	"levelFallbackSha": "17759cc8cdf37388414145d16262a3a06f3ab25e",
+	"wikiFetchedAt": "2026-10-28",
+	"gameDataSha": "409bce70516f2420af61b1fc5680da60e448ab99",
+	"levelFallbackSha": "fe7d8d05edc36cf5678a24bfe9e84e891f6cf7ad",
 	"operators": {
 		"char_002_amiya": "2020-01-16",
 		"char_003_kalts": "2021-10-21",
