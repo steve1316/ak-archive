@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { Box, GlobalStyles } from "@mui/material";
 import type { SxProps, Theme } from "@mui/material";
+import { SelectableText, readOnHandlers } from "archive-kit";
 
 import { storyAssetUrl } from "../../lib/story.js";
 import type { StoryPresence } from "../../lib/story.js";
@@ -227,7 +228,7 @@ interface StoryStageProps {
 	shake: Shake | null;
 	/** Anything drawn over the stage, such as the controls and choices. */
 	children?: ReactNode;
-	/** Called when the stage is clicked. The phone reader handles taps around the stage itself, so it passes none. */
+	/** Called when the stage is clicked, but not on the line's words, which are left for selecting. The phone reader passes none. */
 	onClick?: () => void;
 }
 
@@ -689,7 +690,7 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 	// The whole line for the unseen copy. It changes with the line, not with each character the typewriter adds.
 	const fullLine = useMemo(() => (line ? typedRuns(line, Number.MAX_SAFE_INTEGER) : null), [line]);
 	return (
-		<Box sx={STAGE_SX} style={tintStyle(stage.tint)} ref={shaker} onClick={onClick} data-region="story-stage">
+		<Box sx={STAGE_SX} style={tintStyle(stage.tint)} ref={shaker} {...(onClick ? readOnHandlers(onClick) : {})} data-region="story-stage">
 			<GlobalStyles styles={KEYFRAMES} />
 			<StageArt stage={stage} presence={presence} />
 			{/* The blocker fades the art only. Lines read in the dark stay readable over it, as in the game. */}
@@ -699,12 +700,16 @@ function StoryStage({ stage, name = null, line = null, typed = 0, textSize = 1, 
 				<>
 					<Box sx={VIGNETTE_SX} />
 					<Box sx={TEXT_BLOCK_SX} style={textStyle}>
-						{name ? <Box sx={NAME_SX}>{name}</Box> : null}
+						{name ? (
+							<Box sx={NAME_SX}>
+								<SelectableText>{name}</SelectableText>
+							</Box>
+						) : null}
 						<Box sx={LINE_SPACE_SX} aria-hidden>
 							{fullLine}
 						</Box>
 						<Box sx={LINE_SX} aria-live="polite">
-							{typedRuns(line, typed)}
+							<SelectableText>{typedRuns(line, typed)}</SelectableText>
 						</Box>
 					</Box>
 				</>
