@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -709,6 +710,7 @@ def url_is_live(url):
         True on a 200, False on anything else. A 404 here means "not published yet" rather than a failure, and `HTTPError` and `URLError` are both
         `OSError` subclasses, so every network outcome lands in the same not-live-yet answer.
     """
+    url = urllib.parse.quote(url, safe=":/@")
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
